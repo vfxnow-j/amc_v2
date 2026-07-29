@@ -1,0 +1,161 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
+import { BrandLockup } from "@/components/shell/brand-lockup";
+import { ClusterBubble } from "@/components/shell/cluster-bubble";
+import { CommandPalette } from "@/components/shell/command-palette";
+import { NavSearch } from "@/components/shell/nav-search";
+import { UserPod } from "@/components/shell/user-pod";
+import {
+  clustersForRole,
+  findNavPage,
+  type ClusterId,
+} from "@/lib/nav/clusters";
+import { SAMPLE_NAV_COUNTS } from "@/lib/nav/counts";
+import type { SessionUser } from "@/lib/roles";
+
+function isTypingTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false;
+  return (
+    target.isContentEditable ||
+    target.tagName === "INPUT" ||
+    target.tagName === "TEXTAREA" ||
+    target.tagName === "SELECT"
+  );
+}
+
+/**
+ * The rail: brand, search, the six cluster bubbles, user pod.
+ *
+ * One cluster is open at a time, so the rail never outgrows its own height and
+ * rows don't slide out from under the cursor. Keyboard is the fast path for
+ * warehouse staff: 1–6 jump to a cluster, ↑/↓ walk its pages, Enter navigates
+ * (the rows are links, so that comes for free), ⌘K bypasses the rail entirely.
+ */
+export function NavPanel({ user }: { user: SessionUser }) {
+  const pathname = usePathname();
+  const clusters = useMemo(() => clustersForRole(user.role), [user.role]);
+  const active = useMemo(() => findNavPage(pathname), [pathname]);
+  const activeClusterId = active?.cluster.id ?? null;
+
+  // "On navigation, force it to the cluster owning the active route": rather
+  // than resetting state from an effect, a manual toggle is recorded against
+  // the route it was made on, so navigating away retires it by itself.
+  const [override, setOverride] = useState<{
+    pathname: string;
+    cluster: ClusterId | null;
+  } | null>(null);
+  const openCluster =
+    override?.pathname === pathname ? override.cluster : activeClusterId;
+
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const railRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLButtonElement>(null);
+
+  const pageLinks = useCallback((cluster: ClusterId) => {
+    const selector = `[data-cluster="${cluster}"] [data-nav-page]`;
+    return Array.from(
+      railRef.current?.querySelectorAll<HTMLAnchorElement>(selector) ?? [],
+    );
+  }, []);
+
+  const toggleCluster = useCallback(
+    (cluster: ClusterId) => {
+      setOverride((current) => {
+        const open =
+          current?.pathname === pathname ? current.cluster : activeClusterId;
+        return {
+          pathname,
+          cluster: open === cluster ? null : cluster,
+        };
+      });
+    },
+    [activeClusterId, pathname],
+  );
+
+  const closePalette = useCallback(() => {
+    setPaletteOpen(false);
+    searchRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      const modified = event.metaKey || event.ctrlKey;
+
+      if (modified && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setPaletteOpen(true);
+        return;
+      }
+
+      if (paletteOpen || modified || event.altKey) return;
+      if (isTypingTarget(event.target)) return;
+
+      const digit = Number(event.key);
+      if (Number.isInteger(digit) && digit >= 1 && digit <= clusters.length) {
+        event.preventDefault();
+        const target = clusters[digit - 1];
+        setOverride({ pathname, cluster: target.id });
+        // The panel has to be expanded before its rows can take focus.
+        requestAnimationFrame(() => pageLinks(target.id)[0]?.focus());
+        return;
+      }
+
+      if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+      // Only while the rail has focus — otherwise this would eat the arrow
+      // keys that scroll the content column.
+      if (!railRef.current?.contains(document.activeElement)) return;
+      if (!openCluster) return;
+
+      const rows = pageLinks(openCluster);
+      if (rows.length === 0) return;
+      event.preventDefault();
+
+      const current = rows.findIndex((row) => row === document.activeElement);
+      const next =
+        event.key === "ArrowDown"
+          ? (current + 1) % rows.length
+          : current <= 0
+            ? rows.length - 1
+            : current - 1;
+      rows[next]?.focus();
+    }
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [clusters, openCluster, pageLinks, paletteOpen, pathname]);
+
+  return (
+    <div
+      ref={railRef}
+      className="flex w-64 flex-none flex-col rounded-card bg-panel px-[10px] py-[14px] shadow-sm"
+    >
+      <BrandLockup />
+      <NavSearch ref={searchRef} onOpen={() => setPaletteOpen(true)} />
+
+      <nav
+        aria-label="Clusters"
+        className="mt-[10px] flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto"
+      >
+        {clusters.map((cluster) => (
+          <ClusterBubble
+            key={cluster.id}
+            cluster={cluster}
+            open={openCluster === cluster.id}
+            holdsActivePage={activeClusterId === cluster.id}
+            activeHref={active?.page.href ?? null}
+            counts={SAMPLE_NAV_COUNTS}
+            onToggle={() => toggleCluster(cluster.id)}
+          />
+        ))}
+      </nav>
+
+      <UserPod user={user} />
+
+      {paletteOpen ? (
+        <CommandPalette role={user.role} onClose={closePalette} />
+      ) : null}
+    </div>
+  );
+}

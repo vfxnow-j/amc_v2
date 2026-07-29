@@ -1,26 +1,301 @@
 @import "tailwindcss";
 
+/* ---------------------------------------------------------------------------
+   VFXNow AMC v2 — design tokens
+   Source: design/README.md ("Design tokens") and design/VFXnow 3a Reference.dc.html.
+   design/ds/styles.css is the generic design-system bundle the references load;
+   its palette, font and radii are NOT ours and are fully overridden here.
+--------------------------------------------------------------------------- */
+
+@theme {
+  /* -- brand accent: VFXnow cyan ------------------------------------------
+     #00d0ff NEVER carries white text. Light theme uses accent-700 for primary
+     buttons and accent body text, reserving full cyan for state fills,
+     selection and the mark. Dark theme may fill with full cyan using
+     --color-text glyphs, and uses accent-300 for accent text.            */
+  --color-accent-100: #e2f8ff;
+  --color-accent-200: #b5edff;
+  --color-accent-300: #7cdfff;
+  --color-accent-400: #38d6ff;
+  --color-accent-500: #00d0ff;
+  --color-accent-600: #00a8d1;
+  --color-accent-700: #0084a5;
+  --color-accent-800: #00647f;
+  --color-accent-900: #004b60;
+  --color-accent: var(--color-accent-500);
+
+  /* -- neutrals (cool, tuned to the cyan) --------------------------------- */
+  --color-neutral-100: #f4f6f8;
+  --color-neutral-200: #e7ebee;
+  --color-neutral-300: #d5dbe0;
+  --color-neutral-400: #b3bcc4;
+  --color-neutral-500: #8b959e;
+  --color-neutral-600: #6b757e;
+  --color-neutral-700: #55606a;
+  --color-neutral-800: #38434d;
+  --color-neutral-900: #1e2a33;
+
+  /* -- fixed brand values (do not flip with theme) ------------------------ */
+  --color-brand-bg: #f1f4f6;
+  --color-brand-surface: #e6ebee;
+  --color-brand-text: #14222a;
+
+  /* -- type --------------------------------------------------------------- */
+  --font-sans: var(--font-schibsted-grotesk), "Helvetica Neue", Helvetica,
+    system-ui, sans-serif;
+
+  --text-page-title: 24px;
+  --text-page-title--line-height: 1.1;
+  --text-page-title--font-weight: 800;
+  --text-page-title--letter-spacing: -0.03em;
+
+  --text-card-title: 14px;
+  --text-card-title--line-height: 1.2;
+  --text-card-title--font-weight: 800;
+  --text-card-title--letter-spacing: -0.01em;
+
+  --text-kpi: 30px;
+  --text-kpi--line-height: 1.05;
+  --text-kpi--font-weight: 700;
+  --text-kpi--letter-spacing: -0.03em;
+
+  --text-body: 13px;
+  --text-body--line-height: 1.4;
+
+  --text-detail: 12px;
+  --text-detail--line-height: 1.4;
+
+  /* the only uppercase in the UI */
+  --text-micro: 10px;
+  --text-micro--line-height: 1.2;
+  --text-micro--font-weight: 700;
+  --text-micro--letter-spacing: 0.14em;
+
+  --text-colhead: 10px;
+  --text-colhead--line-height: 1.2;
+  --text-colhead--font-weight: 700;
+  --text-colhead--letter-spacing: 0.12em;
+
+  --text-pill: 11px;
+  --text-pill--line-height: 1.2;
+  --text-pill--font-weight: 700;
+
+  --text-nav-cluster: 13.5px;
+  --text-nav-cluster--line-height: 1.2;
+  --text-nav-cluster--font-weight: 700;
+  --text-nav-cluster--letter-spacing: -0.01em;
+
+  --text-nav-page: 12.5px;
+  --text-nav-page--line-height: 1.2;
+
+  /* -- radii — nothing square, nothing fully round except pills ----------- */
+  --radius-frame: 20px; /* app frame (reference only; in-app the frame is the viewport) */
+  --radius-card: 16px; /* cards, nav panel */
+  --radius-bubble: 14px; /* nav bubbles, inner wells */
+  --radius-well: 12px; /* search, user pod, inset items */
+  --radius-row: 10px; /* table rows, nav page rows, small chips */
+  --radius-tile: 9px; /* mark tiles, avatars */
+  --radius-pill: 20px; /* buttons, badges, segmented controls */
+
+  /* -- shadows — only two, and none in dark ------------------------------
+     Retuned from the design-system defaults to the cool neutral-900.     */
+  --shadow-sm: 0 1px 2px color-mix(in srgb, #1e2a33 14%, transparent);
+  --shadow-lg: 0 12px 32px color-mix(in srgb, #1e2a33 22%, transparent);
+
+  /* -- motion — nav accordion (see design/README.md nav interaction spec) - */
+  --ease-nav: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ---------------------------------------------------------------------------
+   Semantic surfaces — one token set, flipped by theme.
+   Light is the default; [data-theme="dark"] flips it. The pre-paint script in
+   the root layout resolves 'system' to a concrete attribute before first paint,
+   so the media query below is only a no-JS fallback.
+   KEEP THE TWO DARK BLOCKS IN SYNC.
+--------------------------------------------------------------------------- */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --ground: var(--color-brand-bg); /* app background */
+  --panel: #ffffff; /* cards, nav */
+  --sunken: var(--color-neutral-200); /* search, user pod, wells */
+  --row-alt: var(--color-neutral-100); /* zebra */
+  --hairline: var(--color-neutral-300);
+
+  --ink: var(--color-brand-text);
+  --ink-muted: var(--color-neutral-700);
+  --ink-faint: var(--color-neutral-600);
+
+  /* accent roles that differ by theme */
+  --accent-text: var(--color-accent-700); /* accent-coloured body text, links */
+  --accent-solid: var(--color-accent-700); /* primary button fill */
+  --accent-on-solid: #ffffff; /* text on --accent-solid */
+  --accent-tint: var(--color-accent-100); /* alert cards, late rows */
+  --accent-tint-strong: var(--color-accent-200); /* count pills */
+  --accent-on-tint: var(--color-accent-800); /* text on --accent-tint */
+
+  --nav-bubble-open: var(--color-accent-100);
+  --nav-bubble-quiet: var(--color-neutral-200); /* closed, contains active page */
+  --nav-mark-closed: var(--color-neutral-300);
+
+  /* "now" in the brand lockup — full cyan is too light on a white panel */
+  --brand-wordmark: var(--color-accent-600);
+
+  --segmented-track: var(--color-neutral-200);
+  --segmented-thumb: #ffffff;
+  --row-hover: var(--color-neutral-200);
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+[data-theme="dark"] {
+  --ground: #0c1418;
+  --panel: #15222a;
+  --sunken: #1e2f39;
+  --row-alt: #19262e;
+  --hairline: #26343d;
+
+  --ink: var(--color-brand-bg);
+  --ink-muted: var(--color-neutral-400);
+  --ink-faint: var(--color-neutral-500);
+
+  /* full cyan may fill on dark, carrying --color-brand-text glyphs */
+  --accent-text: var(--color-accent-300);
+  --accent-solid: var(--color-accent-500);
+  --accent-on-solid: var(--color-brand-text);
+  --accent-tint: color-mix(in srgb, var(--color-accent-500) 22%, transparent);
+  --accent-tint-strong: color-mix(
+    in srgb,
+    var(--color-accent-500) 32%,
+    transparent
+  );
+  --accent-on-tint: var(--color-accent-300);
+
+  --nav-bubble-open: color-mix(
+    in srgb,
+    var(--color-accent-500) 20%,
+    transparent
+  );
+  --nav-bubble-quiet: #1c2a33;
+  --nav-mark-closed: #26343d;
+
+  --brand-wordmark: var(--color-accent-500);
+
+  --segmented-track: #1e2f39;
+  --segmented-thumb: var(--color-brand-bg);
+  --row-hover: #1e2f39;
+
+  /* no shadows at all in dark — surface lightness does the separating */
+  --shadow-sm: none;
+  --shadow-lg: none;
 }
 
+/* No-JS fallback: honour the OS preference when no theme has been resolved. */
 @media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+  :root:not([data-theme]) {
+    --ground: #0c1418;
+    --panel: #15222a;
+    --sunken: #1e2f39;
+    --row-alt: #19262e;
+    --hairline: #26343d;
+
+    --ink: var(--color-brand-bg);
+    --ink-muted: var(--color-neutral-400);
+    --ink-faint: var(--color-neutral-500);
+
+    --accent-text: var(--color-accent-300);
+    --accent-solid: var(--color-accent-500);
+    --accent-on-solid: var(--color-brand-text);
+    --accent-tint: color-mix(in srgb, var(--color-accent-500) 22%, transparent);
+    --accent-tint-strong: color-mix(
+      in srgb,
+      var(--color-accent-500) 32%,
+      transparent
+    );
+    --accent-on-tint: var(--color-accent-300);
+
+    --nav-bubble-open: color-mix(
+      in srgb,
+      var(--color-accent-500) 20%,
+      transparent
+    );
+    --nav-bubble-quiet: #1c2a33;
+    --nav-mark-closed: #26343d;
+
+    --segmented-track: #1e2f39;
+    --segmented-thumb: var(--color-brand-bg);
+    --row-hover: #1e2f39;
+
+    --shadow-sm: none;
+    --shadow-lg: none;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* Expose the semantic layer as Tailwind utilities (bg-panel, text-ink-muted…). */
+@theme inline {
+  --color-ground: var(--ground);
+  --color-panel: var(--panel);
+  --color-sunken: var(--sunken);
+  --color-row-alt: var(--row-alt);
+  --color-hairline: var(--hairline);
+
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-ink-faint: var(--ink-faint);
+
+  --color-accent-text: var(--accent-text);
+  --color-accent-solid: var(--accent-solid);
+  --color-accent-on-solid: var(--accent-on-solid);
+  --color-accent-tint: var(--accent-tint);
+  --color-accent-tint-strong: var(--accent-tint-strong);
+  --color-accent-on-tint: var(--accent-on-tint);
+
+  --color-nav-bubble-open: var(--nav-bubble-open);
+  --color-nav-bubble-quiet: var(--nav-bubble-quiet);
+  --color-nav-mark-closed: var(--nav-mark-closed);
+  --color-brand-wordmark: var(--brand-wordmark);
+
+  --color-segmented-track: var(--segmented-track);
+  --color-segmented-thumb: var(--segmented-thumb);
+  --color-row-hover: var(--row-hover);
+}
+
+@layer base {
+  html {
+    /* figure columns must align everywhere */
+    font-variant-numeric: tabular-nums;
+    color-scheme: light;
+  }
+
+  [data-theme="dark"] {
+    color-scheme: dark;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme]) {
+      color-scheme: dark;
+    }
+  }
+
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-size: var(--text-body);
+    line-height: 1.4;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Never leave the browser default. */
+  :focus-visible {
+    outline: 2px solid var(--color-accent-500);
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
 }
