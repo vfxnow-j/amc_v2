@@ -1,4 +1,20 @@
 @import "tailwindcss";
+/* Keyframes for the Radix-driven enter/exit animations in components/ui. */
+@import "tw-animate-css";
+
+/* `dark:` keys off the resolved attribute, matching the token blocks below —
+   not prefers-color-scheme, which would ignore an explicit user choice. The
+   media arm is the no-JS fallback, for when nothing has resolved the theme. */
+@custom-variant dark {
+  &:where([data-theme="dark"], [data-theme="dark"] *) {
+    @slot;
+  }
+  @media (prefers-color-scheme: dark) {
+    &:where(:root:not([data-theme]), :root:not([data-theme]) *) {
+      @slot;
+    }
+  }
+}
 
 /* ---------------------------------------------------------------------------
    VFXNow AMC v2 — design tokens
@@ -104,6 +120,14 @@
 
   /* -- motion — nav accordion (see design/README.md nav interaction spec) - */
   --ease-nav: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* -- radius ladder for the ported shadcn primitives ---------------------
+     They ask for rounded-sm/md/lg/xl; point those at our scale so nothing
+     lands square. Named radii above stay the vocabulary for new work.     */
+  --radius-sm: 9px;
+  --radius-md: 10px;
+  --radius-lg: 12px;
+  --radius-xl: 14px;
 }
 
 /* ---------------------------------------------------------------------------
@@ -139,6 +163,16 @@
 
   /* "now" in the brand lockup — full cyan is too light on a white panel */
   --brand-wordmark: var(--color-accent-600);
+
+  /* -- status ------------------------------------------------------------
+     Not in the handoff palette. Tuned to the cool neutrals for the ported
+     primitives (destructive buttons, validation); needs design sign-off. */
+  --danger: #b42318;
+  --danger-on: #ffffff;
+  --success: #067647;
+  --success-on: #ffffff;
+  --warning: #b54708;
+  --warning-on: #ffffff;
 
   --segmented-track: var(--color-neutral-200);
   --segmented-thumb: #ffffff;
@@ -177,6 +211,14 @@
   --nav-mark-closed: #26343d;
 
   --brand-wordmark: var(--color-accent-500);
+
+  /* lifted for legibility on the dark grounds */
+  --danger: #f97066;
+  --danger-on: var(--color-brand-text);
+  --success: #47c67f;
+  --success-on: var(--color-brand-text);
+  --warning: #f5a524;
+  --warning-on: var(--color-brand-text);
 
   --segmented-track: #1e2f39;
   --segmented-thumb: var(--color-brand-bg);
@@ -251,6 +293,39 @@
   --color-nav-bubble-quiet: var(--nav-bubble-quiet);
   --color-nav-mark-closed: var(--nav-mark-closed);
   --color-brand-wordmark: var(--brand-wordmark);
+
+  /* ---- shadcn/ui primitive vocabulary -------------------------------------
+     The components ported from v1 speak in background/foreground/card/muted/…
+     Rather than carry a second palette, those names are expressed in terms of
+     the semantic tokens above, so the primitives inherit the v2 design and flip
+     with the theme for free.
+
+     One rename: shadcn's "accent" is a menu hover surface, which collides with
+     our brand accent. In the ported components it is `hover-surface`/`hover-ink`
+     so `accent` keeps meaning brand cyan everywhere in this codebase. */
+  --color-background: var(--ground);
+  --color-foreground: var(--ink);
+  --color-card: var(--panel);
+  --color-card-foreground: var(--ink);
+  --color-popover: var(--panel);
+  --color-popover-foreground: var(--ink);
+  --color-primary: var(--accent-solid);
+  --color-primary-foreground: var(--accent-on-solid);
+  --color-secondary: var(--sunken);
+  --color-secondary-foreground: var(--ink);
+  --color-muted: var(--sunken);
+  --color-muted-foreground: var(--ink-muted);
+  --color-hover-surface: var(--row-hover);
+  --color-hover-ink: var(--ink);
+  --color-border: var(--hairline);
+  --color-input: var(--hairline);
+  --color-ring: var(--color-accent-500);
+  --color-destructive: var(--danger);
+  --color-destructive-foreground: var(--danger-on);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-on);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-on);
 
   --color-segmented-track: var(--segmented-track);
   --color-segmented-thumb: var(--segmented-thumb);

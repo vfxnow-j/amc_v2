@@ -1,0 +1,233 @@
+import { StyleSheet } from '@react-pdf/renderer'
+
+export const pdfStyles = StyleSheet.create({
+  page: {
+    padding: 40,
+    fontSize: 10,
+    fontFamily: 'Helvetica',
+    color: '#1a1a1a',
+    backgroundColor: '#ffffff',
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 24,
+    borderBottomWidth: 2,
+    borderBottomColor: '#2563eb',
+    paddingBottom: 16,
+  },
+  headerLeft: {
+    flexDirection: 'column',
+    gap: 4,
+  },
+  logo: {
+    width: 80,
+    height: 55,
+    objectFit: 'contain',
+  },
+  headerRight: {
+    textAlign: 'right',
+  },
+  documentTitle: {
+    fontSize: 20,
+    fontFamily: 'Helvetica-Bold',
+    color: '#2563eb',
+    marginBottom: 4,
+  },
+  documentNumber: {
+    fontSize: 12,
+    color: '#6b7280',
+  },
+  infoSection: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 20,
+    gap: 20,
+  },
+  infoBox: {
+    flex: 1,
+    padding: 12,
+    backgroundColor: '#f8fafc',
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  infoBoxTitle: {
+    fontSize: 8,
+    fontFamily: 'Helvetica-Bold',
+    color: '#6b7280',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 6,
+  },
+  infoBoxText: {
+    fontSize: 10,
+    lineHeight: 1.5,
+  },
+  infoBoxTextBold: {
+    fontSize: 10,
+    fontFamily: 'Helvetica-Bold',
+    lineHeight: 1.5,
+  },
+  table: {
+    marginBottom: 20,
+  },
+  tableHeader: {
+    flexDirection: 'row',
+    backgroundColor: '#1e293b',
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    borderRadius: 4,
+  },
+  tableHeaderCell: {
+    fontSize: 8,
+    fontFamily: 'Helvetica-Bold',
+    color: '#ffffff',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  tableRow: {
+    flexDirection: 'row',
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
+  },
+  tableRowAlt: {
+    flexDirection: 'row',
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
+    backgroundColor: '#f8fafc',
+  },
+  tableCell: {
+    fontSize: 9,
+  },
+  tableCellBold: {
+    fontSize: 9,
+    fontFamily: 'Helvetica-Bold',
+  },
+  // Column widths for items table
+  colDescription: { width: '40%' },
+  colQty: { width: '10%', textAlign: 'center' },
+  colRate: { width: '20%', textAlign: 'right' },
+  colAmount: { width: '20%', textAlign: 'right' },
+  colPricing: { width: '10%', textAlign: 'center' },
+  totalsSection: {
+    alignItems: 'flex-end',
+    marginBottom: 20,
+  },
+  totalsBox: {
+    width: 220,
+    padding: 12,
+    backgroundColor: '#f8fafc',
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  totalsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 3,
+  },
+  totalsLabel: {
+    fontSize: 9,
+    color: '#6b7280',
+  },
+  totalsValue: {
+    fontSize: 9,
+    fontFamily: 'Helvetica-Bold',
+  },
+  totalsDivider: {
+    borderTopWidth: 1,
+    borderTopColor: '#cbd5e1',
+    marginVertical: 4,
+  },
+  totalGrandLabel: {
+    fontSize: 12,
+    fontFamily: 'Helvetica-Bold',
+    color: '#1e293b',
+  },
+  totalGrandValue: {
+    fontSize: 12,
+    fontFamily: 'Helvetica-Bold',
+    color: '#2563eb',
+  },
+  notesSection: {
+    marginBottom: 20,
+    padding: 12,
+    backgroundColor: '#fffbeb',
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: '#fde68a',
+  },
+  notesSectionTitle: {
+    fontSize: 8,
+    fontFamily: 'Helvetica-Bold',
+    color: '#92400e',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 4,
+  },
+  notesText: {
+    fontSize: 9,
+    color: '#78350f',
+    lineHeight: 1.4,
+  },
+  footer: {
+    position: 'absolute',
+    bottom: 30,
+    left: 40,
+    right: 40,
+    borderTopWidth: 1,
+    borderTopColor: '#e2e8f0',
+    paddingTop: 8,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  footerText: {
+    fontSize: 7,
+    color: '#9ca3af',
+  },
+  // Signature area
+  signatureSection: {
+    marginTop: 30,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 4,
+  },
+  signatureTitle: {
+    fontSize: 10,
+    fontFamily: 'Helvetica-Bold',
+    marginBottom: 12,
+    color: '#1e293b',
+  },
+  signatureLine: {
+    borderBottomWidth: 1,
+    borderBottomColor: '#1a1a1a',
+    marginBottom: 4,
+    height: 40,
+  },
+  signatureLabel: {
+    fontSize: 8,
+    color: '#6b7280',
+    marginBottom: 12,
+  },
+  signatureImage: {
+    width: 200,
+    height: 60,
+    marginBottom: 4,
+  },
+  signedByText: {
+    fontSize: 9,
+    fontFamily: 'Helvetica-Bold',
+    marginBottom: 2,
+  },
+  signedAtText: {
+    fontSize: 8,
+    color: '#6b7280',
+  },
+})

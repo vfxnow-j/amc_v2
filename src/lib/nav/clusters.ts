@@ -103,10 +103,16 @@ export const NAV_CLUSTERS: NavCluster[] = [
     roles: [...ALL_ADMIN, "STAFF"],
     pages: [
       {
+        // Absorbs two v1 siblings: `retired` becomes a filter tab on this list,
+        // `register` becomes an action on it.
         id: "assets",
         label: "Assets",
         href: "/dashboard/assets",
-        from: ["/dashboard/assets"],
+        from: [
+          "/dashboard/assets",
+          "/dashboard/assets/retired",
+          "/dashboard/assets/register",
+        ],
       },
       {
         // Serialized units are only reachable through an asset in v1
@@ -199,11 +205,29 @@ export const NAV_CLUSTERS: NavCluster[] = [
         ],
       },
       {
-        // v1 only has the rate-card importer; the list itself is new.
+        // v1 only has the rate-card importer; the list itself is new. Bulk rate
+        // updates move here from Assets, where they don't belong.
         id: "rate-cards",
         label: "Rate cards",
         href: "/dashboard/rate-cards",
-        from: ["/dashboard/settings/import/ratecard"],
+        from: [
+          "/dashboard/settings/import/ratecard",
+          "/dashboard/assets/bulk-update",
+        ],
+      },
+      {
+        // Subscription product line — kept in Revenue because it bills. The
+        // catalogue behind it stays in settings/cloud-products.
+        id: "cloud",
+        label: "Cloud services",
+        href: "/dashboard/cloud",
+        from: ["/dashboard/cloud"],
+      },
+      {
+        id: "services",
+        label: "Services",
+        href: "/dashboard/services",
+        from: ["/dashboard/services"],
       },
       {
         id: "purchase-orders",
@@ -238,17 +262,6 @@ export const NAV_CLUSTERS: NavCluster[] = [
         label: "Quotes",
         href: "/dashboard/quotes",
         from: ["/dashboard/reservations"],
-      },
-      {
-        // v1 has no /dashboard/marketing index, only these three children.
-        id: "marketing",
-        label: "Marketing",
-        href: "/dashboard/marketing/campaigns",
-        from: [
-          "/dashboard/marketing/campaigns",
-          "/dashboard/marketing/tactics",
-          "/dashboard/marketing/ad-spend",
-        ],
       },
     ],
   },
@@ -288,13 +301,20 @@ export const NAV_CLUSTERS: NavCluster[] = [
 ];
 
 /**
- * Pinned at the bottom of the rail rather than living in a cluster.
+ * Pinned at the bottom of the rail rather than living in a cluster. Its 14
+ * children come across unchanged — the QuickBooks integration under
+ * settings/quickbooks is demoed against the QB sandbox, so that area stays put.
  *
- * Also outside the six clusters, deliberately: `/dashboard/flow` is a separate
- * app area for the FLOW_USER role and must never appear here, and
- * `/dashboard/builder` is left out. `/dashboard/cloud` and `/dashboard/services`
- * are unplaced — the handoff says to confirm with the product owner before
- * folding them into Inventory or Revenue.
+ * Dropped from v2 by product decision, not oversight:
+ * - `/dashboard/builder` — the workstation quote builder.
+ * - `/dashboard/flow` — the FLOW_USER task area; a separate app area that must
+ *   never appear in this rail.
+ * - `/dashboard/marketing/*` — campaigns, tactics and ad spend. A notification
+ *   system takes its place.
+ *
+ * Also note `/dashboard/settings/vendors` is a byte-for-byte duplicate of
+ * `/dashboard/vendors` in v1 (only the back-link differs); v2 has the one
+ * screen, under Inventory.
  */
 export const SETTINGS_PAGE: NavPage = {
   id: "settings",

@@ -1,0 +1,1884 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================================
+// USER & AUTHENTICATION
+// ============================================
+
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+  STAFF
+  VIEWER
+  FLOW_USER
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String
+  passwordHash  String?
+  role          UserRole  @default(STAFF)
+  image         String?
+  emailVerified DateTime?
+  mfaEnabled        Boolean   @default(false)
+  mfaSecret         String?
+  mfaDefault        String?   @default("email")
+  passwordChangedAt DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  accounts           Account[]
+  sessions           Session[]
+  checkoutsCreated   Checkout[]         @relation("CheckoutCreatedBy")
+  checkoutsCheckedIn Checkout[]         @relation("CheckoutCheckedInBy")
+  approvalsGiven     CheckoutApproval[]
+  auditLogs          AuditLog[]
+  notifications      Notification[]
+  apiKeys            ApiKey[]
+  mfaTrustTokens     MfaTrustToken[]
+  assignedLeads      Lead[]             @relation("LeadAssignedTo")
+  leadActivities     LeadActivity[]
+  statusChanges      StatusHistory[]
+  reservationsPrepared Reservation[]  @relation("ReservationPreparedBy")
+  flowTasksAssigned    FlowTask[]     @relation("FlowTaskAssignees")
+  flowTasksCreated     FlowTask[]     @relation("FlowTaskCreator")
+  flowGroupsCreated    FlowGroup[]    @relation("FlowGroupCreator")
+  flowTaskComments     FlowTaskComment[] @relation("FlowTaskComments")
+
+  @@map("users")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// ============================================
+// EMAIL TOKENS (MFA, Password Reset)
+// ============================================
+
+enum EmailTokenType {
+  MFA_OTP
+  PASSWORD_RESET
+  EMAIL_VERIFY
+  ACCOUNT_SETUP
+}
+
+model EmailToken {
+  id         String         @id @default(cuid())
+  identifier String
+  token      String         @unique
+  type       EmailTokenType
+  expires    DateTime
+  used       Boolean        @default(false)
+  createdAt  DateTime       @default(now())
+
+  @@index([identifier, type])
+  @@map("email_tokens")
+}
+
+// ============================================
+// MFA TRUST TOKENS
+// ============================================
+
+model MfaTrustToken {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash  String   @unique
+  deviceName String
+  expiresAt  DateTime
+  lastUsedAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  @@index([userId])
+  @@map("mfa_trust_tokens")
+}
+
+// ============================================
+// ASSET MANAGEMENT
+// ============================================
+
+enum AssetStatus {
+  AVAILABLE
+  CHECKED_OUT
+  MAINTENANCE
+  RETIRED
+  RESERVED
+  SOLD
+}
+
+enum RetirementReason {
+  SOLD
+  RECYCLED
+  GIFTED
+  DAMAGED
+  STOLEN
+  LOST
+  RELEASED
+  OTHER
+}
+
+enum OwnershipType {
+  CASH
+  CREDIT
+  LOAN
+  REVOLVER
+  DONATED
+  EXCHANGE
+  VENDOR_CREDIT
+}
+
+enum DepreciationCategory {
+  THREE_YEAR
+  FIVE_YEAR
+  SEVEN_YEAR
+  TEN_YEAR
+  FIFTEEN_YEAR
+  TWENTY_YEAR
+}
+
+enum DepreciationMethod {
+  STRAIGHT_LINE
+  DECLINING_BALANCE
+  SUM_OF_YEARS
+  UNITS_OF_PRODUCTION
+}
+
+enum CoverageType {
+  LICENSE
+  SUPPORT_CONTRACT
+  EXTENDED_WARRANTY
+  SERVICE_PLAN
+  SUBSCRIPTION
+}
+
+model AssetCategory {
+  id                        String             @id @default(cuid())
+  name                      String             @unique
+  description               String?
+  defaultDepreciationMethod DepreciationMethod @default(STRAIGHT_LINE)
+  defaultUsefulLifeMonths   Int                @default(60)
+  customFieldsSchema        Json?
+  // Configurable items (e.g. Workstations) can host nested component sub-items on a reservation line.
+  // Component categories (e.g. RAM, Storage, GPU) can be attached as sub-items to a configurable parent.
+  isConfigurable            Boolean            @default(false)
+  isComponent               Boolean            @default(false)
+  createdAt                 DateTime           @default(now())
+  updatedAt                 DateTime           @updatedAt
+
+  assets Asset[]
+
+  @@map("asset_categories")
+}
+
+model Location {
+  id               String     @id @default(cuid())
+  name             String
+  address          String?
+  description      String?
+  parentLocationId String?
+  parentLocation   Location?  @relation("LocationHierarchy", fields: [parentLocationId], references: [id])
+  childLocations   Location[] @relation("LocationHierarchy")
+  taxRate          Decimal?   @db.Decimal(5, 4)  // Store as decimal, e.g., 0.0825
+  taxLabel         String?                       // e.g., "TX Sales Tax 8.25%"
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+
+  assetUnits      AssetUnit[]
+  transfersFrom   AssetTransfer[] @relation("TransferFrom")
+  transfersTo     AssetTransfer[] @relation("TransferTo")
+  purchaseOrders  PurchaseOrder[]
+
+  @@map("locations")
+}
+
+model Vendor {
+  id           String   @id @default(cuid())
+  name         String
+  contactName  String?
+  contactEmail String?
+  contactPhone String?
+  address      String?
+  notes        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  assets         Asset[]
+  assetUnits     AssetUnit[]
+  purchaseOrders PurchaseOrder[]
+
+  @@map("vendors")
+}
+
+// Asset = Product Type (e.g., "RTX 4090")
+// Shared name, category, rates, and total quantity of physical units
+model Asset {
+  id          String        @id @default(cuid())
+  name        String
+  description String?
+  categoryId  String
+  category    AssetCategory @relation(fields: [categoryId], references: [id])
+
+  // Import fields
+  assetNumber String? // Original Asset# from import
+  subCategory String? // Subgroup from import
+
+  // Basic Info
+  manufacturer String?
+  model        String?
+
+  // Purchase Info (defaults for new units)
+  vendorId        String?
+  vendor          Vendor?        @relation(fields: [vendorId], references: [id])
+  purchaseOrderId String?
+  purchaseOrder   PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id])
+
+  // Rental rates (shared across all units)
+  dailyRate   Decimal? @db.Decimal(12, 2)
+  weeklyRate  Decimal? @db.Decimal(12, 2)
+  monthlyRate Decimal? @db.Decimal(12, 2)
+  salePrice   Decimal? @db.Decimal(12, 2)
+
+  // Retirement info
+  retiredAt        DateTime?
+  retirementReason String?
+  retirementNotes  String?
+
+  // Depreciation (defaults for units)
+  depreciationMethod   DepreciationMethod    @default(STRAIGHT_LINE)
+  depreciationCategory DepreciationCategory?
+  usefulLifeMonths     Int                   @default(60)
+  salvageValue         Decimal?              @db.Decimal(12, 2)
+
+  // Specs (JSON for flexibility)
+  specs Json?
+
+  // Market price tracking
+  marketPrice          Decimal?  @db.Decimal(12, 2)
+  marketPriceSource    String?
+  marketPriceUpdatedAt DateTime?
+  marketPriceNotes     String?
+
+  // Market rental rate tracking
+  marketRentalRate          Decimal?  @db.Decimal(12, 2)
+  marketRentalRateSource    String?
+  marketRentalRateUpdatedAt DateTime?
+  marketRentalRateNotes     String?
+
+  // Denormalized count of all units
+  totalQuantity Int @default(0)
+
+  // Metadata
+  notes     String?
+  imageUrl  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  units            AssetUnit[]
+  reservationItems ReservationItem[]
+  invoiceItems     InvoiceItem[]
+  poItems          POItem[]
+
+  @@map("assets")
+}
+
+// AssetUnit = Individual physical instance with barcode, serial, status
+model AssetUnit {
+  id           String      @id @default(cuid())
+  assetId      String
+  asset        Asset       @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  barcode      String      @unique
+  serialNumber String?     @unique
+  status       AssetStatus @default(AVAILABLE)
+  locationId   String?
+  location     Location?   @relation(fields: [locationId], references: [id])
+  vendorId     String?
+  vendor       Vendor?     @relation(fields: [vendorId], references: [id])
+  condition    String?
+  notes        String?
+
+  // Ownership & Purchase info per unit (may vary)
+  ownershipType   OwnershipType @default(CASH)
+  purchaseDate    DateTime
+  receivedDate    DateTime?
+  purchasePrice   Decimal?   @db.Decimal(12, 2)
+  warrantyExpiry  DateTime?
+
+  // Loan details (when ownershipType = LOAN)
+  loanName             String?
+  fundingBusiness      String?
+  loanAmount           Decimal?  @db.Decimal(12, 2)
+  amortizationEndDate  DateTime?
+
+  // Financial tracking per unit
+  totalRevenue    Decimal @default(0) @db.Decimal(12, 2)
+  maintenanceCost Decimal @default(0) @db.Decimal(12, 2)
+
+  // Sale tracking
+  soldAt             DateTime?
+  soldViaReservation String?
+  soldPrice          Decimal?  @db.Decimal(12, 2)
+  soldNotes          String?
+
+  // Retirement tracking
+  retirementReason  RetirementReason?
+  retiredAt         DateTime?
+  retiredTo         String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  checkouts            Checkout[]
+  maintenanceRecords   MaintenanceRecord[]
+  transfers            AssetTransfer[]
+  reservationItemUnits ReservationItemUnit[]
+  serviceCoverages     ServiceCoverage[]
+  leaseId              String?   @map("lease_id")
+  lease                Lease?    @relation(fields: [leaseId], references: [id])
+
+  @@index([assetId])
+  @@index([status])
+  @@map("asset_units")
+}
+
+model ServiceCoverage {
+  id         String       @id @default(cuid())
+  unitId     String
+  unit       AssetUnit    @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  type       CoverageType
+  name       String
+  provider   String?
+  startDate  DateTime
+  endDate    DateTime
+  cost       Decimal?     @db.Decimal(12, 2)
+  notes      String?
+  notifiedAt DateTime?
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  @@index([unitId])
+  @@index([endDate])
+  @@map("service_coverages")
+}
+
+model AssetTransfer {
+  id             String    @id @default(cuid())
+  assetUnitId    String
+  assetUnit      AssetUnit @relation(fields: [assetUnitId], references: [id])
+  fromLocationId String
+  fromLocation   Location  @relation("TransferFrom", fields: [fromLocationId], references: [id])
+  toLocationId   String
+  toLocation     Location  @relation("TransferTo", fields: [toLocationId], references: [id])
+  transferDate   DateTime  @default(now())
+  notes          String?
+  transferredBy  String?
+  createdAt      DateTime  @default(now())
+
+  @@map("asset_transfers")
+}
+
+enum MaintenanceStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum MaintenanceType {
+  PREVENTIVE
+  CORRECTIVE
+  DAMAGE_REPAIR
+  INSPECTION
+  CALIBRATION
+}
+
+model MaintenanceRecord {
+  id          String    @id @default(cuid())
+  assetUnitId String
+  assetUnit   AssetUnit @relation(fields: [assetUnitId], references: [id])
+
+  // Type and status
+  type   MaintenanceType   @default(CORRECTIVE)
+  status MaintenanceStatus @default(SCHEDULED)
+
+  // Dates
+  scheduledDate  DateTime?
+  startDate      DateTime?
+  completionDate DateTime?
+
+  // Details
+  description   String
+  workPerformed String?
+  partsUsed     String?
+
+  // Cost tracking
+  laborCost Decimal? @db.Decimal(12, 2)
+  partsCost Decimal? @db.Decimal(12, 2)
+  totalCost Decimal? @db.Decimal(12, 2)
+
+  // Vendor/technician
+  performedBy String?
+  vendorId    String?
+
+  // From check-in damage
+  fromCheckoutId    String? // Link to checkout that flagged damage
+  damageDescription String?
+
+  // Return to inventory
+  returnToInventory Boolean   @default(true)
+  returnDate        DateTime?
+
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([assetUnitId])
+  @@index([status])
+  @@map("maintenance_records")
+}
+
+// ============================================
+// CLIENT MANAGEMENT
+// ============================================
+
+model Client {
+  id             String   @id @default(cuid())
+  name           String
+  companyName    String?
+  email          String?
+  phone          String?
+  address        String?
+  billingAddress String?
+  paymentTerms   Int      @default(30) // Days
+  taxExempt      Boolean  @default(false)
+  notes          String?
+  qbCustomerId   String? // QuickBooks Customer ID
+
+  // Marketing
+  marketingTag   String?  // e.g. "Ad-Generated", "Referral", "Organic"
+  marketingOptIn Boolean  @default(false) // Allow marketing engagement from campaigns
+
+  // Verification tracking
+  agreementSignedAt    DateTime?
+  agreementSignerName  String?
+  idVerifiedAt         DateTime?
+  coiVerifiedAt        DateTime?
+
+  // Verification opt-outs (admin-configurable)
+  skipIdRequirement    Boolean   @default(false)
+  skipCoiRequirement   Boolean   @default(false)
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // Pricing
+  customPricing Json? // Custom pricing rules per category
+
+  contacts     ClientContact[]
+  checkouts    Checkout[]
+  reservations Reservation[]
+  invoices     Invoice[]
+  convertedLeads Lead[]
+  boundLeads   Lead[]     @relation("LeadBoundToClient")
+  requirementTokens ClientRequirementToken[]
+  inventoryAudits InventoryAudit[]
+
+  @@map("clients")
+}
+
+model ClientContact {
+  id        String  @id @default(cuid())
+  clientId  String
+  client    Client  @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  name      String
+  email     String?
+  phone     String?
+  role      String? // e.g. "Primary", "Billing", "Technical", "Associated"
+  isPrimary Boolean @default(false)
+  notes     String?
+  leadId    String? // If created from a bound lead
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([clientId])
+  @@map("client_contacts")
+}
+
+// ============================================
+// CHECK-IN/CHECK-OUT SYSTEM
+// ============================================
+
+enum CheckoutStatus {
+  PENDING_APPROVAL
+  APPROVED
+  ACTIVE
+  RETURNED
+  OVERDUE
+  CANCELLED
+}
+
+enum CheckoutWorkflowType {
+  SIMPLE
+  APPROVAL
+  RESERVATION
+}
+
+enum PricingType {
+  HOURLY
+  DAILY
+  WEEKLY
+  MONTHLY
+  PROJECT
+  CUSTOM
+}
+
+enum CloudProductCategory {
+  HOST_CPU
+  HOST_RAM
+  HOST_STORAGE
+  HOST_GRAPHICS
+  HOST_NETWORKING
+  ENV_INTERNET
+  ENV_STORAGE
+  ENV_ADDON
+}
+
+enum ReturnCondition {
+  EXCELLENT
+  GOOD
+  FAIR
+  DAMAGED
+}
+
+model Checkout {
+  id          String    @id @default(cuid())
+  assetUnitId String
+  assetUnit   AssetUnit @relation(fields: [assetUnitId], references: [id])
+  clientId    String
+  client      Client    @relation(fields: [clientId], references: [id])
+
+  // Workflow
+  workflowType CheckoutWorkflowType @default(SIMPLE)
+  status       CheckoutStatus       @default(ACTIVE)
+
+  // Link to reservation (for bundled checkouts)
+  reservationId String?
+  reservation   Reservation? @relation(fields: [reservationId], references: [id])
+
+  // Dates
+  checkoutDate   DateTime  @default(now())
+  expectedReturn DateTime?
+  actualReturn   DateTime?
+
+  // Condition tracking
+  conditionOut    String?
+  conditionIn     String?
+  returnCondition ReturnCondition?
+
+  // Damage tracking
+  damageFlag       Boolean  @default(false)
+  damageNotes      String?
+  damageAssessment Decimal? @db.Decimal(12, 2)
+  damageResolution String? // CHARGED, MAINTENANCE, WAIVED
+
+  // Pricing
+  pricingType PricingType @default(DAILY)
+  rate        Decimal?    @db.Decimal(12, 2)
+  totalCharge Decimal?    @db.Decimal(12, 2)
+
+  // Relations
+  createdById   String
+  createdBy     User               @relation("CheckoutCreatedBy", fields: [createdById], references: [id])
+  checkedInById String?
+  checkedInBy   User?              @relation("CheckoutCheckedInBy", fields: [checkedInById], references: [id])
+  approvals     CheckoutApproval[]
+  invoiceItems  InvoiceItem[]
+
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("checkouts")
+}
+
+model CheckoutApproval {
+  id         String   @id @default(cuid())
+  checkoutId String
+  checkout   Checkout @relation(fields: [checkoutId], references: [id])
+  approverId String
+  approver   User     @relation(fields: [approverId], references: [id])
+  status     String // PENDING, APPROVED, REJECTED
+  notes      String?
+  createdAt  DateTime @default(now())
+
+  @@map("checkout_approvals")
+}
+
+// ============================================
+// RESERVATION SYSTEM
+// ============================================
+
+enum ReservationStatus {
+  DRAFT // Initial quote stage
+  QUOTE_SENT // Quote sent to client, awaiting response
+  APPROVED // Client approved the quote / order confirmed
+  REVISION // Client requested changes, editing & re-sending
+  PREPARING // Order approved, items being prepared/pulled
+  SHIPPED // Items shipped / out for delivery
+  ACTIVE // Items checked out, in use by client
+  COMPLETED // All items returned / sale fulfilled
+  CANCELLED // Order cancelled
+  LOST // Quote rejected by client
+}
+
+enum BillingCycleType {
+  DAILY // Bill every day
+  WEEKLY // Bill every 7 days
+  BI_WEEKLY // Bill every 14 days
+  MONTHLY // Bill on specified day of month (default 1st)
+  CUSTOM // Bill every N days
+  ONE_TIME // Single charge for entire period
+}
+
+enum ReservationType {
+  RENTAL       // Equipment rental with return expected
+  SALE         // Equipment sale, no return expected
+  RENT_TO_OWN  // Equipment financing — fixed monthly payments toward ownership
+  CLOUD        // Cloud services (placeholder — coming soon)
+}
+
+enum DeliveryMethod {
+  CUSTOMER_PICKUP
+  CUSTOMER_DROPOFF
+  LOCAL_DELIVERY
+  LOCAL_PICKUP
+  SMALL_PACKAGE
+  FREIGHT
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED
+}
+
+model Reservation {
+  id                String @id @default(cuid())
+  reservationNumber String @unique
+  clientId          String
+  client            Client @relation(fields: [clientId], references: [id])
+
+  // Type: Rental vs Sale
+  reservationType ReservationType @default(RENTAL)
+
+  // Dates
+  startDate DateTime
+  endDate   DateTime
+
+  // Status
+  status      ReservationStatus @default(DRAFT)
+  confirmedAt DateTime?
+  quoteSentAt DateTime?
+  // Date the quoted pricing stops being honoured. Drives the quote-link expiry,
+  // the "Valid until" line on the quote PDF, and the online quote header.
+  // Stamped to +30 days when a quote link is first generated if left unset.
+  quoteExpiresAt DateTime?
+  approvedAt  DateTime?
+  preparingAt  DateTime?
+  preparedById String?
+  preparedBy   User?     @relation("ReservationPreparedBy", fields: [preparedById], references: [id])
+  shippedAt   DateTime?
+  completedAt DateTime?
+  lostAt      DateTime?
+  lostReason  String?
+
+  // Pricing totals
+  subtotal       Decimal @default(0) @db.Decimal(12, 2)
+  discountType   DiscountType?
+  discountValue  Decimal?   @default(0) @db.Decimal(12, 2)
+  discountAmount Decimal    @default(0) @db.Decimal(12, 2)
+  taxRate        Decimal @default(0) @db.Decimal(5, 2)
+  taxAmount      Decimal @default(0) @db.Decimal(12, 2)
+  total          Decimal @default(0) @db.Decimal(12, 2)
+
+  // Margin tracking
+  totalCost    Decimal?  @db.Decimal(12, 2)
+  totalMargin  Decimal?  @db.Decimal(12, 2)
+
+  // Internal costs (not billed to client)
+  internalShippingCost Decimal? @db.Decimal(12, 2)
+  subRentalCost        Decimal? @db.Decimal(12, 2)
+  hardwareCost         Decimal? @db.Decimal(12, 2)
+
+  // Billing cycle configuration
+  billingCycleType  BillingCycleType @default(MONTHLY)
+  billingCycleDay   Int              @default(1) // Day of month for MONTHLY (1-28), or day of week for WEEKLY (0=Sun, 6=Sat)
+  billingCycleDays  Int?             // Number of days for CUSTOM billing period
+  nextBillingDate        DateTime?        // Next scheduled billing date
+  lastBilledDate         DateTime?        // Date of last invoice generated
+  billingPeriodsCompleted Int @default(0)  // How many billing periods have been invoiced
+  notBilled              Boolean       @default(false) // Skip all invoicing (eval, gifted, etc.)
+
+  // Recurring
+  isRecurring         Boolean       @default(false)
+  recurrencePattern   String? // DAILY, WEEKLY, MONTHLY, or cron expression
+  recurrenceEndDate   DateTime?
+  parentReservationId String?
+  parentReservation   Reservation?  @relation("RecurringReservations", fields: [parentReservationId], references: [id])
+  childReservations   Reservation[] @relation("RecurringReservations")
+
+  // Delivery & Return
+  deliveryMethod      DeliveryMethod?
+  deliveryAddress     String?
+  deliveryDate        DateTime?
+  deliveryCost        Decimal?     @db.Decimal(12, 2)
+  deliveryCourier     String?
+  deliveryNotes       String?
+  returnMethod        DeliveryMethod?
+  returnDate          DateTime?
+  returnCost          Decimal?     @db.Decimal(12, 2)
+  shippingMarginType  String?      // 'FIXED' or 'PERCENTAGE' — applies to both delivery & return
+  shippingMargin      Decimal?     @db.Decimal(12, 2)
+  returnCourier       String?
+  deliveryTrackingProvider String?
+  deliveryTrackingNumber   String?
+  returnTrackingProvider   String?
+  returnTrackingNumber     String?
+
+  // Project/Job info
+  projectName String?
+  projectCode String?
+
+  notes         String?
+  internalNotes String?
+
+  // Buyout fields (rental-to-sale conversion)
+  rentalCreditPercent Decimal? @default(0) @db.Decimal(5, 2)
+  rentalCreditAmount  Decimal? @default(0) @db.Decimal(12, 2)
+  convertedFromNumber String?
+
+  // HubSpot integration
+  hubspotDealId       String?   @unique
+
+  // Rent-to-Own (RTO) fields
+  rtoTermMonths       Int?                           // 3, 6, 12, 24, 36
+  rtoMonthlyPayment   Decimal?  @db.Decimal(12, 2)   // Fixed monthly installment amount
+  rtoBuyoutPrice      Decimal?  @db.Decimal(12, 2)   // Total price for ownership
+  rtoInstallmentsPaid Int?      @default(0)           // Count of PAID invoices
+  rtoStartDate        DateTime?                       // When first installment began
+  rtoDefaultCount     Int?      @default(0)           // Number of missed/overdue payments
+
+  // Payment terms (override client default; null = use client's paymentTerms)
+  paymentTerms Int?
+
+  // Quote action tracking
+  actionRequired     Boolean @default(false)
+  actionRequiredNote String?
+
+  // Sale order price verification
+  priceVerified   Boolean   @default(false)
+  priceVerifiedAt DateTime?
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  items       ReservationItem[]
+  packages    Package[]
+  checkouts   Checkout[]
+  invoices    Invoice[]
+  quoteTokens QuoteToken[]
+
+  @@index([clientId])
+  @@index([status])
+  @@index([startDate, endDate])
+  @@map("reservations")
+}
+
+model Package {
+  id            String      @id @default(cuid())
+  reservationId String
+  reservation   Reservation @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+  name          String      @default("Default")
+  description   String?
+  isActive      Boolean     @default(true)
+  sortOrder     Int         @default(0)
+  deliveryCost  Decimal?    @db.Decimal(12, 2)
+  returnCost    Decimal?    @db.Decimal(12, 2)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  items ReservationItem[]
+
+  @@index([reservationId])
+  @@map("packages")
+}
+
+model ReservationItem {
+  id            String      @id @default(cuid())
+  reservationId String
+  reservation   Reservation @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+  packageId     String?
+  package       Package?    @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  assetId       String?
+  asset         Asset?      @relation(fields: [assetId], references: [id])
+  serviceId     String?
+  service       Service?    @relation(fields: [serviceId], references: [id])
+  cloudProductId String?
+  cloudProduct  CloudProduct? @relation(fields: [cloudProductId], references: [id])
+  description   String?
+  category      String?    // Manual category for ad-hoc items (asset-linked items use asset.category)
+
+  // Pricing for this item
+  pricingType PricingType @default(DAILY)
+  rate        Decimal     @db.Decimal(12, 2)
+  quantity    Int         @default(1)
+  subtotal    Decimal     @db.Decimal(12, 2)
+  isOneTime   Boolean     @default(false) // One-time charge: subtotal = rate × qty (no term multiplication)
+
+  // Margin tracking (sales)
+  costBasis      Decimal?  @db.Decimal(12, 2)  // Per-unit cost
+  marginPercent  Decimal?  @db.Decimal(5, 2)   // Margin % applied
+
+  // Tracking (counts instead of booleans for multi-unit)
+  assignedCount   Int @default(0) // Units soft-assigned during prep
+  checkedOutCount Int @default(0)
+  checkedInCount  Int @default(0)
+
+  notes     String?
+  createdAt DateTime @default(now())
+  addedAt   DateTime @default(now())
+  sortOrder Int      @default(0)
+
+  // Component nesting (one level deep): configurable parent items host component sub-items.
+  parentId   String?
+  parent     ReservationItem?  @relation("ReservationItemComponents", fields: [parentId], references: [id], onDelete: Cascade)
+  components ReservationItem[] @relation("ReservationItemComponents")
+
+  // Relations
+  units ReservationItemUnit[]
+
+  // Intentionally NOT unique on (reservationId, assetId, packageId, parentId):
+  // the same asset may appear on several lines of one order so units can be
+  // billed at different rates (e.g. a courtesy discount on part of the quantity).
+  @@index([packageId])
+  @@index([parentId])
+  @@index([reservationId, assetId])
+  @@map("reservation_items")
+}
+
+// Junction table: links specific physical units to a reservation item during checkout or assignment
+model ReservationItemUnit {
+  id                String          @id @default(cuid())
+  reservationItemId String
+  reservationItem   ReservationItem @relation(fields: [reservationItemId], references: [id], onDelete: Cascade)
+  assetUnitId       String
+  assetUnit         AssetUnit       @relation(fields: [assetUnitId], references: [id])
+
+  assignedAt   DateTime?  // Soft-assigned during prep (unit earmarked but not checked out)
+  checkedOutAt DateTime?
+  checkedInAt  DateTime?
+  checkoutId   String?
+
+  @@unique([reservationItemId, assetUnitId])
+  @@index([assetUnitId])
+  @@map("reservation_item_units")
+}
+
+// ============================================
+// BILLING & INVOICING
+// ============================================
+
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  PAID
+  PARTIAL
+  OVERDUE
+  CANCELLED
+  VOID
+}
+
+model Invoice {
+  id            String @id @default(cuid())
+  invoiceNumber String @unique
+  clientId      String
+  client        Client @relation(fields: [clientId], references: [id])
+
+  // Link to reservation/order
+  reservationId String?
+  reservation   Reservation? @relation(fields: [reservationId], references: [id])
+
+  issueDate DateTime @default(now())
+  dueDate   DateTime
+
+  subtotal   Decimal @db.Decimal(12, 2)
+  taxRate    Decimal @default(0) @db.Decimal(5, 2)
+  taxAmount  Decimal @db.Decimal(12, 2)
+  total      Decimal @db.Decimal(12, 2)
+  amountPaid Decimal @default(0) @db.Decimal(12, 2)
+
+  status InvoiceStatus @default(DRAFT)
+
+  notes String?
+  terms String?
+
+  // Billing period tracking
+  periodNumber   Int?       // Which billing period this invoice covers (1, 2, 3…)
+  periodStartDate DateTime? // Start of billing period (e.g. 1st of month)
+  periodEndDate   DateTime? // End of billing period (e.g. last day of month)
+
+  qbInvoiceId String? // QuickBooks Invoice ID
+  qbSyncedAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items    InvoiceItem[]
+  payments Payment[]
+
+  @@index([reservationId])
+  @@map("invoices")
+}
+
+model InvoiceItem {
+  id        String  @id @default(cuid())
+  invoiceId String
+  invoice   Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  description String
+  quantity    Decimal @db.Decimal(10, 2)
+  unitPrice   Decimal @db.Decimal(12, 2)
+  amount      Decimal @db.Decimal(12, 2)
+
+  // Optional links (assetId = product type)
+  assetId    String?
+  asset      Asset?    @relation(fields: [assetId], references: [id])
+  checkoutId String?
+  checkout   Checkout? @relation(fields: [checkoutId], references: [id])
+
+  // Which order line this was billed from. Assets can appear on several lines of
+  // one order (different rates), so assetId alone can't tell what's been invoiced.
+  // Null on invoices created before this field existed, and on manual invoices.
+  reservationItemId String?
+
+  // Mirrors ReservationItem nesting so configured-item structure survives invoicing.
+  parentId   String?
+  parent     InvoiceItem?  @relation("InvoiceItemComponents", fields: [parentId], references: [id], onDelete: Cascade)
+  components InvoiceItem[] @relation("InvoiceItemComponents")
+
+  createdAt DateTime @default(now())
+
+  @@index([parentId])
+  @@index([reservationItemId])
+  @@map("invoice_items")
+}
+
+model Payment {
+  id        String  @id @default(cuid())
+  invoiceId String
+  invoice   Invoice @relation(fields: [invoiceId], references: [id])
+
+  amount        Decimal  @db.Decimal(12, 2)
+  paymentDate   DateTime @default(now())
+  paymentMethod String? // CHECK, CARD, ACH, CASH, etc.
+  reference     String? // Check number, transaction ID, etc.
+
+  qbPaymentId String? // QuickBooks Payment ID
+
+  notes     String?
+  createdAt DateTime @default(now())
+
+  @@map("payments")
+}
+
+// ============================================
+// PURCHASE ORDERS
+// ============================================
+
+enum POStatus {
+  DRAFT
+  SUBMITTED
+  PARTIAL
+  RECEIVED
+  CANCELLED
+}
+
+enum POOrderType {
+  HARDWARE_RENTAL
+  HARDWARE_RENTAL_COMPONENTS
+  HARDWARE_RESALE
+  HARDWARE_RESALE_COMPONENTS
+}
+
+model PurchaseOrder {
+  id       String @id @default(cuid())
+  poNumber String @unique
+  vendorId String
+  vendor   Vendor @relation(fields: [vendorId], references: [id])
+
+  shipToLocationId String?
+  shipToLocation   Location? @relation(fields: [shipToLocationId], references: [id])
+
+  orderDate    DateTime  @default(now())
+  expectedDate DateTime?
+  receivedDate DateTime?
+
+  subtotal       Decimal       @db.Decimal(12, 2)
+  discountType   DiscountType?
+  discountValue  Decimal?      @default(0) @db.Decimal(12, 2)
+  discountAmount Decimal       @default(0) @db.Decimal(12, 2)
+  freightAmount  Decimal       @default(0) @db.Decimal(12, 2)
+  feesTotal      Decimal       @default(0) @db.Decimal(12, 2) // Sum of extra fee lines
+  taxAmount      Decimal       @default(0) @db.Decimal(12, 2)
+  taxExempt      Boolean       @default(false) // If true, no tax applies; taxAmount forced to 0
+  total          Decimal       @db.Decimal(12, 2)
+
+  status POStatus @default(DRAFT)
+
+  // What this PO is for — hardware bought to rent out vs. hardware bought to resell.
+  orderType POOrderType?
+
+  // How the equipment is being purchased. Carries over to each received
+  // AssetUnit's ownershipType (Cash→CASH, Credit Card→CREDIT, Lease/Loan→LOAN,
+  // Transfer→EXCHANGE). Null on legacy POs → treated as CASH on receipt.
+  purchaseMethod OwnershipType?
+
+  // Net payment terms when purchaseMethod is VENDOR_CREDIT (e.g. "Net 30").
+  creditTerms String?
+
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items  POItem[]
+  fees   POFee[]
+  assets Asset[]
+
+  @@map("purchase_orders")
+}
+
+model POFee {
+  id              String        @id @default(cuid())
+  purchaseOrderId String
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  description     String
+  amount          Decimal       @db.Decimal(12, 2)
+  createdAt       DateTime      @default(now())
+
+  @@map("po_fees")
+}
+
+model POItem {
+  id              String        @id @default(cuid())
+  purchaseOrderId String
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+
+  description      String
+  quantity         Int
+  unitPrice        Decimal @db.Decimal(12, 2)
+  amount           Decimal @db.Decimal(12, 2)
+  receivedQuantity Int     @default(0)
+
+  assetId       String?
+  asset         Asset?   @relation(fields: [assetId], references: [id])
+  // Receiving mode (mutually exclusive):
+  //  - isInventoried: full fixed-asset tracking — creates Asset + AssetUnits (assets + serials)
+  //  - isResale: goods held for resale — receive serial numbers only, no fixed asset
+  //  - neither: consumable (cable/light item) — no serials, never touches fixed assets
+  isInventoried Boolean  @default(true)
+  isResale      Boolean  @default(false)
+
+  // Serial numbers captured when receiving a resale line (serials-only, no
+  // AssetUnits). Appended to on each partial receipt.
+  receivedSerials String[] @default([])
+
+  createdAt DateTime @default(now())
+
+  @@map("po_items")
+}
+
+// ============================================
+// RATE MANAGEMENT
+// ============================================
+
+model RateCard {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  isDefault   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  rates Rate[]
+
+  @@map("rate_cards")
+}
+
+model Rate {
+  id          String      @id @default(cuid())
+  rateCardId  String
+  rateCard    RateCard    @relation(fields: [rateCardId], references: [id], onDelete: Cascade)
+  categoryId  String? // If null, applies to all categories
+  pricingType PricingType
+  rate        Decimal     @db.Decimal(12, 2)
+  createdAt   DateTime    @default(now())
+
+  @@unique([rateCardId, categoryId, pricingType])
+  @@map("rates")
+}
+
+// ============================================
+// NOTIFICATIONS
+// ============================================
+
+enum NotificationType {
+  OVERDUE_RETURN
+  WARRANTY_EXPIRING
+  COVERAGE_EXPIRING
+  INVOICE_REMINDER
+  APPROVAL_REQUEST
+  SYSTEM
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      NotificationType
+  title     String
+  message   String
+  read      Boolean          @default(false)
+  link      String?
+  createdAt DateTime         @default(now())
+
+  @@map("notifications")
+}
+
+// ============================================
+// AUDIT LOGGING
+// ============================================
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id])
+  action     String // CREATE, UPDATE, DELETE, LOGIN, etc.
+  entityType String // Asset, Checkout, Invoice, etc.
+  entityId   String?
+  oldValues  Json?
+  newValues  Json?
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+// ============================================
+// STATUS HISTORY
+// ============================================
+
+model StatusHistory {
+  id          String   @id @default(cuid())
+  entityType  String   // "RESERVATION" | "CHECKOUT" | "INVOICE"
+  entityId    String
+  fromStatus  String?  // null for initial creation
+  toStatus    String
+  changedById String?
+  changedBy   User?    @relation(fields: [changedById], references: [id])
+  notes       String?
+  createdAt   DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@map("status_history")
+}
+
+// ============================================
+// DOCUMENTS
+// ============================================
+
+enum DocumentType {
+  ORDER_DETAIL
+  DELIVERY_NOTE
+  INVOICE
+  PRO_FORMA
+  PURCHASE_ORDER
+  PROPOSAL
+  RENTAL_AGREEMENT
+}
+
+model Document {
+  id           String       @id @default(cuid())
+  documentType DocumentType
+  filename     String
+  filePath     String
+  fileSize     Int
+
+  // Polymorphic reference
+  entityType String // "RESERVATION" | "PURCHASE_ORDER"
+  entityId   String
+
+  // Signature tracking
+  isSigned Boolean   @default(false)
+  signedBy String?
+  signedAt DateTime?
+
+  // Optional metadata (e.g. proposal draft JSON state)
+  metadata Json?
+
+  // Soft delete — populated when a user moves the document to Trash. The row
+  // and its file (relocated under documents/.trash/) are retained so a
+  // mistaken delete can always be undone. Only ever set/cleared explicitly,
+  // never as part of automated maintenance.
+  deletedAt    DateTime?
+  deletedById  String?
+  deleteReason String?
+
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+
+  @@index([entityType, entityId])
+  @@index([deletedAt])
+  @@map("documents")
+}
+
+// ============================================
+// QUOTE TOKENS
+// ============================================
+
+model QuoteToken {
+  id            String      @id @default(cuid())
+  token         String      @unique
+  reservationId String
+  reservation   Reservation @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+  expiresAt     DateTime
+  usedAt        DateTime?
+  createdAt     DateTime    @default(now())
+
+  @@index([token])
+  @@index([reservationId])
+  @@map("quote_tokens")
+}
+
+// ============================================
+// CLIENT REQUIREMENT TOKENS
+// ============================================
+
+model ClientRequirementToken {
+  id               String   @id @default(cuid())
+  token            String   @unique
+  clientId         String
+  client           Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  requirementTypes String[] // e.g. ["ID", "COI"]
+  expiresAt        DateTime
+  usedAt           DateTime?
+  createdAt        DateTime @default(now())
+
+  @@index([token])
+  @@index([clientId])
+  @@map("client_requirement_tokens")
+}
+
+// ============================================
+// INVENTORY AUDITS
+// ============================================
+
+enum InventoryAuditStatus {
+  DRAFT
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum InventoryAuditScope {
+  FULL
+  PARTIAL
+  CATEGORY
+  LOCATION
+  CLIENT_ORDER
+}
+
+enum AuditItemStatus {
+  PENDING
+  VERIFIED
+  ISSUE
+  MISSING
+  UNEXPECTED
+}
+
+model InventoryAudit {
+  id             String               @id @default(cuid())
+  name           String
+  scope          InventoryAuditScope
+  status         InventoryAuditStatus @default(DRAFT)
+
+  categoryId     String?
+  locationId     String?
+
+  // CLIENT_ORDER scope: audit currently checked-out units for a client's selected orders
+  clientId       String?
+  client         Client?  @relation(fields: [clientId], references: [id])
+  reservationIds String[] @default([])
+
+  totalItems      Int @default(0)
+  verifiedCount   Int @default(0)
+  issueCount      Int @default(0)
+  missingCount    Int @default(0)
+  unexpectedCount Int @default(0)
+
+  notes          String?
+
+  startedAt      DateTime?
+  completedAt    DateTime?
+  createdById    String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  items          AuditItem[]
+
+  @@index([status])
+  @@map("inventory_audits")
+}
+
+model AuditItem {
+  id                 String          @id @default(cuid())
+  auditId            String
+  audit              InventoryAudit  @relation(fields: [auditId], references: [id], onDelete: Cascade)
+  // Null when the scanned barcode is not a registered asset unit (unknown item)
+  assetUnitId        String?
+  // Raw scanned barcode — retained so unknown items can be reviewed / used to create an asset
+  barcode            String?
+
+  status             AuditItemStatus @default(PENDING)
+  scannedAt          DateTime?
+  scannedById        String?
+
+  issueType          String?
+  issueNotes         String?
+
+  expectedLocationId String?
+  expectedStatus     String?
+
+  createdAt          DateTime @default(now())
+
+  @@unique([auditId, assetUnitId])
+  @@index([auditId, status])
+  @@map("audit_items")
+}
+
+// ============================================
+// CLOUD PRODUCTS (subscription catalog)
+// ============================================
+
+model CloudProduct {
+  id          String               @id @default(cuid())
+  category    CloudProductCategory
+  name        String                // e.g. "16C", "64GB", "RTX A6000"
+  description String?
+
+  // Cost basis (our cost per period)
+  costHourly  Decimal  @db.Decimal(12, 4) @default(0)
+  costDaily   Decimal  @db.Decimal(12, 4) @default(0)
+  costWeekly  Decimal  @db.Decimal(12, 4) @default(0)
+  costMonthly Decimal  @db.Decimal(12, 4) @default(0)
+
+  // Sell price overrides (null = derive from cost × (1 + margin))
+  sellHourly  Decimal? @db.Decimal(12, 4)
+  sellDaily   Decimal? @db.Decimal(12, 4)
+  sellWeekly  Decimal? @db.Decimal(12, 4)
+  sellMonthly Decimal? @db.Decimal(12, 4)
+
+  marginPercent Decimal @db.Decimal(5, 2) @default(25)
+  active        Boolean @default(true)
+  sortOrder     Int     @default(0)
+
+  reservationItems ReservationItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([category, name])
+  @@index([category, active])
+  @@map("cloud_products")
+}
+
+// ============================================
+// SCAN LISTS
+// ============================================
+
+model ScanList {
+  id          String         @id @default(cuid())
+  name        String
+  description String?
+  createdById String
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  items       ScanListItem[]
+
+  @@index([createdById])
+  @@map("scan_lists")
+}
+
+model ScanListItem {
+  id          String   @id @default(cuid())
+  listId      String
+  list        ScanList @relation(fields: [listId], references: [id], onDelete: Cascade)
+  assetUnitId String?
+  barcode     String
+  scannedAt   DateTime @default(now())
+  scannedById String?
+  notes       String?
+
+  @@unique([listId, barcode])
+  @@index([listId])
+  @@index([assetUnitId])
+  @@map("scan_list_items")
+}
+
+// ============================================
+// SETTINGS
+// ============================================
+
+model Setting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("settings")
+}
+
+// ============================================
+// API KEYS
+// ============================================
+
+model ApiKey {
+  id          String   @id @default(cuid())
+  name        String
+  keyHash     String   @unique
+  prefix      String
+  role        UserRole @default(VIEWER)
+  isActive    Boolean  @default(true)
+  lastUsedAt  DateTime?
+  expiresAt   DateTime?
+  createdById String
+  createdBy   User     @relation(fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([prefix])
+  @@map("api_keys")
+}
+
+// ============================================
+// LEADS
+// ============================================
+
+enum LeadSource {
+  JUSTCALL
+  HUBSPOT
+  WEBSITE
+  REFERRAL
+  WALK_IN
+  PHONE
+  EMAIL
+  DIRECT
+  AD        // From paid advertising
+  OTHER
+}
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  QUALIFIED
+  PROSPECT // Order created, awaiting quote outcome
+  BOUND    // Bound to existing order/client (different contact on same account)
+  UNQUALIFIED
+  WON
+  LOST
+}
+
+model Lead {
+  id                    String      @id @default(cuid())
+  name                  String
+  email                 String?
+  phone                 String?
+  companyName           String?
+  source                LeadSource  @default(OTHER)
+  channel               String?     // Entry point: "Contact Us Form", "Pricing Page", "Inbound Call", etc.
+  salesRep              String?     // Sales rep name for DIRECT source
+  status                LeadStatus  @default(NEW)
+  assignedToId          String?
+  assignedTo            User?       @relation("LeadAssignedTo", fields: [assignedToId], references: [id])
+  estimatedValue        Decimal?    @db.Decimal(12, 2)
+  notes                 String?
+
+  // Integration IDs
+  hubspotContactId      String?     @unique
+  justcallContactId     String?     @unique
+
+  // Conversion
+  convertedToClientId   String?
+  convertedToClient     Client?     @relation(fields: [convertedToClientId], references: [id])
+  convertedReservationId String?
+  convertedAt           DateTime?
+
+  // Binding (link to existing order without creating new reservation)
+  boundToReservationId  String?
+  boundToClientId       String?
+  boundToClient         Client?     @relation("LeadBoundToClient", fields: [boundToClientId], references: [id])
+  boundAt               DateTime?
+
+  // Ad tracking (for AD source leads)
+  adCampaign            String?     // Campaign name/ID
+  adPlatform            String?     // "Google Ads", "Meta", "LinkedIn", etc.
+  adCost                Decimal?    @db.Decimal(12, 2) // Cost attributed to this lead
+
+  // Lost reason
+  lostReason            String?
+  lostAt                DateTime?
+
+  createdAt             DateTime    @default(now())
+  updatedAt             DateTime    @updatedAt
+
+  activities            LeadActivity[]
+
+  @@index([status])
+  @@index([assignedToId])
+  @@index([source])
+  @@map("leads")
+}
+
+enum LeadActivityType {
+  NOTE
+  CALL
+  EMAIL
+  MEETING
+  STATUS_CHANGE
+  ASSIGNMENT
+  SYSTEM
+}
+
+model LeadActivity {
+  id          String           @id @default(cuid())
+  leadId      String
+  lead        Lead             @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  type        LeadActivityType
+  title       String
+  description String?
+  metadata    Json?
+  createdById String?
+  createdBy   User?            @relation(fields: [createdById], references: [id])
+  createdAt   DateTime         @default(now())
+
+  @@index([leadId])
+  @@map("lead_activities")
+}
+
+// ============================================
+// QUICKBOOKS INTEGRATION
+// ============================================
+
+model QBToken {
+  id           String   @id @default("qb-token")
+  accessToken  String
+  refreshToken String
+  realmId      String
+  tokenType    String   @default("bearer")
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("qb_tokens")
+}
+
+// ============================================
+// LEASES
+// ============================================
+
+enum LeaseStatus {
+  ACTIVE
+  PAID_OFF
+  DEFAULTED
+  TRANSFERRED
+}
+
+model Lease {
+  id             String      @id @default(cuid())
+  assetUnits     AssetUnit[]
+  leaseName      String
+  leaseNumber    String      @unique
+  lender         String
+
+  monthlyPayment Decimal     @db.Decimal(12, 2)
+  interestRate   Decimal     @db.Decimal(5, 4)
+  totalAmount    Decimal     @db.Decimal(12, 2)
+  payoffAmount   Decimal?    @db.Decimal(12, 2)
+
+  startDate      DateTime
+  endDate        DateTime
+  termMonths     Int
+
+  status         LeaseStatus @default(ACTIVE)
+  paidOffDate    DateTime?
+  notes          String?
+
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  @@index([status])
+  @@map("leases")
+}
+
+// ---------------------------------------------------------------------------
+// Service catalog — professional services that can be added to orders
+// ---------------------------------------------------------------------------
+model Service {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  defaultRate Decimal  @default(0) @db.Decimal(12, 2)
+  unit        String   @default("Flat") // "Flat", "Per Hour", "Per Day", "Per Session"
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  items ReservationItem[]
+
+  @@map("services")
+}
+
+// ============================================
+// MARKETING
+// ============================================
+
+enum CampaignType {
+  INTERNAL  // Internal notifications (e.g. lead follow-up reminders)
+  EXTERNAL  // Client-facing (e.g. follow-up emails after quote)
+  EMAIL_LIST // Bulk email to opted-in marketing contacts
+}
+
+enum CampaignStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  COMPLETED
+  ARCHIVED
+}
+
+model MarketingCampaign {
+  id          String         @id @default(cuid())
+  name        String
+  description String?
+  type        CampaignType
+  status      CampaignStatus @default(DRAFT)
+
+  // Trigger configuration
+  triggerType     String?    // "LEAD_NO_UPDATE", "QUOTE_NO_ACTION", "NEW_LEAD", etc.
+  triggerDelayMin Int?       // Minutes before trigger fires (e.g. 5 for 5-min lead follow-up)
+  triggerConfig   Json?      // Extra config (e.g. { "statuses": ["NEW"], "channels": [...] })
+
+  // Email template (for external/email-list campaigns)
+  emailSubject  String?
+  emailBody     String?      // HTML template
+
+  // Targeting
+  targetOptInOnly Boolean @default(true) // Only target clients with marketingOptIn = true
+
+  // Stats
+  sentCount     Int @default(0)
+  openCount     Int @default(0)
+  clickCount    Int @default(0)
+  convertCount  Int @default(0)
+
+  enabled   Boolean  @default(false) // Master on/off switch
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@map("marketing_campaigns")
+}
+
+model MarketingAdExpense {
+  id          String   @id @default(cuid())
+  platform    String   // "Google Ads", "Meta Ads", "LinkedIn Ads", etc.
+  campaignRef String?  // External campaign ID/name
+  date        DateTime
+  spend       Decimal  @db.Decimal(12, 2)
+  impressions Int?
+  clicks      Int?
+  leads       Int?     // Number of leads generated
+  notes       String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([date])
+  @@index([platform])
+  @@map("marketing_ad_expenses")
+}
+
+model MarketingTactic {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  category    String   // "Lead Gen", "Conversion", "Retention", "Awareness"
+  channel     String?  // "Email", "Phone", "Ad", "Social", etc.
+  isActive    Boolean  @default(true)
+  metrics     Json?    // Tracked KPIs: { calls: 0, leads: 0, conversions: 0, revenue: 0 }
+  costToDate  Decimal  @default(0) @db.Decimal(12, 2)
+  notes       String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("marketing_tactics")
+}
+
+// ============================================
+// FLOW — TASK MANAGEMENT
+// ============================================
+
+enum FlowTaskStatus {
+  NEW
+  ASSIGNED
+  IN_PROGRESS
+  COMPLETED
+  CLOSED
+}
+
+enum FlowTaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+model FlowGroup {
+  id        String   @id @default(cuid())
+  name      String
+  color     String   @default("#6366f1") // Hex color for group header
+  sortOrder Int      @default(0)
+  collapsed Boolean  @default(false)
+
+  tasks     FlowTask[]
+
+  // Creator (mirrors FlowTask) — used by FLOW_USER scoping
+  createdById String?
+  createdBy   User?   @relation("FlowGroupCreator", fields: [createdById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([createdById])
+  @@map("flow_groups")
+}
+
+model FlowTask {
+  id          String           @id @default(cuid())
+  title       String
+  description String?
+  status      FlowTaskStatus   @default(NEW)
+  priority    FlowTaskPriority @default(MEDIUM)
+
+  // Assignment (many-to-many)
+  assignees  User[]   @relation("FlowTaskAssignees")
+
+  // Grouping
+  groupId    String?
+  group      FlowGroup? @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  sortOrder  Int        @default(0)
+
+  // Dates
+  dueDate    DateTime?
+  startedAt  DateTime?
+  completedAt DateTime?
+
+  // Notes / context
+  notes      String?
+
+  // Link to reservation, asset, client, etc.
+  linkedEntityType String?  // "RESERVATION", "ASSET", "CLIENT", "LEAD"
+  linkedEntityId   String?
+
+  // Creator
+  createdById String?
+  createdBy   User?   @relation("FlowTaskCreator", fields: [createdById], references: [id])
+
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  comments   FlowTaskComment[]
+
+  @@index([groupId])
+  @@index([status])
+  @@index([dueDate])
+  @@map("flow_tasks")
+}
+
+model FlowTaskComment {
+  id      String   @id @default(cuid())
+  taskId  String
+  task    FlowTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  authorId String
+  author   User    @relation("FlowTaskComments", fields: [authorId], references: [id])
+  content  String
+
+  createdAt DateTime @default(now())
+
+  @@index([taskId])
+  @@map("flow_task_comments")
+}

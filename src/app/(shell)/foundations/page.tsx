@@ -1,5 +1,8 @@
 import { PageHeader } from "@/components/shell/page-header";
 import { ThemeToggle } from "@/components/theme/theme-toggle";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 /**
  * Foundations preview: renders every semantic token in both themes so the token
@@ -147,6 +150,35 @@ export default function Foundations() {
               </li>
             ))}
           </ul>
+        </Card>
+
+        <Card title="Ported primitives">
+          <p className="mb-3 text-detail text-ink-faint">
+            shadcn/ui components carried over from v1, reading the v2 token layer
+            — no second palette. Check these in both themes.
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button size="sm">Primary</Button>
+            <Button size="sm" variant="secondary">
+              Secondary
+            </Button>
+            <Button size="sm" variant="outline">
+              Outline
+            </Button>
+            <Button size="sm" variant="ghost">
+              Ghost
+            </Button>
+            <Button size="sm" variant="destructive">
+              Destructive
+            </Button>
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <Badge>Confirmed</Badge>
+            <Badge variant="secondary">Draft</Badge>
+            <Badge variant="outline">Archived</Badge>
+            <Badge variant="destructive">Overdue</Badge>
+          </div>
+          <Input className="mt-3" placeholder="Search units by serial…" />
         </Card>
       </div>
     </>
