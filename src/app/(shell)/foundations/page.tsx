@@ -10,6 +10,8 @@ import { Input } from "@/components/ui/input";
  * it's a development surface, reachable at /foundations only.
  */
 
+export const metadata = { title: "Design tokens" };
+
 const SURFACES = [
   { token: "--ground", swatch: "bg-ground", use: "App background" },
   { token: "--panel", swatch: "bg-panel", use: "Cards, nav panel" },

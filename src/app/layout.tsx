@@ -12,7 +12,12 @@ const schibstedGrotesk = Schibsted_Grotesk({
 });
 
 export const metadata: Metadata = {
-  title: "VFXNow AMC",
+  // v1 runs on :3000 under the plain "VFXNow AMC" title. This instance is
+  // explicitly v2 so the two are never confused in a tab strip or a bookmark.
+  title: {
+    default: "VFXNow AMC v2",
+    template: "%s · AMC v2",
+  },
   description: "Asset management, rental and sales operations for VFXNow.",
 };
 

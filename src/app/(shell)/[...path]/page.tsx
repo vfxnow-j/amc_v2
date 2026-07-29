@@ -28,9 +28,8 @@ function resolve(path: string[]): Resolved | null {
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const { path } = await params;
   const resolved = resolve(path);
-  return {
-    title: resolved ? `${resolved.page.label} · VFXNow AMC` : "VFXNow AMC",
-  };
+  // The root layout's template appends " · AMC v2".
+  return resolved ? { title: resolved.page.label } : {};
 }
 
 function Origin({ page }: { page: NavPage }) {

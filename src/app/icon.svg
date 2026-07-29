@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <!-- Brand mark reduced to a favicon: the VFXnow ring on the brand ink tile,
+       with the v2 label so this tab is never confused with v1 on :3000. -->
+  <rect width="32" height="32" rx="9" fill="#14222a" />
+  <circle cx="16" cy="16" r="11" fill="none" stroke="#00d0ff" stroke-width="3" />
+  <text
+    x="16"
+    y="16"
+    fill="#00d0ff"
+    font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
+    font-size="12"
+    font-weight="700"
+    letter-spacing="-0.5"
+    text-anchor="middle"
+    dominant-baseline="central"
+  >v2</text>
+</svg>
