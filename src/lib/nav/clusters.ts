@@ -94,6 +94,21 @@ export const NAV_CLUSTERS: NavCluster[] = [
         label: "Packages",
         href: "/dashboard/packages",
       },
+      {
+        // Cloud and Services sit in Operate rather than Revenue: they are
+        // things the team runs and provisions day to day, and the money they
+        // make surfaces through Invoices like everything else.
+        id: "cloud",
+        label: "Cloud services",
+        href: "/dashboard/cloud",
+        from: ["/dashboard/cloud"],
+      },
+      {
+        id: "services",
+        label: "Services",
+        href: "/dashboard/services",
+        from: ["/dashboard/services"],
+      },
     ],
   },
   {
@@ -216,20 +231,6 @@ export const NAV_CLUSTERS: NavCluster[] = [
         ],
       },
       {
-        // Subscription product line — kept in Revenue because it bills. The
-        // catalogue behind it stays in settings/cloud-products.
-        id: "cloud",
-        label: "Cloud services",
-        href: "/dashboard/cloud",
-        from: ["/dashboard/cloud"],
-      },
-      {
-        id: "services",
-        label: "Services",
-        href: "/dashboard/services",
-        from: ["/dashboard/services"],
-      },
-      {
         id: "purchase-orders",
         label: "Purchase orders",
         href: "/dashboard/purchase-orders",
@@ -290,12 +291,8 @@ export const NAV_CLUSTERS: NavCluster[] = [
         href: "/dashboard/insights",
         from: ["/dashboard/insights"],
       },
-      {
-        id: "nowbot",
-        label: "Nowbot",
-        href: "/dashboard/nowbot",
-        from: ["/dashboard/nowbot"],
-      },
+      // Nowbot is not here: the AI assistant is dropped in v2 along with
+      // lib/llm and the chat models. /dashboard/nowbot 404s by design.
     ],
   },
 ];
@@ -306,6 +303,7 @@ export const NAV_CLUSTERS: NavCluster[] = [
  * settings/quickbooks is demoed against the QB sandbox, so that area stays put.
  *
  * Dropped from v2 by product decision, not oversight:
+ * - `/dashboard/nowbot` — the AI assistant, dropped with lib/llm.
  * - `/dashboard/builder` — the workstation quote builder.
  * - `/dashboard/flow` — the FLOW_USER task area; a separate app area that must
  *   never appear in this rail.

@@ -59,6 +59,14 @@ function overdueWhere(now: Date) {
  */
 const MAX_MEANINGFUL_CHANGE = 300;
 
+/** Rentals and sales — the part of revenue that moves day to day. */
+function traded(breakdown: {
+  nonRecurringRental: number;
+  sales: number;
+}): number {
+  return breakdown.nonRecurringRental + breakdown.sales;
+}
+
 function comparableChange(previous: number, current: number): number | null {
   if (previous <= 0) return null;
   const change = percentChange(previous, current);
@@ -86,6 +94,13 @@ export type Kpis = {
     comparedTo: string;
     /** Falls back to composition when a comparison isn't worth showing. */
     recurring: number;
+    /**
+     * Short windows report rentals and sales only. Recurring revenue accrues in
+     * lumps at cycle boundaries, so including it in a day or a week measures
+     * where the boundary fell rather than how trading went. The card has to say
+     * this out loud, per the "counts are always qualified" rule.
+     */
+    excludesRecurring: boolean;
   };
   units: { onRent: number; total: number };
   overdue: { units: number };
@@ -96,6 +111,7 @@ export async function getKpis(
   now = new Date(),
 ): Promise<Kpis> {
   const period = windowFor(range, now);
+  const excludesRecurring = range !== "month";
 
   const [rentableUnits, onRent, overdue, earned] = await Promise.all([
     // Retired and sold units aren't capacity, so they can't dilute utilisation.
@@ -121,10 +137,14 @@ export async function getKpis(
       percent: rentableUnits === 0 ? 0 : (onRent / rentableUnits) * 100,
     },
     revenue: {
-      earned: earned.total,
-      change: comparableChange(previousEarned.total, earned.total),
+      earned: excludesRecurring ? traded(earned) : earned.total,
+      change: comparableChange(
+        excludesRecurring ? traded(previousEarned) : previousEarned.total,
+        excludesRecurring ? traded(earned) : earned.total,
+      ),
       comparedTo: period.comparedTo,
       recurring: earned.recurring,
+      excludesRecurring,
     },
     units: { onRent, total: rentableUnits },
     overdue: { units: overdue },

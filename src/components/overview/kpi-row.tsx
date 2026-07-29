@@ -61,11 +61,11 @@ export async function KpiRow({ range }: { range: Range }) {
         meta={`${NUMBER.format(kpis.units.onRent)} of ${NUMBER.format(kpis.units.total)} rentable`}
       />
       <Kpi
-        label="Revenue earned"
+        label={kpis.revenue.excludesRecurring ? "Rentals & sales" : "Revenue earned"}
         value={MONEY.format(kpis.revenue.earned)}
         meta={
           kpis.revenue.change === null
-            ? `${MONEY.format(kpis.revenue.recurring)} of it recurring`
+            ? `${MONEY.format(kpis.revenue.recurring)} recurring on top`
             : `${kpis.revenue.change >= 0 ? "+" : ""}${kpis.revenue.change.toFixed(1)}% on ${kpis.revenue.comparedTo}`
         }
       />
