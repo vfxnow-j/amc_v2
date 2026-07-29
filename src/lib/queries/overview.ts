@@ -1,4 +1,5 @@
 import { endOfDay, startOfDay, startOfMonth, subMonths } from "date-fns";
+import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getEarnedRevenue } from "@/lib/analytics/earned-revenue";
 import { percentChange } from "@/lib/analytics/statistics";
@@ -12,8 +13,42 @@ import { percentChange } from "@/lib/analytics/statistics";
  * from `getInsightsInternal()` to the auth-checked `getInsights()`.
  */
 
-/** A unit is out when it has been checked out and not yet checked back in. */
-const ON_RENT = { checkedOutAt: { not: null }, checkedInAt: null } as const;
+/**
+ * A unit is out when it has been checked out, not yet checked back in, and its
+ * order is still running. The status filter matters: a handful of units sit on
+ * COMPLETED orders without a check-in, and counting those inflates "on rent".
+ */
+const RUNNING_ORDER = {
+  status: { notIn: ["COMPLETED", "CANCELLED", "LOST"] },
+} satisfies Prisma.ReservationWhereInput;
+
+const ON_RENT: Prisma.ReservationItemUnitWhereInput = {
+  checkedOutAt: { not: null },
+  checkedInAt: null,
+  reservationItem: { reservation: RUNNING_ORDER },
+};
+
+/**
+ * Recurring orders are excluded from anything "due": their endDate is the end
+ * of the current billing period, not a return date, so a rolling monthly
+ * contract reads as months overdue and swamps the real returns. In this data
+ * that is the difference between 213 overdue units and 35.
+ */
+function dueBackWhere(
+  reservation: Prisma.ReservationWhereInput,
+): Prisma.ReservationItemUnitWhereInput {
+  return {
+    checkedOutAt: { not: null },
+    checkedInAt: null,
+    reservationItem: {
+      reservation: { ...RUNNING_ORDER, isRecurring: false, ...reservation },
+    },
+  };
+}
+
+function overdueWhere(now: Date) {
+  return dueBackWhere({ endDate: { lt: startOfDay(now) } });
+}
 
 export type Kpis = {
   /**
@@ -40,10 +75,7 @@ export async function getKpis(now = new Date()): Promise<Kpis> {
     }),
     prisma.reservationItemUnit.count({ where: ON_RENT }),
     prisma.reservationItemUnit.count({
-      where: {
-        ...ON_RENT,
-        reservationItem: { reservation: { endDate: { lt: startOfDay(now) } } },
-      },
+      where: overdueWhere(now),
     }),
     getEarnedRevenue(monthStart, now),
   ]);
@@ -89,10 +121,7 @@ export async function getDueBack(
   now = new Date(),
   take = 14,
 ): Promise<{ rows: DueBackRow[]; total: number; late: number }> {
-  const where = {
-    ...ON_RENT,
-    reservationItem: { reservation: { endDate: { lte: endOfDay(now) } } },
-  };
+  const where = dueBackWhere({ endDate: { lte: endOfDay(now) } });
 
   const [records, total, late] = await Promise.all([
     prisma.reservationItemUnit.findMany({
@@ -122,12 +151,7 @@ export async function getDueBack(
       },
     }),
     prisma.reservationItemUnit.count({ where }),
-    prisma.reservationItemUnit.count({
-      where: {
-        ...ON_RENT,
-        reservationItem: { reservation: { endDate: { lt: startOfDay(now) } } },
-      },
-    }),
+    prisma.reservationItemUnit.count({ where: overdueWhere(now) }),
   ]);
 
   const dayStart = startOfDay(now);
