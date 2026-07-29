@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="ds/styles.css">
+<script src="ds/_ds_bundle.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400..900&display=swap">
+<style>
+.btn-primary { background: var(--color-accent-700); color: #fff; }
+.btn-primary:hover { background: var(--color-accent-800); }
+body { background: #dbe1e5; margin: 0; font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased; }
+:root, body {
+  --color-accent: #00d0ff; --color-accent-100: #e2f8ff; --color-accent-200: #b5edff;
+  --color-accent-300: #7cdfff; --color-accent-400: #38d6ff; --color-accent-500: #00d0ff;
+  --color-accent-600: #00a8d1; --color-accent-700: #0084a5; --color-accent-800: #00647f;
+  --color-accent-900: #004b60;
+  --color-accent-2: #00d0ff; --color-accent-2-100: #e2f8ff; --color-accent-2-500: #00d0ff; --color-accent-2-700: #0084a5;
+  --color-bg: #f1f4f6; --color-surface: #e6ebee; --color-text: #14222a;
+  --color-neutral-100: #f4f6f8; --color-neutral-200: #e7ebee; --color-neutral-300: #d5dbe0;
+  --color-neutral-400: #b3bcc4; --color-neutral-500: #8b959e; --color-neutral-600: #6b757e;
+  --color-neutral-700: #55606a; --color-neutral-800: #38434d; --color-neutral-900: #1e2a33;
+  --font-heading: "Schibsted Grotesk", "Helvetica Neue", Helvetica, sans-serif; --font-body: "Schibsted Grotesk", "Helvetica Neue", Helvetica, sans-serif; font-variant-numeric: tabular-nums; }
+a { color: var(--color-accent); }
+a:hover { color: var(--color-accent-700); }
+</style>
+</helmet>
+
+<div style="display:flex;flex-direction:column;gap:0;font-family:var(--font-body);color:var(--color-text)">
+  <div style="display:flex;align-items:center;gap:14px;padding:20px 28px;background:var(--color-text);color:var(--color-bg)">
+    <img src="assets/vfxnow-mark.png" alt="" style="width:28px;height:28px;display:block;flex:none">
+    <div style="line-height:1.02"><div style="font-size:17px;font-weight:800;letter-spacing:-0.01em">VFX<span style="color:var(--color-accent)">now</span></div><div style="font-size:9px;font-weight:700;letter-spacing:.2em;color:var(--color-neutral-500)">AMC</div></div>
+    <div style="height:26px;width:1px;background:var(--color-neutral-700)"></div>
+    <div style="font-size:13px;font-weight:700;letter-spacing:.14em;text-transform:uppercase">Direction 3a — floating cards · light &amp; dark</div>
+    <div style="margin-left:auto;font-size:12px;color:var(--color-neutral-400)">Reference build for implementation · not production code</div>
+  </div>
+  <div style="padding:28px;display:flex;flex-wrap:wrap;gap:28px;width:max-content">
+
+      <div style="width:1160px;flex:none;height:720px;background:var(--color-bg);border-radius:20px;padding:12px;display:flex;gap:12px;overflow:hidden;font-size:13px;line-height:1.4;box-shadow:var(--shadow-lg)">
+        <div style="width:256px;flex:none;background:#fff;border-radius:16px;padding:14px 10px;display:flex;flex-direction:column;box-shadow:var(--shadow-sm)">
+          <div style="display:flex;align-items:center;gap:10px;padding:2px 8px 14px">
+            <div style="display:flex;align-items:center;gap:9px"><img src="assets/vfxnow-mark.png" alt="" style="width:24px;height:24px;display:block;flex:none"><div style="line-height:1.02"><div style="font-size:15px;font-weight:800;letter-spacing:-0.01em">VFX<span style="color:var(--color-accent-600)">now</span></div><div style="font-size:9px;font-weight:700;letter-spacing:.2em;color:var(--color-neutral-700)">AMC</div></div></div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;background:var(--color-neutral-200);border-radius:10px;padding:8px 10px;margin-bottom:12px"><span style="font-size:12px;color:var(--color-neutral-700)">Search or scan</span><span style="margin-left:auto;font-size:10px;font-weight:700;color:var(--color-neutral-700)">⌘K</span></div>
+          <div style="flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:4px">
+            <div style="border-radius:14px;background:transparent">
+              <div style="display:flex;align-items:center;gap:9px;padding:8px 10px;cursor:pointer">
+                <div style="width:26px;height:26px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;flex:none;background:var(--color-neutral-300);color:var(--color-neutral-700)">OP</div>
+                <div style="font-size:13.5px;font-weight:700;letter-spacing:-0.01em;white-space:nowrap">Operate</div>
+                <div style="margin-left:auto;display:flex;align-items:center;gap:7px"><div style="font-size:11px;font-weight:700;color:var(--color-neutral-700)">42</div><div style="font-size:10px;color:var(--color-neutral-600);transform:rotate(0deg)">▶</div></div>
+              </div>
+            </div>
+            <div style="border-radius:14px;background:transparent">
+              <div style="display:flex;align-items:center;gap:9px;padding:8px 10px;cursor:pointer">
+                <div style="width:26px;height:26px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;flex:none;background:var(--color-neutral-300);color:var(--color-neutral-700)">IN</div>
+                <div style="font-size:13.5px;font-weight:700;letter-spacing:-0.01em;white-space:nowrap">Inventory</div>
+                <div style="margin-left:auto;display:flex;align-items:center;gap:7px"><div style="font-size:11px;font-weight:700;color:var(--color-neutral-700)">1,638</div><div style="font-size:10px;color:var(--color-neutral-600);transform:rotate(0deg)">▶</div></div>
+              </div>
+            </div>
+            <div style="border-radius:14px;background:transparent">
+              <div style="display:flex;align-items:center;gap:9px;padding:8px 10px;cursor:pointer">
+                <div style="width:26px;height:26px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;flex:none;background:var(--color-neutral-300);color:var(--color-neutral-700)">SC</div>
+                <div style="font-size:13.5px;font-weight:700;letter-spacing:-0.01em;white-space:nowrap">Service center</div>
+                <div style="background:var(--color-accent);color:var(--color-text);font-size:8.5px;font-weight:800;border-radius:20px;padding:1px 6px;letter-spacing:.08em">NEW</div>
+                <div style="margin-left:auto;display:flex;align-items:center;gap:7px"><div style="font-size:11px;font-weight:700;color:var(--color-neutral-700)">23</div><div style="font-size:10px;color:var(--color-neutral-600);transform:rotate(0deg)">▶</div></div>
+              </div>
+            </div>
+            <div style="border-radius:14px;background:transparent">
+              <div style="display:flex;align-items:center;gap:9px;padding:8px 10px;cursor:pointer">
+                <div style="width:26px;height:26px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;flex:none;background:var(--color-neutral-300);color:var(--color-neutral-700)">RV</div>
+                <div style="font-size:13.5px;font-weight:700;letter-spacing:-0.01em;white-space:nowrap">Revenue</div>
+                <div style="margin-left:auto;display:flex;align-items:center;gap:7px"><div style="font-size:11px;font-weight:700;color:var(--color-neutral-700)">61</div><div style="font-size:10px;color:var(--color-neutral-600);transform:rotate(0deg)">▶</div></div>
+              </div>
+            </div>
+            <div style="border-radius:14px;background:transparent">
+              <div style="display:flex;align-items:center;gap:9px;padding:8px 10px;cursor:pointer">
+                <div style="width:26px;height:26px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;flex:none;background:var(--color-neutral-300);color:var(--color-neutral-700)">CL</div>
+                <div style="font-size:13.5px;font-weight:700;letter-spacing:-0.01em;white-space:nowrap">Clients</div>
+                <div style="margin-left:auto;display:flex;align-items:center;gap:7px"><div style="font-size:11px;font-weight:700;color:var(--color-neutral-700)">9</div><div style="font-size:10px;color:var(--color-neutral-600);transform:rotate(0deg)">▶</div></div>
+              </div>
+            </div>
+            <div style="border-radius:14px;background:var(--color-accent-100)">
+              <div style="display:flex;align-items:center;gap:9px;padding:8px 10px;cursor:pointer">
+                <div style="width:26px;height:26px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;flex:none;background:var(--color-accent);color:var(--color-text)">IQ</div>
+                <div style="font-size:13.5px;font-weight:700;letter-spacing:-0.01em;white-space:nowrap">Insight</div>
+                <div style="margin-left:auto;display:flex;align-items:center;gap:7px"><div style="font-size:11px;font-weight:700;color:var(--color-neutral-700)"></div><div style="font-size:10px;color:var(--color-neutral-600);transform:rotate(90deg)">▶</div></div>
+              </div>
+              <div style="padding:0 8px 8px">
+                <div style="display:flex;align-items:center;gap:9px;padding:6px 10px;border-radius:10px;margin-top:2px;cursor:pointer;background:var(--color-accent);color:var(--color-text);font-weight:700"><div style="width:4px;height:4px;border-radius:50%;flex:none;background:var(--color-text)"></div><div style="font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Overview</div><div style="margin-left:auto;font-size:11px;opacity:.75"></div></div>
+                <div style="display:flex;align-items:center;gap:9px;padding:6px 10px;border-radius:10px;margin-top:2px;cursor:pointer;background:transparent;color:var(--color-neutral-800);font-weight:400"><div style="width:4px;height:4px;border-radius:50%;flex:none;background:var(--color-neutral-400)"></div><div style="font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Reports</div><div style="margin-left:auto;font-size:11px;opacity:.75"></div></div>
+                <div style="display:flex;align-items:center;gap:9px;padding:6px 10px;border-radius:10px;margin-top:2px;cursor:pointer;background:transparent;color:var(--color-neutral-800);font-weight:400"><div style="width:4px;height:4px;border-radius:50%;flex:none;background:var(--color-neutral-400)"></div><div style="font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Insights</div><div style="margin-left:auto;font-size:11px;opacity:.75"></div></div>
+                <div style="display:flex;align-items:center;gap:9px;padding:6px 10px;border-radius:10px;margin-top:2px;cursor:pointer;background:transparent;color:var(--color-neutral-800);font-weight:400"><div style="width:4px;height:4px;border-radius:50%;flex:none;background:var(--color-neutral-400)"></div><div style="font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Nowbot</div><div style="margin-left:auto;font-size:11px;opacity:.75"></div></div>
+              </div>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;background:var(--color-neutral-200);border-radius:12px;padding:8px 10px;margin-top:10px">
+            <div style="width:26px;height:26px;border-radius:9px;background:var(--color-text);color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center">DR</div>
+            <div style="line-height:1.15"><div style="font-size:12px;font-weight:700">D. Reyes</div><div style="font-size:10px;color:var(--color-neutral-700)">Warehouse lead</div></div>
+          </div>
+        </div>
+
+        <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:12px">
+          <div style="display:flex;align-items:center;gap:14px;background:#fff;border-radius:16px;padding:12px 16px;box-shadow:var(--shadow-sm)">
+            <div><div style="font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--color-neutral-700)">Insight</div><div style="font-size:24px;font-weight:800;letter-spacing:-0.03em;line-height:1.1">Overview</div></div>
+            <div style="margin-left:auto;display:flex;align-items:center;gap:10px">
+              <div style="display:flex;background:var(--color-neutral-200);border-radius:20px;padding:3px">
+                <div style="padding:5px 14px;border-radius:20px;background:#fff;font-size:12px;font-weight:700;box-shadow:var(--shadow-sm)">Today</div>
+                <div style="padding:5px 14px;font-size:12px;color:var(--color-neutral-800)">Week</div>
+                <div style="padding:5px 14px;font-size:12px;color:var(--color-neutral-800)">Month</div>
+              </div>
+              <div style="background:var(--color-accent-700);color:#fff;border-radius:20px;padding:8px 16px;font-size:13px;font-weight:700">New reservation</div>
+            </div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
+            <div style="background:#fff;border-radius:16px;padding:12px 14px;box-shadow:var(--shadow-sm)"><div style="font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--color-neutral-700)">Utilisation</div><div style="font-size:30px;font-weight:700;letter-spacing:-0.03em">78.4%</div><div style="display:inline-block;font-size:11px;font-weight:700;background:var(--color-neutral-200);border-radius:20px;padding:1px 8px">+2.1 pts</div></div>
+            <div style="background:#fff;border-radius:16px;padding:12px 14px;box-shadow:var(--shadow-sm)"><div style="font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--color-neutral-700)">Revenue MTD</div><div style="font-size:30px;font-weight:700;letter-spacing:-0.03em">$412,880</div><div style="display:inline-block;font-size:11px;font-weight:700;background:var(--color-neutral-200);border-radius:20px;padding:1px 8px">64% of target</div></div>
+            <div style="background:#fff;border-radius:16px;padding:12px 14px;box-shadow:var(--shadow-sm)"><div style="font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--color-neutral-700)">Units on rent</div><div style="font-size:30px;font-weight:700;letter-spacing:-0.03em">1,284</div><div style="display:inline-block;font-size:11px;font-weight:700;background:var(--color-neutral-200);border-radius:20px;padding:1px 8px">of 1,638</div></div>
+            <div style="background:var(--color-accent-100);border-radius:16px;padding:12px 14px;box-shadow:var(--shadow-sm)"><div style="font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--color-accent-800)">Overdue</div><div style="font-size:30px;font-weight:700;letter-spacing:-0.03em;color:var(--color-accent-700)">7 units</div><div style="display:inline-block;font-size:11px;font-weight:700;background:#fff;border-radius:20px;padding:1px 8px;color:var(--color-accent-800)">$465 in fees</div></div>
+          </div>
+
+          <div style="flex:1;min-height:0;display:grid;grid-template-columns:1.5fr 1fr;gap:12px">
+            <div style="background:#fff;border-radius:16px;padding:14px 0 0;display:flex;flex-direction:column;min-height:0;overflow:hidden;box-shadow:var(--shadow-sm)">
+              <div style="display:flex;align-items:center;gap:10px;padding:0 16px 12px">
+                <div style="font-size:14px;font-weight:800;letter-spacing:-0.01em">Due back today</div>
+                <div style="font-size:11px;font-weight:700;background:var(--color-accent-200);color:var(--color-accent-800);border-radius:20px;padding:1px 8px">3 late</div>
+                <div style="margin-left:auto;font-size:12px;font-weight:700;color:var(--color-accent-700)">Open the desk →</div>
+              </div>
+              <div style="display:grid;grid-template-columns:84px 1fr 128px 62px 74px;padding:0 16px 6px;font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--color-neutral-700)"><div>Unit</div><div>Asset</div><div>Client</div><div>Due</div><div>State</div></div>
+              <div style="padding:0 8px;display:flex;flex-direction:column;gap:2px">
+                <div style="display:grid;grid-template-columns:84px 1fr 128px 62px 74px;padding:8px;border-radius:10px;background:var(--color-accent-100)"><div style="font-weight:700">WS-0412</div><div>Dell Precision 7960 Tower</div><div>Nimbus Post</div><div>10:00</div><div style="font-weight:700;color:var(--color-accent-700)">3d late</div></div>
+                <div style="display:grid;grid-template-columns:84px 1fr 128px 62px 74px;padding:8px;border-radius:10px;background:var(--color-accent-100)"><div style="font-weight:700">SRV-0088</div><div>Supermicro AS-4125GS GPU server</div><div>Halcyon</div><div>10:00</div><div style="font-weight:700;color:var(--color-accent-700)">1d late</div></div>
+                <div style="display:grid;grid-template-columns:84px 1fr 128px 62px 74px;padding:8px;border-radius:10px;background:var(--color-accent-100)"><div style="font-weight:700">STG-0031</div><div>Quantum StorNext F1000 array</div><div>Foundry Nine</div><div>11:30</div><div style="font-weight:700;color:var(--color-accent-700)">1d late</div></div>
+                <div style="display:grid;grid-template-columns:84px 1fr 128px 62px 74px;padding:8px;border-radius:10px"><div style="font-weight:700">LAP-0290</div><div>MacBook Pro 16″ M4 Max</div><div>Meridian VFX</div><div>13:00</div><div style="color:var(--color-neutral-800)">On rent</div></div>
+                <div style="display:grid;grid-template-columns:84px 1fr 128px 62px 74px;padding:8px;border-radius:10px;background:var(--color-neutral-100)"><div style="font-weight:700">NET-0117</div><div>Arista 7050SX3 100GbE switch</div><div>Meridian VFX</div><div>13:00</div><div style="color:var(--color-neutral-800)">On rent</div></div>
+                <div style="display:grid;grid-template-columns:84px 1fr 128px 62px 74px;padding:8px;border-radius:10px"><div style="font-weight:700">STG-0044</div><div>Synology SA6400 storage server</div><div>Lightsmith</div><div>14:15</div><div style="color:var(--color-neutral-800)">On rent</div></div>
+                <div style="display:grid;grid-template-columns:84px 1fr 128px 62px 74px;padding:8px;border-radius:10px;background:var(--color-neutral-100)"><div style="font-weight:700">WS-0501</div><div>HP Z8 Fury G5 workstation</div><div>Arcadia</div><div>15:00</div><div style="color:var(--color-neutral-800)">On rent</div></div>
+              </div>
+              <div style="margin-top:auto;padding:10px 16px;font-size:12px;color:var(--color-neutral-700)">7 of 14 shown · scroll for the rest</div>
+            </div>
+
+            <div style="display:flex;flex-direction:column;gap:12px;min-height:0">
+              <sc-if value="{{ showService }}" hint-placeholder-val="{{ true }}">
+              <div style="background:#fff;border-radius:16px;padding:14px;box-shadow:var(--shadow-sm)">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><div style="font-size:14px;font-weight:800;letter-spacing:-0.01em">Service center</div><span style="background:var(--color-accent);color:var(--color-text);font-size:8.5px;font-weight:700;border-radius:20px;padding:1px 6px;letter-spacing:.06em">NEW</span><div style="margin-left:auto;font-size:11px;color:var(--color-neutral-700)">23 open</div></div>
+                <div style="display:flex;flex-direction:column;gap:6px">
+                  <div style="display:flex;align-items:center;gap:8px;background:var(--color-accent-100);border-radius:10px;padding:8px 10px"><div style="font-weight:700;width:74px">SRV-0088</div><div style="flex:1;font-size:12px">GPU 3 off bus — memtest queued</div><div style="font-size:10px;font-weight:700;background:var(--color-accent-700);color:#fff;border-radius:20px;padding:1px 7px">FAIL</div></div>
+                  <div style="display:flex;align-items:center;gap:8px;background:var(--color-accent-100);border-radius:10px;padding:8px 10px"><div style="font-weight:700;width:74px">STG-0031</div><div style="flex:1;font-size:12px">Disk 7 pre-fail, RMA opened</div><div style="font-size:10px;font-weight:700;background:var(--color-accent-700);color:#fff;border-radius:20px;padding:1px 7px">FAIL</div></div>
+                  <div style="display:flex;align-items:center;gap:8px;background:var(--color-neutral-100);border-radius:10px;padding:8px 10px"><div style="font-weight:700;width:74px">WS-0433</div><div style="flex:1;font-size:12px">Burn-in 4/6 h · OCCT clean</div><div style="font-size:10px;font-weight:700;background:var(--color-neutral-300);border-radius:20px;padding:1px 7px">RUNNING</div></div>
+                  <div style="display:flex;align-items:center;gap:8px;background:var(--color-neutral-100);border-radius:10px;padding:8px 10px"><div style="font-weight:700;width:74px">LAP-0288</div><div style="flex:1;font-size:12px">Battery 71% — pass with note</div><div style="font-size:10px;font-weight:700;background:var(--color-neutral-300);border-radius:20px;padding:1px 7px">PASS</div></div>
+                </div>
+              </div>
+              </sc-if>
+              <div style="flex:none;background:#fff;border-radius:16px;padding:14px;box-shadow:var(--shadow-sm)">
+                <div style="font-size:14px;font-weight:800;letter-spacing:-0.01em;margin-bottom:10px">Needs a decision</div>
+                <div style="display:flex;flex-direction:column;gap:8px">
+                  <div style="background:var(--color-neutral-100);border-radius:12px;padding:10px"><div style="font-weight:700">Quote QT-0416 expires tomorrow</div><div style="font-size:12px;color:var(--color-neutral-700)">Cobalt Frame · $38,900 · sent 13 days ago</div></div>
+                  <div style="background:var(--color-neutral-100);border-radius:12px;padding:10px"><div style="font-weight:700">3 invoices past 30 days</div><div style="font-size:12px;color:var(--color-neutral-700)">$52,140 · oldest Halcyon, 44 days</div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style="width:1160px;flex:none;height:720px;background:#0c1418;color:var(--color-bg);border-radius:20px;padding:12px;display:flex;gap:12px;overflow:hidden;font-size:13px;line-height:1.4">
+        <div style="width:256px;flex:none;background:#15222a;border-radius:16px;padding:14px 10px;display:flex;flex-direction:column">
+          <div style="display:flex;align-items:center;gap:10px;padding:2px 8px 14px">
+            <div style="display:flex;align-items:center;gap:9px"><img src="assets/vfxnow-mark.png" alt="" style="width:24px;height:24px;display:block;flex:none"><div style="line-height:1.02"><div style="font-size:15px;font-weight:800;letter-spacing:-0.01em">VFX<span style="color:var(--color-accent)">now</span></div><div style="font-size:9px;font-weight:700;letter-spacing:.2em;color:var(--color-neutral-500)">AMC</div></div></div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;background:#1e2f39;border-radius:10px;padding:8px 10px;margin-bottom:12px"><span style="font-size:12px;color:var(--color-neutral-400)">Search or scan</span><span style="margin-left:auto;font-size:10px;font-weight:700;color:var(--color-neutral-400)">⌘K</span></div>
+          <div style="flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:4px">
+            <div style="border-radius:14px;background:transparent">
+              <div style="display:flex;align-items:center;gap:9px;padding:8px 10px;cursor:pointer">
+                <div style="width:26px;height:26px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;flex:none;background:#26343d;color:var(--color-neutral-400)">OP</div>
+                <div style="font-size:13.5px;font-weight:700;letter-spacing:-0.01em;white-space:nowrap">Operate</div>
+                <div style="margin-left:auto;display:flex;align-items:center;gap:7px"><div style="font-size:11px;font-weight:700;color:var(--color-neutral-400)">42</div><div style="font-size:10px;color:var(--color-neutral-500);transform:rotate(0deg)">▶</div></div>
+              </div>
+            </div>
+            <div style="border-radius:14px;background:transparent">
+              <div style="display:flex;align-items:center;gap:9px;padding:8px 10px;cursor:pointer">
+                <div style="width:26px;height:26px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;flex:none;background:#26343d;color:var(--color-neutral-400)">IN</div>
+                <div style="font-size:13.5px;font-weight:700;letter-spacing:-0.01em;white-space:nowrap">Inventory</div>
+                <div style="margin-left:auto;display:flex;align-items:center;gap:7px"><div style="font-size:11px;font-weight:700;color:var(--color-neutral-400)">1,638</div><div style="font-size:10px;color:var(--color-neutral-500);transform:rotate(0deg)">▶</div></div>
+              </div>
+            </div>
+            <div style="border-radius:14px;background:transparent">
+              <div style="display:flex;align-items:center;gap:9px;padding:8px 10px;cursor:pointer">
+                <div style="width:26px;height:26px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;flex:none;background:#26343d;color:var(--color-neutral-400)">SC</div>
+                <div style="font-size:13.5px;font-weight:700;letter-spacing:-0.01em;white-space:nowrap">Service center</div>
+                <div style="background:var(--color-accent);color:var(--color-text);font-size:8.5px;font-weight:800;border-radius:20px;padding:1px 6px;letter-spacing:.08em">NEW</div>
+                <div style="margin-left:auto;display:flex;align-items:center;gap:7px"><div style="font-size:11px;font-weight:700;color:var(--color-neutral-400)">23</div><div style="font-size:10px;color:var(--color-neutral-500);transform:rotate(0deg)">▶</div></div>
+              </div>
+            </div>
+            <div style="border-radius:14px;background:transparent">
+              <div style="display:flex;align-items:center;gap:9px;padding:8px 10px;cursor:pointer">
+                <div style="width:26px;height:26px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;flex:none;background:#26343d;color:var(--color-neutral-400)">RV</div>
+                <div style="font-size:13.5px;font-weight:700;letter-spacing:-0.01em;white-space:nowrap">Revenue</div>
+                <div style="margin-left:auto;display:flex;align-items:center;gap:7px"><div style="font-size:11px;font-weight:700;color:var(--color-neutral-400)">61</div><div style="font-size:10px;color:var(--color-neutral-500);transform:rotate(0deg)">▶</div></div>
+              </div>
+            </div>
+            <div style="border-radius:14px;background:transparent">
+              <div style="display:flex;align-items:center;gap:9px;padding:8px 10px;cursor:pointer">
+                <div style="width:26px;height:26px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;flex:none;background:#26343d;color:var(--color-neutral-400)">CL</div>
+                <div style="font-size:13.5px;font-weight:700;letter-spacing:-0.01em;white-space:nowrap">Clients</div>
+                <div style="margin-left:auto;display:flex;align-items:center;gap:7px"><div style="font-size:11px;font-weight:700;color:var(--color-neutral-400)">9</div><div style="font-size:10px;color:var(--color-neutral-500);transform:rotate(0deg)">▶</div></div>
+              </div>
+            </div>
+            <div style="border-radius:14px;background:color-mix(in srgb, var(--color-accent) 20%, transparent)">
+              <div style="display:flex;align-items:center;gap:9px;padding:8px 10px;cursor:pointer">
+                <div style="width:26px;height:26px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;flex:none;background:var(--color-accent);color:var(--color-text)">IQ</div>
+                <div style="font-size:13.5px;font-weight:700;letter-spacing:-0.01em;white-space:nowrap">Insight</div>
+                <div style="margin-left:auto;display:flex;align-items:center;gap:7px"><div style="font-size:11px;font-weight:700;color:var(--color-neutral-400)"></div><div style="font-size:10px;color:var(--color-neutral-500);transform:rotate(90deg)">▶</div></div>
+              </div>
+              <div style="padding:0 8px 8px">
+                <div style="display:flex;align-items:center;gap:9px;padding:6px 10px;border-radius:10px;margin-top:2px;cursor:pointer;background:var(--color-accent);color:var(--color-text);font-weight:700"><div style="width:4px;height:4px;border-radius:50%;flex:none;background:var(--color-text)"></div><div style="font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Overview</div><div style="margin-left:auto;font-size:11px;opacity:.75"></div></div>
+                <div style="display:flex;align-items:center;gap:9px;padding:6px 10px;border-radius:10px;margin-top:2px;cursor:pointer;background:transparent;color:var(--color-neutral-300);font-weight:400"><div style="width:4px;height:4px;border-radius:50%;flex:none;background:var(--color-neutral-600)"></div><div style="font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Reports</div><div style="margin-left:auto;font-size:11px;opacity:.75"></div></div>
+                <div style="display:flex;align-items:center;gap:9px;padding:6px 10px;border-radius:10px;margin-top:2px;cursor:pointer;background:transparent;color:var(--color-neutral-300);font-weight:400"><div style="width:4px;height:4px;border-radius:50%;flex:none;background:var(--color-neutral-600)"></div><div style="font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Insights</div><div style="margin-left:auto;font-size:11px;opacity:.75"></div></div>
+                <div style="display:flex;align-items:center;gap:9px;padding:6px 10px;border-radius:10px;margin-top:2px;cursor:pointer;background:transparent;color:var(--color-neutral-300);font-weight:400"><div style="width:4px;height:4px;border-radius:50%;flex:none;background:var(--color-neutral-600)"></div><div style="font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Nowbot</div><div style="margin-left:auto;font-size:11px;opacity:.75"></div></div>
+              </div>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;background:#1e2f39;border-radius:12px;padding:8px 10px;margin-top:10px">
+            <div style="width:26px;height:26px;border-radius:9px;background:var(--color-neutral-600);color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center">DR</div>
+            <div style="line-height:1.15"><div style="font-size:12px;font-weight:700">D. Reyes</div><div style="font-size:10px;color:var(--color-neutral-500)">Warehouse lead</div></div>
+          </div>
+        </div>
+
+        <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:12px">
+          <div style="display:flex;align-items:center;gap:14px;background:#15222a;border-radius:16px;padding:12px 16px">
+            <div><div style="font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--color-neutral-500)">Insight</div><div style="font-size:24px;font-weight:800;letter-spacing:-0.03em;line-height:1.1">Overview</div></div>
+            <div style="margin-left:auto;display:flex;align-items:center;gap:10px">
+              <div style="display:flex;background:#1e2f39;border-radius:20px;padding:3px">
+                <div style="padding:5px 14px;border-radius:20px;background:var(--color-bg);color:var(--color-text);font-size:12px;font-weight:700">Today</div>
+                <div style="padding:5px 14px;font-size:12px;color:var(--color-neutral-300)">Week</div>
+                <div style="padding:5px 14px;font-size:12px;color:var(--color-neutral-300)">Month</div>
+              </div>
+              <div style="background:var(--color-accent-700);color:#fff;border-radius:20px;padding:8px 16px;font-size:13px;font-weight:700">New reservation</div>
+            </div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
+            <div style="background:#15222a;border-radius:16px;padding:12px 14px"><div style="font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--color-neutral-500)">Utilisation</div><div style="font-size:30px;font-weight:700;letter-spacing:-0.03em">78.4%</div><div style="display:inline-block;font-size:11px;font-weight:700;background:#1e2f39;border-radius:20px;padding:1px 8px">+2.1 pts</div></div>
+            <div style="background:#15222a;border-radius:16px;padding:12px 14px"><div style="font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--color-neutral-500)">Revenue MTD</div><div style="font-size:30px;font-weight:700;letter-spacing:-0.03em">$412,880</div><div style="display:inline-block;font-size:11px;font-weight:700;background:#1e2f39;border-radius:20px;padding:1px 8px">64% of target</div></div>
+            <div style="background:#15222a;border-radius:16px;padding:12px 14px"><div style="font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--color-neutral-500)">Units on rent</div><div style="font-size:30px;font-weight:700;letter-spacing:-0.03em">1,284</div><div style="display:inline-block;font-size:11px;font-weight:700;background:#1e2f39;border-radius:20px;padding:1px 8px">of 1,638</div></div>
+            <div style="background:color-mix(in srgb, var(--color-accent) 22%, #15222a);border-radius:16px;padding:12px 14px"><div style="font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--color-accent-300)">Overdue</div><div style="font-size:30px;font-weight:700;letter-spacing:-0.03em;color:var(--color-accent-300)">7 units</div><div style="display:inline-block;font-size:11px;font-weight:700;background:color-mix(in srgb, var(--color-accent) 34%, transparent);border-radius:20px;padding:1px 8px">$465 in fees</div></div>
+          </div>
+
+          <div style="flex:1;min-height:0;display:grid;grid-template-columns:1.5fr 1fr;gap:12px">
+            <div style="background:#15222a;border-radius:16px;padding:14px 0 0;display:flex;flex-direction:column;min-height:0;overflow:hidden">
+              <div style="display:flex;align-items:center;gap:10px;padding:0 16px 12px">
+                <div style="font-size:14px;font-weight:800;letter-spacing:-0.01em">Due back today</div>
+                <div style="font-size:11px;font-weight:700;background:color-mix(in srgb, var(--color-accent) 32%, transparent);border-radius:20px;padding:1px 8px">3 late</div>
+                <div style="margin-left:auto;font-size:12px;font-weight:700;color:var(--color-accent-300)">Open the desk →</div>
+              </div>
+              <div style="display:grid;grid-template-columns:84px 1fr 128px 62px 74px;padding:0 16px 6px;font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--color-neutral-500)"><div>Unit</div><div>Asset</div><div>Client</div><div>Due</div><div>State</div></div>
+              <div style="padding:0 8px;display:flex;flex-direction:column;gap:2px">
+                <div style="display:grid;grid-template-columns:84px 1fr 128px 62px 74px;padding:8px;border-radius:10px;background:color-mix(in srgb, var(--color-accent) 22%, transparent)"><div style="font-weight:700">WS-0412</div><div>Dell Precision 7960 Tower</div><div>Nimbus Post</div><div>10:00</div><div style="font-weight:700;color:var(--color-accent-300)">3d late</div></div>
+                <div style="display:grid;grid-template-columns:84px 1fr 128px 62px 74px;padding:8px;border-radius:10px;background:color-mix(in srgb, var(--color-accent) 22%, transparent)"><div style="font-weight:700">SRV-0088</div><div>Supermicro AS-4125GS GPU server</div><div>Halcyon</div><div>10:00</div><div style="font-weight:700;color:var(--color-accent-300)">1d late</div></div>
+                <div style="display:grid;grid-template-columns:84px 1fr 128px 62px 74px;padding:8px;border-radius:10px;background:color-mix(in srgb, var(--color-accent) 22%, transparent)"><div style="font-weight:700">STG-0031</div><div>Quantum StorNext F1000 array</div><div>Foundry Nine</div><div>11:30</div><div style="font-weight:700;color:var(--color-accent-300)">1d late</div></div>
+                <div style="display:grid;grid-template-columns:84px 1fr 128px 62px 74px;padding:8px;border-radius:10px"><div style="font-weight:700">LAP-0290</div><div>MacBook Pro 16″ M4 Max</div><div>Meridian VFX</div><div>13:00</div><div style="color:var(--color-neutral-400)">On rent</div></div>
+                <div style="display:grid;grid-template-columns:84px 1fr 128px 62px 74px;padding:8px;border-radius:10px;background:#1a2830"><div style="font-weight:700">NET-0117</div><div>Arista 7050SX3 100GbE switch</div><div>Meridian VFX</div><div>13:00</div><div style="color:var(--color-neutral-400)">On rent</div></div>
+                <div style="display:grid;grid-template-columns:84px 1fr 128px 62px 74px;padding:8px;border-radius:10px"><div style="font-weight:700">STG-0044</div><div>Synology SA6400 storage server</div><div>Lightsmith</div><div>14:15</div><div style="color:var(--color-neutral-400)">On rent</div></div>
+                <div style="display:grid;grid-template-columns:84px 1fr 128px 62px 74px;padding:8px;border-radius:10px;background:#1a2830"><div style="font-weight:700">WS-0501</div><div>HP Z8 Fury G5 workstation</div><div>Arcadia</div><div>15:00</div><div style="color:var(--color-neutral-400)">On rent</div></div>
+              </div>
+              <div style="margin-top:auto;padding:10px 16px;font-size:12px;color:var(--color-neutral-500)">7 of 14 shown · scroll for the rest</div>
+            </div>
+
+            <div style="display:flex;flex-direction:column;gap:12px;min-height:0">
+              <sc-if value="{{ showService }}" hint-placeholder-val="{{ true }}">
+              <div style="background:#15222a;border-radius:16px;padding:14px">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><div style="font-size:14px;font-weight:800;letter-spacing:-0.01em">Service center</div><span style="background:var(--color-accent);color:var(--color-text);font-size:8.5px;font-weight:700;border-radius:20px;padding:1px 6px;letter-spacing:.06em">NEW</span><div style="margin-left:auto;font-size:11px;color:var(--color-neutral-500)">23 open</div></div>
+                <div style="display:flex;flex-direction:column;gap:6px">
+                  <div style="display:flex;align-items:center;gap:8px;background:color-mix(in srgb, var(--color-accent) 22%, transparent);border-radius:10px;padding:8px 10px"><div style="font-weight:700;width:74px">SRV-0088</div><div style="flex:1;font-size:12px">GPU 3 off bus — memtest queued</div><div style="font-size:10px;font-weight:700;background:var(--color-accent-700);color:#fff;border-radius:20px;padding:1px 7px">FAIL</div></div>
+                  <div style="display:flex;align-items:center;gap:8px;background:color-mix(in srgb, var(--color-accent) 22%, transparent);border-radius:10px;padding:8px 10px"><div style="font-weight:700;width:74px">STG-0031</div><div style="flex:1;font-size:12px">Disk 7 pre-fail, RMA opened</div><div style="font-size:10px;font-weight:700;background:var(--color-accent-700);color:#fff;border-radius:20px;padding:1px 7px">FAIL</div></div>
+                  <div style="display:flex;align-items:center;gap:8px;background:#1a2830;border-radius:10px;padding:8px 10px"><div style="font-weight:700;width:74px">WS-0433</div><div style="flex:1;font-size:12px">Burn-in 4/6 h · OCCT clean</div><div style="font-size:10px;font-weight:700;background:var(--color-neutral-700);border-radius:20px;padding:1px 7px">RUNNING</div></div>
+                  <div style="display:flex;align-items:center;gap:8px;background:#1a2830;border-radius:10px;padding:8px 10px"><div style="font-weight:700;width:74px">LAP-0288</div><div style="flex:1;font-size:12px">Battery 71% — pass with note</div><div style="font-size:10px;font-weight:700;background:var(--color-neutral-700);border-radius:20px;padding:1px 7px">PASS</div></div>
+                </div>
+              </div>
+              </sc-if>
+              <div style="flex:none;background:#15222a;border-radius:16px;padding:14px">
+                <div style="font-size:14px;font-weight:800;letter-spacing:-0.01em;margin-bottom:10px">Needs a decision</div>
+                <div style="display:flex;flex-direction:column;gap:8px">
+                  <div style="background:#1a2830;border-radius:12px;padding:10px"><div style="font-weight:700">Quote QT-0416 expires tomorrow</div><div style="font-size:12px;color:var(--color-neutral-400)">Cobalt Frame · $38,900 · sent 13 days ago</div></div>
+                  <div style="background:#1a2830;border-radius:12px;padding:10px"><div style="font-weight:700">3 invoices past 30 days</div><div style="font-size:12px;color:var(--color-neutral-400)">$52,140 · oldest Halcyon, 44 days</div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  renderVals() { return { showService: true, showNotes: false }; }
+}
+</script>
+</body>
+</html>
