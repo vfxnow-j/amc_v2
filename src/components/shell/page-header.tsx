@@ -11,8 +11,11 @@ export function PageHeader({
 }: {
   eyebrow?: string;
   title: string;
-  /** Real context — "42 open orders · $1.24M booked" — never filler. */
-  blurb?: string;
+  /**
+   * Real context — "42 open orders · $1.24M booked" — never filler. Takes a
+   * node so a page can stream it in behind its own Suspense boundary.
+   */
+  blurb?: React.ReactNode;
   actions?: React.ReactNode;
 }) {
   return (
