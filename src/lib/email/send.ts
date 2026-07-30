@@ -1,4 +1,4 @@
-import { resend, EMAIL_FROM } from './client'
+import { getResend, isEmailConfigured, EMAIL_FROM } from './client'
 
 export type EmailAttachment = {
   filename: string
@@ -16,8 +16,15 @@ export type SendEmailParams = {
 }
 
 export async function sendEmail(params: SendEmailParams): Promise<{ success: boolean; error?: string }> {
+  // Outbound email is switched off in this instance by design; say so and let
+  // the caller carry on rather than throwing through it.
+  if (!isEmailConfigured()) {
+    console.warn(`Email not sent (no RESEND_API_KEY): "${params.subject}"`)
+    return { success: false, error: 'Outbound email is switched off in this instance.' }
+  }
+
   try {
-    const { error } = await resend.emails.send({
+    const { error } = await getResend().emails.send({
       from: EMAIL_FROM,
       to: Array.isArray(params.to) ? params.to : [params.to],
       subject: params.subject,

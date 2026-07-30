@@ -3,7 +3,9 @@
 import { prisma } from '@/lib/prisma'
 import { sendEmail } from '@/lib/email'
 import type { EmailAttachment } from '@/lib/email/send'
-import { resend, EMAIL_FROM } from '@/lib/email/client'
+// getResend() throws when no key is configured; every call below sits inside a
+// try/catch, so a switched-off integration degrades to a logged failure.
+import { getResend, EMAIL_FROM } from '@/lib/email/client'
 import { overdueReminderEmail, systemAlertEmail, newLeadEmail, reservationConfirmedStaffEmail, purchaseOrderSubmittedEmail, insightsDigestEmail, weeklyReportEmail, dailyDigestEmail, dailyTrafficReportEmail, coverageExpiryEmail, type NewLeadEmailData, type ReservationConfirmedEmailData, type PurchaseOrderSubmittedEmailData, type InsightsDigestData, type WeeklyReportData, type DailyDigestData, type DailyOrderRow, type DailyTrafficReportData, type TrafficReportClientGroup, type TrafficReportUnit, type CoverageExpiryEmailData } from '@/lib/email/templates'
 import { coverageTypeLabels } from '@/lib/types'
 import { requireAdmin, requireAuth } from '@/lib/auth-utils'
@@ -170,7 +172,7 @@ export async function notifyNewLead(lead: NewLeadEmailData): Promise<void> {
 
     const template = newLeadEmail(lead)
 
-    const { error } = await resend.batch.send(
+    const { error } = await getResend().batch.send(
       emails.map((email) => ({
         from: EMAIL_FROM,
         to: email,
@@ -203,7 +205,7 @@ export async function notifyReservationConfirmed(data: ReservationConfirmedEmail
 
     const template = reservationConfirmedStaffEmail(data)
 
-    const { error } = await resend.batch.send(
+    const { error } = await getResend().batch.send(
       emails.map((email) => ({
         from: EMAIL_FROM,
         to: email,
@@ -255,7 +257,7 @@ export async function notifyPurchaseOrderSubmitted(
       return
     }
 
-    const { error } = await resend.batch.send(
+    const { error } = await getResend().batch.send(
       emails.map((email) => ({
         from: EMAIL_FROM,
         to: email,
@@ -359,7 +361,7 @@ export async function notifyInsights(): Promise<{ sent: number; insights: number
 
     const template = insightsDigestEmail(digestData)
 
-    const { error } = await resend.batch.send(
+    const { error } = await getResend().batch.send(
       emails.map((email) => ({
         from: EMAIL_FROM,
         to: email,
@@ -561,7 +563,7 @@ export async function notifyDailyDigest(): Promise<{ sent: number }> {
 
     const template = dailyDigestEmail(digestData)
 
-    const { error } = await resend.batch.send(
+    const { error } = await getResend().batch.send(
       emails.map((email) => ({
         from: EMAIL_FROM,
         to: email,
@@ -734,7 +736,7 @@ export async function notifyDailyTrafficReport(): Promise<{ sent: number; outCou
 
     const template = dailyTrafficReportEmail(data)
 
-    const { error } = await resend.batch.send(
+    const { error } = await getResend().batch.send(
       emails.map((email) => ({
         from: EMAIL_FROM,
         to: email,
@@ -977,7 +979,7 @@ export async function notifyWeeklyReport(): Promise<{ sent: number; insights: nu
 
     const template = weeklyReportEmail(reportData)
 
-    const { error } = await resend.batch.send(
+    const { error } = await getResend().batch.send(
       emails.map((email) => ({
         from: EMAIL_FROM,
         to: email,
@@ -1056,7 +1058,7 @@ export async function sendCoverageExpiryNotifications(): Promise<{ sent: number;
 
     const template = coverageExpiryEmail(emailData)
 
-    const { error } = await resend.batch.send(
+    const { error } = await getResend().batch.send(
       emails.map((email) => ({
         from: EMAIL_FROM,
         to: email,
