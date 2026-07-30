@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import type { Insight } from "@/lib/analytics/insights";
+import { MUST_NOT_BE_OUT } from "@/lib/inventory/availability";
 
 /**
  * Data-quality checks that report rather than repair.
@@ -128,4 +129,90 @@ export async function getUnitCountDrift(): Promise<Insight[]> {
       link: `/dashboard/reservations/${reservationId}`,
     } satisfies Insight;
   });
+}
+
+/**
+ * Units whose inventory status contradicts their checkouts.
+ *
+ * The rule: **if it's out, it's not available.** `Checkout` is the truth per
+ * order; `AssetUnit.status` is how inventory reflects it. Two ways that can
+ * break, and they are not equally serious:
+ *
+ * - **Offered while gone** — a bookable unit carrying an open checkout. This is
+ *   the one that costs money and trust: the builder will promise it to a second
+ *   client, and someone finds out at the shelf. High priority, always.
+ * - **Blocked while free** — marked CHECKED_OUT with nothing open against it.
+ *   Only lost capacity: a unit nobody can book that is sitting right there.
+ *
+ * Deliberately not flagged: SOLD or RETIRED units with an open checkout. A sale
+ * leaves exactly that by design, and a unit can be retired while still out.
+ * Neither is bookable, so neither can be double-promised — which is the whole
+ * point of the check.
+ */
+export async function getInventoryStateDrift(): Promise<Insight[]> {
+  const [offeredWhileGone, blockedWhileFree] = await Promise.all([
+    prisma.assetUnit.findMany({
+      where: {
+        status: { in: MUST_NOT_BE_OUT },
+        OR: [
+          { checkouts: { some: { actualReturn: null, status: { notIn: ["CANCELLED", "RETURNED"] } } } },
+          { reservationItemUnits: { some: { checkedOutAt: { not: null }, checkedInAt: null } } },
+        ],
+      },
+      select: {
+        id: true,
+        barcode: true,
+        status: true,
+        asset: { select: { name: true } },
+        reservationItemUnits: {
+          where: { checkedOutAt: { not: null }, checkedInAt: null },
+          take: 1,
+          select: {
+            reservationItem: {
+              select: { reservation: { select: { id: true, reservationNumber: true } } },
+            },
+          },
+        },
+      },
+    }),
+    prisma.assetUnit.count({
+      where: {
+        status: "CHECKED_OUT",
+        checkouts: { none: { actualReturn: null, status: { notIn: ["CANCELLED", "RETURNED"] } } },
+        reservationItemUnits: { none: { checkedOutAt: { not: null }, checkedInAt: null } },
+      },
+    }),
+  ]);
+
+  const flags: Insight[] = offeredWhileGone.map((unit) => {
+    const order =
+      unit.reservationItemUnits[0]?.reservationItem.reservation ?? null;
+    return {
+      id: `sys-unit-offered-while-out-${unit.id}`,
+      type: "inventory",
+      category: "system",
+      // Someone will promise this to a second client and find out at the shelf.
+      priority: "high",
+      title: "Unit is bookable but already out",
+      description: `${unit.barcode} (${unit.asset.name}) reads ${unit.status.toLowerCase()}, so the order builder will offer it${order ? `, but it is checked out on ${order.reservationNumber}` : ", but it has an open checkout against it"}. Check it in, or correct its status.`,
+      link: order
+        ? `/dashboard/reservations/${order.id}`
+        : `/dashboard/units?q=${unit.barcode}`,
+    } satisfies Insight;
+  });
+
+  if (blockedWhileFree > 0) {
+    flags.push({
+      id: "sys-units-blocked-while-free",
+      type: "inventory",
+      category: "system",
+      // Costs capacity, not trust — nobody is promised anything twice.
+      priority: "low",
+      title: "Units marked out with nothing checked out",
+      description: `${blockedWhileFree} ${blockedWhileFree === 1 ? "unit is" : "units are"} marked checked out with no open checkout behind ${blockedWhileFree === 1 ? "it" : "them"}. ${blockedWhileFree === 1 ? "It is" : "They are"} on the shelf but nobody can book ${blockedWhileFree === 1 ? "it" : "them"}.`,
+      link: "/dashboard/units",
+    });
+  }
+
+  return flags;
 }

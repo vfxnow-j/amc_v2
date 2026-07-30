@@ -3,7 +3,7 @@
 import { prisma } from '@/lib/prisma'
 import { requireAuth } from '@/lib/auth-utils'
 import { linearTrend, percentChange, zScores } from './statistics'
-import { getUnitCountDrift } from './data-integrity'
+import { getUnitCountDrift, getInventoryStateDrift } from './data-integrity'
 
 export type InsightType =
   | 'inventory'
@@ -772,6 +772,7 @@ export async function getSystemFlags(): Promise<Insight[]> {
       unitsNoPurchasePrice,
       lowStockAssets,
       unitCountDrift,
+      inventoryStateDrift,
     ] = await Promise.all([
       // Assets with active units but no rental rates at all
       prisma.asset.findMany({
@@ -828,9 +829,10 @@ export async function getSystemFlags(): Promise<Insight[]> {
 
       // Consistency, not completeness: reports, never repairs.
       getUnitCountDrift(),
+      getInventoryStateDrift(),
     ])
 
-    const flags: Insight[] = [...unitCountDrift]
+    const flags: Insight[] = [...inventoryStateDrift, ...unitCountDrift]
 
     // --- No rental rates ---
     for (const asset of assetsNoRates) {
