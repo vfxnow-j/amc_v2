@@ -211,9 +211,25 @@ These need a product decision, not more code.
    Confirm with whoever runs the desk.
 4. **Short-window revenue excludes recurring**, because cycle boundaries dwarf
    trading. The Overview labels those windows "Rentals & sales".
-5. **Per-page nav counts** are unimplemented rather than faked; cluster counts in
-   `lib/nav/counts.ts` are still the reference's illustrative figures and must be
-   replaced with real queries.
+5. ~~**Per-page nav counts**~~ — cluster counts are real as of `d5f8515`
+   (`lib/queries/nav-counts.ts`). Per-page counts stay unimplemented rather than
+   faked; the reference specifies none.
+6. **Line counters vs unit records.** `ReservationItem.checkedOutCount` /
+   `checkedInCount` are cumulative, and on 68 asset lines across 16 orders they
+   disagree with the `ReservationItemUnit` rows behind them — imported orders
+   wrote counters without creating rows, and a few carry rows the counters never
+   caught up with. `RES-2026-00001` alone accounts for 76 units over 12 lines.
+
+   It matters because the app reads both sources: the outgoing queue works off
+   the counters (a line can be ordered with no unit assigned yet, which is
+   exactly the case that needs pulling), while "on rent", the hub's units column
+   and Overview's utilisation all count rows.
+
+   **Not backfilled, by decision (owner, 2026-07-30):** a repair picked by
+   guesswork would bury the evidence and make the wrong number permanent. It is
+   reported instead — per-line on the order record, and per-order as a system
+   flag from `lib/analytics/data-integrity.ts`, which surfaces on Insights in
+   Stage 7. Deciding which side is authoritative is the open question.
 
 ## Suggested order
 

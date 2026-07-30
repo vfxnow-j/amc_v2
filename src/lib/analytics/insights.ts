@@ -3,6 +3,7 @@
 import { prisma } from '@/lib/prisma'
 import { requireAuth } from '@/lib/auth-utils'
 import { linearTrend, percentChange, zScores } from './statistics'
+import { getUnitCountDrift } from './data-integrity'
 
 export type InsightType =
   | 'inventory'
@@ -751,6 +752,11 @@ async function generateInsights(): Promise<Insight[]> {
 /**
  * Generate system flags — data quality / completeness warnings.
  * These are not capped like business insights; return all issues found.
+ *
+ * v2 addition: consistency checks that report rather than repair live in
+ * `./data-integrity`, and are folded in below. They never write — where the
+ * data disagrees with itself, a backfill picked by guesswork would bury the
+ * evidence and make the wrong number permanent.
  */
 export async function getSystemFlags(): Promise<Insight[]> {
   const authResult = await requireAuth()
@@ -765,6 +771,7 @@ export async function getSystemFlags(): Promise<Insight[]> {
       assetsNoRates,
       unitsNoPurchasePrice,
       lowStockAssets,
+      unitCountDrift,
     ] = await Promise.all([
       // Assets with active units but no rental rates at all
       prisma.asset.findMany({
@@ -818,9 +825,12 @@ export async function getSystemFlags(): Promise<Insight[]> {
           },
         },
       }),
+
+      // Consistency, not completeness: reports, never repairs.
+      getUnitCountDrift(),
     ])
 
-    const flags: Insight[] = []
+    const flags: Insight[] = [...unitCountDrift]
 
     // --- No rental rates ---
     for (const asset of assetsNoRates) {
