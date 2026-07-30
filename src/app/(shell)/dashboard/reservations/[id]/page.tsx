@@ -48,7 +48,12 @@ export default async function ReservationRecordPage({ params }: Params) {
   if (!header) notFound();
 
   const { progress } = header;
-  const outstanding = Math.max(0, progress.ordered - progress.out);
+  // The counters are cumulative — check-in never decrements checkedOutCount —
+  // so what is actually with the client is the difference. A unit checked out,
+  // returned and sent out again counts twice in `out`, which is why this is the
+  // only figure the panel derives rather than displaying raw.
+  const outNow = Math.max(0, progress.out - progress.returned);
+  const outstanding = Math.max(0, progress.ordered - outNow);
 
   return (
     <>
@@ -84,16 +89,14 @@ export default async function ReservationRecordPage({ params }: Params) {
       <section className="flex items-center gap-3 rounded-card bg-panel px-4 py-3 shadow-sm">
         <Progress label="Ordered" value={progress.ordered} />
         <Progress label="Assigned" value={progress.assigned} />
-        <Progress label="Checked out" value={progress.out} />
-        <Progress label="Back" value={progress.returned} />
+        <Progress label="Out now" value={outNow} />
+        <Progress label="Returned" value={progress.returned} />
         <p className="ml-auto text-detail text-ink-muted">
           {progress.ordered === 0
             ? "No physical units on this order"
             : outstanding > 0
               ? `${outstanding} of ${progress.ordered} still to go out`
-              : progress.returned < progress.out
-                ? `${progress.out - progress.returned} of ${progress.out} still with the client`
-                : `All ${progress.ordered} back`}
+              : `${outNow} of ${progress.ordered} still with the client`}
         </p>
       </section>
 

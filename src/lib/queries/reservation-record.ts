@@ -142,10 +142,17 @@ export type RecordLine = {
   /** Ordered quantity not yet covered by an assigned or checked-out unit. */
   unassigned: number;
   /**
-   * What the line's own counter claims is out, and how many unit rows actually
-   * back that up. Imported custody orders carry counters that were set without
-   * ever creating the junction rows, so on those the two disagree — and the
-   * record has to say so rather than quietly pick one.
+   * Units currently out on this line, counted two ways.
+   *
+   * `checkedOutCount` and `checkedInCount` are *cumulative* — check-out
+   * increments the first, check-in increments the second and never decrements
+   * the first — so what is currently out is the difference between them. The
+   * junction rows say the same thing by having `checkedOutAt` set and
+   * `checkedInAt` null.
+   *
+   * They should agree. On some imported orders they don't, because the counters
+   * were written without ever creating the rows, and the record has to say so
+   * rather than quietly pick one: only an attached unit can be checked back in.
    */
   countedOut: number;
   attachedOut: number;
@@ -167,6 +174,7 @@ export async function getReservationLines(id: string): Promise<RecordLine[]> {
       category: true,
       quantity: true,
       checkedOutCount: true,
+      checkedInCount: true,
       rate: true,
       pricingType: true,
       subtotal: true,
@@ -234,7 +242,9 @@ export async function getReservationLines(id: string): Promise<RecordLine[]> {
       unassigned: item.assetId
         ? Math.max(0, item.quantity - units.filter((u) => !u.checkedInAt).length)
         : 0,
-      countedOut: item.checkedOutCount,
+      // Both sides are "currently out": the counters are cumulative, so the
+      // difference is what hasn't come back.
+      countedOut: item.checkedOutCount - item.checkedInCount,
       attachedOut: units.filter((u) => u.checkedOutAt && !u.checkedInAt).length,
     };
   });

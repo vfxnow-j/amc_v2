@@ -142,11 +142,12 @@ export async function LinesCard({ id }: { id: string }) {
               // which instead of quietly trusting one: only the attached units
               // can actually be checked back in.
               <p className="mt-1 rounded-row bg-accent-tint px-2 py-1 text-detail text-accent-on-tint">
-                This line counts {line.countedOut} out, but only{" "}
-                {line.attachedOut} {line.attachedOut === 1 ? "unit is" : "units are"}{" "}
-                attached to it. Scan the missing{" "}
-                {line.countedOut - line.attachedOut} to make the count real —
-                until then they can&rsquo;t be checked back in.
+                This line&rsquo;s counters say {line.countedOut} out right now,
+                but {line.attachedOut}{" "}
+                {line.attachedOut === 1 ? "unit is" : "units are"} attached.{" "}
+                {line.countedOut > line.attachedOut
+                  ? `Scan the missing ${line.countedOut - line.attachedOut} to make the count real — until then they can’t be checked back in.`
+                  : "The counters are behind the units; checking one back in will correct them."}
               </p>
             ) : line.unassigned > 0 ? (
               <p className="mt-1 px-2 text-detail text-ink-muted">
