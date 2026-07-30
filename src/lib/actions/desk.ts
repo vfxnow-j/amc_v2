@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { requireEditor } from "@/lib/auth-utils";
 import { calculatePeriods, computeItemSubtotal } from "@/lib/pricing/periods";
 import {
+  checkinByBarcode,
   checkoutByBarcode,
   checkoutReservationItem,
 } from "@/lib/actions/reservations";
@@ -149,5 +150,85 @@ async function splitOntoNewLine(
   return {
     status: "ok",
     message: `${barcode} checked out on a new line of its own.`,
+  };
+}
+
+export type CheckinCondition = "EXCELLENT" | "GOOD" | "FAIR" | "DAMAGED";
+
+export type CheckinOutcome =
+  | { status: "ok"; message: string }
+  | { status: "error"; message: string }
+  /** The unit is out, but on a different order. Offer the way there. */
+  | {
+      status: "wrong-order";
+      message: string;
+      order: { id: string; reservationNumber: string };
+    };
+
+/**
+ * Scan a unit back in against an order.
+ *
+ * A unit that is out on a *different* order is the interesting failure. v1
+ * answered "not checked out from this reservation", which is true and useless —
+ * the unit is in your hand and it belongs somewhere. So the miss is looked up
+ * and the right order is offered instead of a dead end.
+ */
+export async function scanUnitIn(
+  reservationId: string,
+  barcode: string,
+  condition: CheckinCondition = "GOOD",
+  damageNotes?: string,
+): Promise<CheckinOutcome> {
+  const trimmed = barcode.trim();
+  if (!trimmed) {
+    return { status: "error", message: "Scan a barcode or type one in." };
+  }
+
+  const damaged = condition === "DAMAGED";
+  const result = await checkinByBarcode(reservationId, trimmed, {
+    returnCondition: condition,
+    conditionIn: condition.toLowerCase(),
+    damageFlag: damaged,
+    damageNotes: damaged ? damageNotes : undefined,
+  });
+
+  if (result.success) {
+    revalidatePath(`/dashboard/reservations/${reservationId}`);
+    return {
+      status: "ok",
+      message: damaged
+        ? `${trimmed} back, marked damaged.`
+        : `${trimmed} checked in.`,
+    };
+  }
+
+  // Not on this order — say where it actually is rather than just refusing.
+  const elsewhere = await prisma.reservationItemUnit.findFirst({
+    where: {
+      assetUnit: { barcode: trimmed },
+      checkedOutAt: { not: null },
+      checkedInAt: null,
+    },
+    select: {
+      reservationItem: {
+        select: {
+          reservation: { select: { id: true, reservationNumber: true } },
+        },
+      },
+    },
+  });
+
+  if (elsewhere) {
+    const order = elsewhere.reservationItem.reservation;
+    return {
+      status: "wrong-order",
+      message: `${trimmed} is out on ${order.reservationNumber}, not this order.`,
+      order,
+    };
+  }
+
+  return {
+    status: "error",
+    message: "error" in result ? result.error : `${trimmed} isn't out anywhere.`,
   };
 }

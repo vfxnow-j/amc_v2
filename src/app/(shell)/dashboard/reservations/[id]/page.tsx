@@ -11,6 +11,7 @@ import {
   LinesCard,
 } from "@/components/reservations/record-cards";
 import { CheckoutPanel } from "@/components/reservations/checkout-panel";
+import { CheckinPanel } from "@/components/reservations/checkin-panel";
 import { getReservationHeader } from "@/lib/queries/reservation-record";
 import { STATUS_LABEL, TYPE_LABEL } from "@/lib/reservations/status";
 import type { ReservationStatus } from "@/generated/prisma/client";
@@ -114,7 +115,12 @@ export default async function ReservationRecordPage({ params }: Params) {
           {/* checkoutReservationItem refuses before PREPARING, so the panel is
               only offered where it can actually work. */}
           {CHECKOUT_STATES.includes(header.status) ? (
-            <CheckoutPanel reservationId={header.id} />
+            <>
+              <CheckoutPanel reservationId={header.id} />
+              {/* Only offered once something is actually out — an order with
+                  nothing checked out has nothing to take back. */}
+              {outNow > 0 ? <CheckinPanel reservationId={header.id} /> : null}
+            </>
           ) : (
             <Card title="Check out">
               <p className="px-4 pb-4 text-body text-ink-muted">

@@ -4044,9 +4044,12 @@ export async function checkinReservationItem(
       throw new Error('Reservation item not found')
     }
 
-    if (item.checkedInCount >= item.checkedOutCount) {
-      throw new Error('All checked-out units for this item are already checked in')
-    }
+    // No counter-based guard here. It used to refuse when
+    // checkedInCount >= checkedOutCount, which blocks a physically-out unit
+    // from coming back whenever the counters have drifted low — SALE-2026-00006
+    // carries 0/0 against a unit that is genuinely out, and could never have
+    // been returned. The unit row below is the physical record and the only
+    // thing worth asking: if this unit is out on this line, it can come back.
 
     // Find the ReservationItemUnit for this specific unit
     const reservationItemUnit = await tx.reservationItemUnit.findFirst({
