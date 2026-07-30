@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { NavPanel } from "@/components/shell/nav-panel";
 import { getSessionUser } from "@/lib/roles";
 
@@ -7,13 +8,19 @@ import { getSessionUser } from "@/lib/roles";
  *
  * Nothing touches the viewport edge — the ground colour does the separating.
  * There are no borders in this direction: surface, radius and shadow only.
+ *
+ * The session check here is the real boundary. `proxy.ts` redirects anonymous
+ * requests one layer earlier, but per next/docs "Proxy" that is an optimistic
+ * check, not authorization — so the shell refuses to render without a session
+ * regardless of what got past the proxy.
  */
-export default function ShellLayout({
+export default async function ShellLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const user = getSessionUser();
+  const user = await getSessionUser();
+  if (!user) redirect("/login");
 
   return (
     <div className="flex min-h-0 flex-1 gap-3 bg-ground p-3">

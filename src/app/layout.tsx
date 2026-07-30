@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Schibsted_Grotesk } from "next/font/google";
 import { ThemeProvider } from "@/components/theme/theme-provider";
 import { ThemeScript } from "@/components/theme/theme-script";
+import { defaultThemeFor, getSessionUser } from "@/lib/roles";
 import "./globals.css";
 
 const schibstedGrotesk = Schibsted_Grotesk({
@@ -21,11 +22,18 @@ export const metadata: Metadata = {
   description: "Asset management, rental and sales operations for VFXNow.",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // The role default — dark for STAFF, light for admin/finance — is what a user
+  // gets before they've picked a theme. A picked theme lives in the localStorage
+  // mirror the pre-paint script reads, so it wins over this. Both places must be
+  // given the same value or the first paint flashes.
+  const user = await getSessionUser();
+  const theme = defaultThemeFor(user?.role);
+
   return (
     <html
       lang="en"
@@ -33,13 +41,10 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <head>
-        <ThemeScript />
+        <ThemeScript defaultTheme={theme} />
       </head>
       <body className="min-h-full flex flex-col">
-        {/* `defaultPreference` becomes the User record's theme (falling back to
-            the role default: dark for STAFF, light for admin/finance) once auth
-            lands; the same value must be passed to ThemeScript above. */}
-        <ThemeProvider>{children}</ThemeProvider>
+        <ThemeProvider defaultPreference={theme}>{children}</ThemeProvider>
       </body>
     </html>
   );
