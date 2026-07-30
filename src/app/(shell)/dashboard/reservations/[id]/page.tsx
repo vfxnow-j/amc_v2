@@ -10,10 +10,15 @@ import {
   CardSkeleton,
   LinesCard,
 } from "@/components/reservations/record-cards";
+import { CheckoutPanel } from "@/components/reservations/checkout-panel";
 import { getReservationHeader } from "@/lib/queries/reservation-record";
 import { STATUS_LABEL, TYPE_LABEL } from "@/lib/reservations/status";
+import type { ReservationStatus } from "@/generated/prisma/client";
 
 type Params = { params: Promise<{ id: string }> };
+
+/** States in which checkoutReservationItem will accept a scan. */
+const CHECKOUT_STATES: ReservationStatus[] = ["PREPARING", "SHIPPED", "ACTIVE"];
 
 const MONEY = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -106,6 +111,19 @@ export default async function ReservationRecordPage({ params }: Params) {
         </Suspense>
 
         <div className="flex min-h-0 flex-col gap-3">
+          {/* checkoutReservationItem refuses before PREPARING, so the panel is
+              only offered where it can actually work. */}
+          {CHECKOUT_STATES.includes(header.status) ? (
+            <CheckoutPanel reservationId={header.id} />
+          ) : (
+            <Card title="Check out">
+              <p className="px-4 pb-4 text-body text-ink-muted">
+                This order is {STATUS_LABEL[header.status].toLowerCase()}. Units
+                can be scanned out once it starts preparing.
+              </p>
+            </Card>
+          )}
+
           <Suspense fallback={<CardSkeleton title="Billing" rows={3} />}>
             <BillingCard id={id} />
           </Suspense>
