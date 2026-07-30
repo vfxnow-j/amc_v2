@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { Prisma } from '@/generated/prisma/client'
 import { prisma } from '@/lib/prisma'
+import type { OverScanConflict, OverScanResolution } from '@/lib/reservations/over-scan'
 import { auth } from '@/lib/auth'
 import { requireAuth, requireEditor, requireAdmin } from '@/lib/auth-utils'
 import { serialize } from '@/lib/utils'
@@ -3618,6 +3619,13 @@ export async function getReservationStats() {
 export type CheckoutItemData = {
   conditionOut?: string
   notes?: string
+  /**
+   * How to resolve a unit scanned beyond the line's ordered quantity. Absent
+   * means "don't decide for me": the checkout stops and returns the conflict so
+   * a person can answer it. See lib/reservations/over-scan.ts for why this is
+   * no longer a silent default.
+   */
+  onOverScan?: OverScanResolution
 }
 
 export type CheckinItemData = {
@@ -3800,15 +3808,48 @@ export async function checkoutReservationItem(
       return { error: 'Reservation item not found' } as const
     }
 
-    // Auto-expand quantity if needed (barcode scan may have already done this,
-    // but handle it here too for direct calls)
+    // Over-scan: this unit goes beyond what the line says was ordered.
+    //
+    // v1 widened the order here without asking and repriced the line with it.
+    // That is how the custody import doubled 48 lines, and it means a scan at
+    // the shelf could move an invoice. Now the caller has to say which way out
+    // it wants; with nothing said, nothing is written and the conflict comes
+    // back for a person to answer.
     if (item.checkedOutCount >= item.quantity) {
+      if (!data.onOverScan) {
+        return {
+          conflict: {
+            kind: 'over-quantity',
+            reservationItemId,
+            ordered: item.quantity,
+            alreadyOut: item.checkedOutCount,
+            rate: Number(item.rate),
+            pricingType: item.pricingType,
+            label: item.asset?.name ?? item.description ?? 'This line',
+          } satisfies OverScanConflict,
+        } as const
+      }
+
+      if (data.onOverScan === 'new-line') {
+        // The extra unit belongs on its own line, which has to exist before it
+        // can be scanned onto it. addItemToReservation then checkout — this
+        // path deliberately refuses rather than guessing a rate.
+        return {
+          error: 'Add the new line first, then check the unit out against it.',
+        } as const
+      }
+
+      const nextQuantity = item.checkedOutCount + 1
       const periods = calculatePeriodsSync(reservation.startDate, reservation.endDate, item.pricingType, reservation.isRecurring)
       await tx.reservationItem.update({
         where: { id: reservationItemId },
         data: {
-          quantity: item.checkedOutCount + 1,
-          subtotal: computeItemSubtotal(Number(item.rate), item.checkedOutCount + 1, periods),
+          quantity: nextQuantity,
+          // 'no-charge' widens the line so the unit is tracked, but leaves the
+          // money alone — a swap, a spare, or a goodwill loan.
+          ...(data.onOverScan === 'expand'
+            ? { subtotal: computeItemSubtotal(Number(item.rate), nextQuantity, periods) }
+            : {}),
         },
       })
     }
@@ -4484,7 +4525,11 @@ export async function bulkCheckinReservation(
 }
 
 // Result type for barcode scan operations (avoids thrown errors being stripped in production)
-export type ScanResult = { success: true; warning?: string } | { success: false; error: string }
+export type ScanResult =
+  | { success: true; warning?: string }
+  | { success: false; error: string }
+  /** The scan is refused pending a decision — see lib/reservations/over-scan.ts. */
+  | { success: false; conflict: OverScanConflict }
 
 // Check out item by barcode within a reservation
 export async function checkoutByBarcode(
@@ -4564,19 +4609,17 @@ export async function checkoutByBarcode(
           sortOrder: (maxSort._max.sortOrder ?? -1) + 1,
         },
       })
-    } else if (reservationItem.checkedOutCount >= reservationItem.quantity) {
-      // Auto-expand reservation quantity if all reserved units are already checked out
-      const periods = calculatePeriodsSync(reservation.startDate, reservation.endDate, reservationItem.pricingType, reservation.isRecurring)
-      await prisma.reservationItem.update({
-        where: { id: reservationItem.id },
-        data: {
-          quantity: reservationItem.checkedOutCount + 1,
-          subtotal: computeItemSubtotal(Number(reservationItem.rate), reservationItem.checkedOutCount + 1, periods),
-        },
-      })
     }
 
-    await checkoutReservationItem(reservationId, reservationItem.id, assetUnit.id, data)
+    // The over-scan case is no longer widened here. checkoutReservationItem owns
+    // that decision now, and hands the conflict back when nobody has made it.
+    const result = await checkoutReservationItem(reservationId, reservationItem.id, assetUnit.id, data)
+    if (result && 'conflict' in result && result.conflict) {
+      return { success: false, conflict: result.conflict }
+    }
+    if (result && 'error' in result && result.error) {
+      return { success: false, error: result.error }
+    }
     return { success: true }
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : 'Checkout failed' }
