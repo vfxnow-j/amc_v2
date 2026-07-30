@@ -141,13 +141,11 @@ export async function LinesCard({ id }: { id: string }) {
               // creating the junction rows, so the two disagree. Say which is
               // which instead of quietly trusting one: only the attached units
               // can actually be checked back in.
-              <p className="mt-1 rounded-row bg-accent-tint px-2 py-1 text-detail text-accent-on-tint">
-                This line&rsquo;s counters say {line.countedOut} out right now,
-                but {line.attachedOut}{" "}
-                {line.attachedOut === 1 ? "unit is" : "units are"} attached.{" "}
-                {line.countedOut > line.attachedOut
-                  ? `Scan the missing ${line.countedOut - line.attachedOut} to make the count real — until then they can’t be checked back in.`
-                  : "The counters are behind the units; checking one back in will correct them."}
+              <p className="mt-1 rounded-row bg-sunken px-2 py-1 text-detail text-ink-muted">
+                {line.quantity === line.units.length * 2 &&
+                line.countedOut === line.attachedOut * 2
+                  ? `Ordered quantity and counters are both exactly double the ${line.units.length} units attached — this line was imported twice. The units are here; the quantity is what needs correcting.`
+                  : `The line counter says ${line.countedOut} out, the attached units say ${line.attachedOut}. The units are the physical record; the counter is derived and has drifted.`}
               </p>
             ) : line.unassigned > 0 ? (
               <p className="mt-1 px-2 text-detail text-ink-muted">

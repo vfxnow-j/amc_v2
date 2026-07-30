@@ -5,95 +5,126 @@ import type { Insight } from "@/lib/analytics/insights";
  * Data-quality checks that report rather than repair.
  *
  * Nothing here writes. Where the data disagrees with itself the fix needs
- * someone who knows which side is true — a backfill picked by guesswork would
- * bury the evidence and make the wrong number permanent. These surface as
- * system flags alongside the other completeness warnings.
+ * someone who knows what actually happened in the warehouse — a backfill picked
+ * by guesswork would bury the evidence and make the wrong number permanent.
  */
 
 /**
- * Line counters that disagree with the unit rows behind them.
+ * Lines whose counters don't match the units attached to them.
  *
- * `ReservationItem.checkedOutCount` and `checkedInCount` are cumulative: a
- * check-out increments the first, a check-in increments the second, and neither
- * is ever decremented. So the units currently out on a line are the difference
- * between them, and the junction rows say the same thing by carrying
- * `checkedOutAt` with no `checkedInAt`.
+ * Background, because it decides what this check is allowed to conclude. v1
+ * records one fact in three places:
  *
- * The two are maintained in the same transaction by `checkoutReservationItem`,
- * so live traffic keeps them together. Imported orders are where they part —
- * the import wrote counters without creating rows. It runs both ways, though:
- * a few lines have rows their counters never caught up with.
+ * - `Checkout` — one row per movement, append-only. The real history.
+ * - `ReservationItemUnit` — one row per (line, unit). Current state.
+ * - `ReservationItem.checkedOutCount` / `checkedInCount` — cumulative counters.
  *
- * It matters because the app reads both sources. The outgoing queue works from
- * the counters (a line can be ordered with no unit assigned yet, and those are
- * exactly the ones nobody has pulled), while "on rent", the hub's units column
- * and Overview's utilisation all count rows. Where they disagree, only the
- * attached units can actually be checked back in.
+ * The first two agree with each other across this database, so the physical
+ * record is sound and the counters are the odd one out. That means this check
+ * must never describe units as *missing*: they are on the order, in two tables.
+ *
+ * What the mismatches actually are, by shape:
+ *
+ * - **Duplicated line.** Ordered quantity *and* counters are both exactly twice
+ *   the units attached. Six ordered against three units is one line imported
+ *   twice, not three units gone astray. This is the bulk of them.
+ * - **Never scanned.** Counters above zero with no unit rows at all — old
+ *   custody imports, where the paperwork was carried across but nothing was
+ *   ever put against a barcode.
+ * - **Mixed.** Neither shape fits. These need reading one at a time.
  */
+type Shape = "duplicated" | "never-scanned" | "mixed";
+
+const SHAPE_COPY: Record<
+  Shape,
+  (context: {
+    lines: string;
+    ordered: number;
+    attached: number;
+    plural: boolean;
+  }) => string
+> = {
+  duplicated: ({ lines, ordered, attached, plural }) =>
+    `${lines} ${plural ? "look" : "looks"} imported twice — ${ordered} ordered against ${attached} attached units, with the counters at exactly double as well. The units are on the order; the quantity is what needs correcting.`,
+  "never-scanned": ({ lines, plural }) =>
+    `${lines} ${plural ? "carry" : "carries"} a checked-out count with no units attached at all. The order came across from an import without anything being scanned, so there is nothing to check back in.`,
+  mixed: ({ lines, ordered, attached, plural }) =>
+    `${lines} ${plural ? "don't" : "doesn't"} match their attached units in any regular way — ${ordered} ordered, ${attached} attached. Worth reading line by line before trusting either figure.`,
+};
+
 export async function getUnitCountDrift(): Promise<Insight[]> {
   const items = await prisma.reservationItem.findMany({
     where: { assetId: { not: null }, parentId: null },
     select: {
-      id: true,
+      quantity: true,
       checkedOutCount: true,
       checkedInCount: true,
-      reservation: {
-        select: { id: true, reservationNumber: true, status: true },
-      },
+      reservation: { select: { id: true, reservationNumber: true } },
       units: { select: { checkedOutAt: true, checkedInAt: true } },
     },
   });
 
-  type Drift = {
+  type Tally = {
     reservationNumber: string;
-    lines: number;
-    /** Positive: counters claim more out than rows back. Negative: the reverse. */
-    net: number;
+    shapes: Record<Shape, number>;
+    ordered: number;
+    attached: number;
   };
-  const byOrder = new Map<string, Drift>();
+  const byOrder = new Map<string, Tally>();
 
   for (const item of items) {
-    const counted = item.checkedOutCount - item.checkedInCount;
-    const attached = item.units.filter(
+    const outNow = item.checkedOutCount - item.checkedInCount;
+    const rowsOut = item.units.filter(
       (unit) => unit.checkedOutAt && !unit.checkedInAt,
     ).length;
-    if (counted === attached) continue;
+    if (outNow === rowsOut) continue;
+
+    const shape: Shape =
+      item.units.length === 0
+        ? "never-scanned"
+        : item.quantity === item.units.length * 2 && outNow === rowsOut * 2
+          ? "duplicated"
+          : "mixed";
 
     const order = item.reservation;
-    const existing = byOrder.get(order.id);
-    if (existing) {
-      existing.lines += 1;
-      existing.net += counted - attached;
-    } else {
-      byOrder.set(order.id, {
-        reservationNumber: order.reservationNumber,
-        lines: 1,
-        net: counted - attached,
-      });
-    }
+    const tally = byOrder.get(order.id) ?? {
+      reservationNumber: order.reservationNumber,
+      shapes: { duplicated: 0, "never-scanned": 0, mixed: 0 },
+      ordered: 0,
+      attached: 0,
+    };
+    tally.shapes[shape] += 1;
+    tally.ordered += item.quantity;
+    tally.attached += item.units.length;
+    byOrder.set(order.id, tally);
   }
 
-  return [...byOrder.entries()].map(([reservationId, drift]) => {
-    const lines = `${drift.lines} ${drift.lines === 1 ? "line" : "lines"}`;
-    const detail =
-      drift.net > 0
-        ? drift.net === 1
-          ? `the counters claim 1 more unit out than there is a unit record to back. It can't be checked back in until it's scanned onto the order.`
-          : `the counters claim ${drift.net} more units out than there are unit records to back. Those units can't be checked back in until they're scanned onto the order.`
-        : drift.net < 0
-          ? `there ${Math.abs(drift.net) === 1 ? "is 1 unit record" : `are ${Math.abs(drift.net)} unit records`} out that the counters don't know about. Checking one in will bring them back into step.`
-          : `the counters and the unit records disagree line by line even though they net out. Compare them before trusting either.`;
+  return [...byOrder.entries()].map(([reservationId, tally]) => {
+    // The dominant shape names the flag; a mixed order says so.
+    const [shape, count] = (
+      Object.entries(tally.shapes) as [Shape, number][]
+    ).sort((a, b) => b[1] - a[1])[0];
+    const lines = `${count} ${count === 1 ? "line" : "lines"}`;
 
     return {
       id: `sys-unit-count-drift-${reservationId}`,
       type: "system",
       category: "system",
-      // Not high: nothing is broken for anyone standing at the shelf, and the
-      // record already says so on the affected line. It needs deciding, not
-      // firefighting.
-      priority: "medium",
-      title: "Unit counts disagree with unit records",
-      description: `${drift.reservationNumber}: on ${lines}, ${detail}`,
+      // Nothing is broken for anyone standing at the shelf — the units are
+      // recorded and scannable. It's a number to correct, not a fire.
+      priority: "low",
+      title:
+        shape === "duplicated"
+          ? "Order quantities look doubled by an import"
+          : shape === "never-scanned"
+            ? "Imported order with nothing scanned against it"
+            : "Line counts don't match the attached units",
+      description: `${tally.reservationNumber}: ${SHAPE_COPY[shape]({
+        lines,
+        ordered: tally.ordered,
+        attached: tally.attached,
+        plural: count !== 1,
+      })}`,
       link: `/dashboard/reservations/${reservationId}`,
     } satisfies Insight;
   });
