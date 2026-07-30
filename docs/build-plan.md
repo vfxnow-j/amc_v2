@@ -214,22 +214,42 @@ These need a product decision, not more code.
 5. ~~**Per-page nav counts**~~ — cluster counts are real as of `d5f8515`
    (`lib/queries/nav-counts.ts`). Per-page counts stay unimplemented rather than
    faked; the reference specifies none.
-6. **Line counters vs unit records.** `ReservationItem.checkedOutCount` /
-   `checkedInCount` are cumulative, and on 68 asset lines across 16 orders they
-   disagree with the `ReservationItemUnit` rows behind them — imported orders
-   wrote counters without creating rows, and a few carry rows the counters never
-   caught up with. `RES-2026-00001` alone accounts for 76 units over 12 lines.
+6. **Doubled order quantities on the custody import.** 48 asset lines carry an
+   ordered quantity and a `checkedOutCount` at exactly twice the units attached
+   to them. No units are missing: `Checkout` (575 rows) and `ReservationItemUnit`
+   agree exactly at 339 out, and every one of the 48 has precisely one `Checkout`
+   row per unit.
 
-   It matters because the app reads both sources: the outgoing queue works off
-   the counters (a line can be ordered with no unit assigned yet, which is
-   exactly the case that needs pulling), while "on rent", the hub's units column
-   and Overview's utilisation all count rows.
+   **Root cause.** Not two import runs — one run, in one second. The custody
+   import created each line with `checkedOutCount` already set to the quantity,
+   then *also* drove the normal check-out path for each unit. That path
+   auto-expands (`reservations.ts:3803`, and again in `checkoutByBarcode` at
+   `:4568`):
+
+   ```ts
+   if (item.checkedOutCount >= item.quantity) {
+     quantity: item.checkedOutCount + 1,
+     subtotal: computeItemSubtotal(rate, item.checkedOutCount + 1, periods),
+   }
+   ```
+
+   Because the import had already made `checkedOutCount === quantity`, the very
+   first scan trips the condition, and from then on quantity and counter climb
+   together, one per unit — landing at exactly 2×. 46 of the 48 lines carry
+   "Auto-created from custody import".
+
+   **This is the v1 logic that is wrong.** A barcode scan silently rewrites what
+   the client ordered *and reprices the line*. Mostly invisible here because
+   custody lines are $0, but 4 priced lines went through it and overstate two
+   orders by **$1,430** — `RES-2026-00001` by $800 and `RES-2026-00003` by $630.
+   Scanning a unit must never change an order's commercial terms; the conflict
+   belongs in front of a person (the substitute/defer/override pattern), not in
+   a silent `UPDATE`.
 
    **Not backfilled, by decision (owner, 2026-07-30):** a repair picked by
-   guesswork would bury the evidence and make the wrong number permanent. It is
-   reported instead — per-line on the order record, and per-order as a system
-   flag from `lib/analytics/data-integrity.ts`, which surfaces on Insights in
-   Stage 7. Deciding which side is authoritative is the open question.
+   guesswork would bury the evidence. Reported instead — per-line on the order
+   record, per-order as a system flag from `lib/analytics/data-integrity.ts`,
+   which surfaces on Insights in Stage 7.
 
 ## Suggested order
 
