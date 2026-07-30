@@ -65,11 +65,15 @@ export const NAV_CLUSTERS: NavCluster[] = [
         from: ["/dashboard/reservations"],
       },
       {
-        // TODO(step 4): becomes one two-mode screen at /dashboard/desk, with
-        // redirects from all three v1 paths.
-        id: "desk",
-        label: "Desk — check-out / in",
-        href: "/dashboard/checkout",
+        // Not a second scanner. The owner's call, 2026-07-30: a standalone
+        // check-out/check-in desk duplicates the reservation record, which is
+        // where the units, the rates and the sign-off already live — v1 came to
+        // the same conclusion, and its /dashboard/checkout is a signpost that
+        // redirects into the order. So this screen answers "what needs hands
+        // today" and every row opens the order, where the scanning happens.
+        id: "today",
+        label: "Today’s movements",
+        href: "/dashboard/today",
         from: [
           "/dashboard/checkout",
           "/dashboard/checkin",

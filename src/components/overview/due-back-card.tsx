@@ -29,10 +29,10 @@ export async function DueBackCard() {
           </span>
         ) : null}
         <Link
-          href="/dashboard/checkout"
+          href="/dashboard/today"
           className="ml-auto text-detail text-accent-text hover:underline"
         >
-          Open the desk →
+          Today’s movements →
         </Link>
       </header>
 

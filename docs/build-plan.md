@@ -34,33 +34,45 @@ it looks.
 | 0c | v1 migration: schema, 39 actions, auth, 28 primitives, PDF renderers | `df5e599` |
 | 0d | Database: `vfxnow_amc_v2` restored, env isolated | — |
 | 0e | Insight → Overview against real data | `9e7593e` |
+| X1 | Auth gate: proxy, session, signed-out screens | `64b8d32` |
+| 1 | Operate → Today's movements | — |
 
 Everything else in the rail renders a placeholder that names its v1 source.
 
+**X1 was pulled ahead of Stage 1.** Every ported action gates on
+`requireAuth`/`requireEditor`, so any screen that writes returns `Unauthorized`
+until a session exists — building a mutating screen first would have produced
+one that could not be exercised at all.
+
 ---
 
-## Stage 1 — Desk (check-out / check-in)
+## Stage 1 — Today's movements ✅ shipped
 
-The operational core, and the merge with the most value: three v1 routes
-(`checkout`, `checkin`, `checkouts`) become one two-mode screen. v1's `checkin`
-is already 499 lines with a barcode scanner; treat it as the reference for
-behaviour, not for layout.
+**The Desk was dropped** (owner, 2026-07-30). A standalone check-out/check-in
+screen duplicates the reservation record, which already holds the lines, the
+assigned units, the rates and the sign-off — and v1 reached the same conclusion
+on its own: its `/dashboard/checkout` is a signpost reading *"All check-outs are
+now managed through reservations"* that redirects into the order.
 
-**Route:** `/dashboard/desk`, redirects from all three v1 paths.
+So check-out and check-in are built **on the reservation record** (Stage 2), and
+the rail slot becomes a queue that answers "what needs hands today" and hands
+off to the order.
 
-| Card | Contents | Source |
-|---|---|---|
-| Mode switch | Check-out / Check-in segmented control; scanner always live | new |
-| Scan well | Barcode input focused by default, `html5-qrcode` fallback | `components/scanner` |
-| Order context | Client, window, what's expected on this order | `Reservation` + items |
-| Line table | Unit · Asset · Expected · Scanned · State, ~30px rows | `ReservationItemUnit` |
-| Exceptions | Unexpected unit, wrong order, already out, damaged | `actions/checkouts` |
-| Flag for service | Opens a `WorkOrder` inline, carrying reservation + unit | **blocked on Stage 4** |
-| Sign-off | Signature capture + delivery note PDF | `signature-dialog`, `delivery-note-pdf` |
+**Route:** `/dashboard/today`. Permanent redirects from `checkout` and `checkin`;
+`checkouts` (v1's list of what's out) redirects to the Reservations hub.
 
-**Decisions:** check-in and check-out are required steps (your call) — so the
-screen must make skipping impossible rather than merely discouraged. The "flag
-for service" path lands disabled until Stage 4, then switches on.
+| Card | Contents |
+|---|---|
+| Going out | Orders due out with units still to pull — Order · Client · Pull · Ship by |
+| Coming back | Orders with units due back — Order · Client · Out · Due |
+
+Read-only by design; every row opens its order. "Today" means *by now* in both
+directions — an order three weeks past its ship date needs hands more than one
+shipping this afternoon, and a screen keyed to today's date alone would hide it.
+
+Outstanding units come from the line counts (`quantity − checkedOutCount`) rather
+than from `ReservationItemUnit` rows, because a line can be ordered with no units
+assigned yet — and those are exactly the ones nobody has touched.
 
 ## Stage 2 — Reservations hub + record
 
@@ -78,11 +90,16 @@ work-order panel):
 |---|---|
 | Header | Order number, client, window, state, primary action per state |
 | Lines | Items and their assigned units, expandable to unit level |
+| **Check-out / check-in** | **Absorbed from the dropped Desk.** Scan well always live, unit-level expected vs scanned, exceptions (unexpected unit, wrong order, already out, damaged), signature + delivery note. `checkoutByBarcode` / `checkinByBarcode` and the bulk actions already exist in `actions/reservations` |
 | Unit inspector | Serial, condition, service history, current location |
 | Service tab | "Service · 2" — work orders raised from this order (Stage 4) |
 | Billing | Invoices raised, payments, QuickBooks sync state |
 | Documents | Proposal, agreement, delivery note — signed copies retained |
 | Activity | `StatusHistory` + `AuditLog` |
+
+Check-in and check-out are required steps (owner's call), so the record must
+make skipping impossible rather than merely discouraged. "Flag for service"
+lands disabled until Stage 4, then switches on.
 
 **New order builder** (`/dashboard/reservations/new`): direction **1c** is the
 reference, and its conflict-resolution pattern is the rule for the whole app —
@@ -200,11 +217,12 @@ These need a product decision, not more code.
 
 ## Suggested order
 
-Stage 1 → X1 → Stage 2 → Stage 4 → Stage 3 → Stage 5 → Stage 6 → Stage 7 → Stage 8,
-with X2 alongside each merge and X3 before Overview is called final.
+X1 ✅ → Stage 1 ✅ → Stage 2 → Stage 4 → Stage 3 → Stage 5 → Stage 6 → Stage 7 →
+Stage 8, with X2 alongside each merge and X3 before Overview is called final.
 
-Rationale: the Desk is where the intuitive check-in/check-out matters most, and
-it exercises the shell, the scanner and the action layer in one screen. Auth
-lands immediately after, before the instance carries live customer data any
-further. Service Center is pulled ahead of Inventory because the Desk's
-"flag for service" path depends on it.
+Rationale: auth first, because nothing that writes works without it and the
+instance already carries real customer data on the LAN. Then the queue, which
+is read-only and proves the Operate cluster end to end. Then Reservations, which
+now carries the check-out/check-in flow the Desk was going to hold, and is the
+hub the whole app orbits. Service Center stays ahead of Inventory because the
+record's "flag for service" path depends on it.
