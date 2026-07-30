@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import type { NavCounts } from "@/lib/nav/counts";
+import { OPEN_WORK_ORDER_STATUSES } from "@/lib/service/statuses";
 
 /**
  * The real figures behind the rail's cluster counts.
@@ -18,7 +19,7 @@ import type { NavCounts } from "@/lib/nav/counts";
  * to cache them — a stale badge is worse than a late one.
  */
 export async function getNavCounts(): Promise<NavCounts> {
-  const [openOrders, rentableUnits, unpaidInvoices, activeClients] =
+  const [openOrders, rentableUnits, openWorkOrders, unpaidInvoices, activeClients] =
     await Promise.all([
       prisma.reservation.count({
         where: { status: { in: ["APPROVED", "PREPARING", "SHIPPED", "ACTIVE"] } },
@@ -26,6 +27,9 @@ export async function getNavCounts(): Promise<NavCounts> {
       // Retired and sold units aren't fleet any more.
       prisma.assetUnit.count({
         where: { status: { notIn: ["RETIRED", "SOLD"] } },
+      }),
+      prisma.workOrder.count({
+        where: { status: { in: OPEN_WORK_ORDER_STATUSES } },
       }),
       prisma.invoice.count({
         where: { status: { in: ["SENT", "PARTIAL", "OVERDUE"] } },
@@ -47,8 +51,7 @@ export async function getNavCounts(): Promise<NavCounts> {
     clusters: {
       operate: openOrders,
       inventory: rentableUnits,
-      // Service center has no count until WorkOrder exists (Stage 4). Absent
-      // rather than 0: zero would claim an empty queue that isn't there yet.
+      service: openWorkOrders,
       revenue: unpaidInvoices,
       clients: activeClients,
       // Insight carries no count in the reference — it's a read surface.

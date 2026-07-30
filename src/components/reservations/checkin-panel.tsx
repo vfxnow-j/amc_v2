@@ -21,6 +21,7 @@ type Entry = {
   tone: "ok" | "error";
   message: string;
   order?: { id: string; reservationNumber: string };
+  workOrder?: { id: string; number: string };
 };
 
 /**
@@ -51,6 +52,7 @@ export function CheckinPanel({ reservationId }: { reservationId: string }) {
           tone: outcome.status === "ok" ? ("ok" as const) : ("error" as const),
           message: outcome.message,
           order: outcome.status === "wrong-order" ? outcome.order : undefined,
+          workOrder: outcome.status === "ok" ? outcome.workOrder : undefined,
         },
         ...entries,
       ].slice(0, 8),
@@ -143,8 +145,8 @@ export function CheckinPanel({ reservationId }: { reservationId: string }) {
 
         {damaged ? (
           <p className="mt-2 text-detail text-ink-muted">
-            Marked damaged on return. Raising a work order from here arrives with
-            the Service centre.
+            Marked damaged on return. A work order is raised as it comes back,
+            which takes the unit off the shelf until the bench clears it.
           </p>
         ) : null}
       </div>
@@ -159,6 +161,17 @@ export function CheckinPanel({ reservationId }: { reservationId: string }) {
               }`}
             >
               {entry.message}
+              {entry.workOrder ? (
+                <>
+                  {" "}
+                  <Link
+                    href={`/dashboard/service/work-orders/${entry.workOrder.id}`}
+                    className="text-accent-text underline-offset-2 hover:underline"
+                  >
+                    Open {entry.workOrder.number} →
+                  </Link>
+                </>
+              ) : null}
               {entry.order ? (
                 <>
                   {" "}

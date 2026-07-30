@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireEditor } from "@/lib/auth-utils";
+import { openWorkOrder } from "@/lib/actions/service";
 import { calculatePeriods, computeItemSubtotal } from "@/lib/pricing/periods";
 import {
   checkinByBarcode,
@@ -156,7 +157,12 @@ async function splitOntoNewLine(
 export type CheckinCondition = "EXCELLENT" | "GOOD" | "FAIR" | "DAMAGED";
 
 export type CheckinOutcome =
-  | { status: "ok"; message: string }
+  | {
+      status: "ok";
+      message: string;
+      /** Set when a damaged return raised one. */
+      workOrder?: { id: string; number: string };
+    }
   | { status: "error"; message: string }
   /** The unit is out, but on a different order. Offer the way there. */
   | {
@@ -194,12 +200,39 @@ export async function scanUnitIn(
 
   if (result.success) {
     revalidatePath(`/dashboard/reservations/${reservationId}`);
-    return {
-      status: "ok",
-      message: damaged
-        ? `${trimmed} back, marked damaged.`
-        : `${trimmed} checked in.`,
-    };
+
+    // Damaged on return raises the work order here, in the same breath as the
+    // check-in. Asking someone to go and do it afterwards is asking for a
+    // damaged unit to go back on the shelf: openWorkOrder is what takes it out
+    // of bookable stock.
+    if (damaged) {
+      const unit = await prisma.assetUnit.findUnique({
+        where: { barcode: trimmed },
+        select: { id: true },
+      });
+      if (unit) {
+        const raised = await openWorkOrder({
+          assetUnitId: unit.id,
+          fault: damageNotes?.trim() || "Damaged on return",
+          openedFromReservationId: reservationId,
+        });
+        if (raised.status === "ok") {
+          return {
+            status: "ok",
+            message: `${trimmed} back, damaged — ${raised.number} raised and the unit is off the shelf.`,
+            workOrder: { id: raised.workOrderId, number: raised.number },
+          };
+        }
+        // The unit is back either way; say the work order didn't happen rather
+        // than pretending the return failed.
+        return {
+          status: "ok",
+          message: `${trimmed} back, marked damaged. No work order raised: ${raised.message}`,
+        };
+      }
+    }
+
+    return { status: "ok", message: `${trimmed} checked in.` };
   }
 
   // Not on this order — say where it actually is rather than just refusing.

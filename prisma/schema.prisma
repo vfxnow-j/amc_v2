@@ -52,6 +52,8 @@ model User {
   flowTasksCreated     FlowTask[]     @relation("FlowTaskCreator")
   flowGroupsCreated    FlowGroup[]    @relation("FlowGroupCreator")
   flowTaskComments     FlowTaskComment[] @relation("FlowTaskComments")
+  workOrdersOpened     WorkOrder[]       @relation("WorkOrderOpenedBy")
+  workOrdersAssigned   WorkOrder[]       @relation("WorkOrderAssignedTech")
 
   @@map("users")
 }
@@ -378,6 +380,7 @@ model AssetUnit {
   transfers            AssetTransfer[]
   reservationItemUnits ReservationItemUnit[]
   serviceCoverages     ServiceCoverage[]
+  workOrders           WorkOrder[]
   leaseId              String?   @map("lease_id")
   lease                Lease?    @relation(fields: [leaseId], references: [id])
 
@@ -831,6 +834,7 @@ model Reservation {
   // Relations
   items       ReservationItem[]
   packages    Package[]
+  workOrders  WorkOrder[]
   checkouts   Checkout[]
   invoices    Invoice[]
   quoteTokens QuoteToken[]
@@ -1881,4 +1885,87 @@ model FlowTaskComment {
 
   @@index([taskId])
   @@map("flow_task_comments")
+}
+
+// ============================================
+// SERVICE CENTER (new in v2)
+// ============================================
+
+enum WorkOrderStatus {
+  OPEN
+  IN_TEST
+  AWAITING_PARTS
+  RMA
+  CLOSED_PASS
+  CLOSED_SCRAP
+}
+
+enum QcResult {
+  QUEUED
+  RUNNING
+  PASS
+  FAIL
+}
+
+/// A fault raised against one physical unit.
+///
+/// Opening one takes the unit out of bookable stock; closing it decides where
+/// the unit goes — CLOSED_PASS returns it to AVAILABLE, CLOSED_SCRAP retires it.
+/// See src/lib/actions/service.ts, which owns those transitions.
+model WorkOrder {
+  id          String @id @default(cuid())
+  number      String @unique
+
+  assetUnitId String
+  assetUnit   AssetUnit @relation(fields: [assetUnitId], references: [id])
+
+  /// The order the unit came back from, when it was raised at check-in.
+  openedFromReservationId String?
+  openedFromReservation   Reservation? @relation(fields: [openedFromReservationId], references: [id])
+
+  openedById     String?
+  openedBy       User?   @relation("WorkOrderOpenedBy", fields: [openedById], references: [id])
+  assignedTechId String?
+  assignedTech   User?   @relation("WorkOrderAssignedTech", fields: [assignedTechId], references: [id])
+
+  status WorkOrderStatus @default(OPEN)
+  /// Short description of what is wrong — "GPU 3 dropped off PCIe bus".
+  fault  String
+  /// Whether the client is charged for this work.
+  billable Boolean @default(false)
+  notes    String?
+
+  /// Written when the work order closes, so the unit keeps its history.
+  maintenanceRecordId String?
+
+  openedAt DateTime  @default(now())
+  closedAt DateTime?
+  updatedAt DateTime @updatedAt
+
+  testRuns QcTestRun[]
+
+  @@index([status])
+  @@index([assetUnitId])
+  @@map("work_orders")
+}
+
+/// One bench test against a work order. Filed by hand or posted by a test rig
+/// through the key-authenticated /api/v1/service/qc-runs endpoint.
+model QcTestRun {
+  id          String @id @default(cuid())
+  workOrderId String
+  workOrder   WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+
+  testName    String
+  result      QcResult @default(QUEUED)
+  ranAt       DateTime?
+  durationSec Int?
+  logUrl      String?
+  output      String?
+
+  createdAt DateTime @default(now())
+
+  @@index([workOrderId])
+  @@index([result])
+  @@map("qc_test_runs")
 }
