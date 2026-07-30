@@ -1,0 +1,58 @@
+import { prisma } from "@/lib/prisma";
+import type { NavCounts } from "@/lib/nav/counts";
+
+/**
+ * The real figures behind the rail's cluster counts.
+ *
+ * Kept out of `lib/nav/counts.ts` on purpose: that module is imported by
+ * `cluster-bubble.tsx`, a client component, and anything reaching `lib/prisma`
+ * from there would drag the pg driver into the browser bundle.
+ *
+ * Each number is the cluster's *live workload*, not a grand total — the rail is
+ * a "where is there work" signal, and a count that never moves teaches people to
+ * stop reading it. The one exception is Inventory, where the fleet size is the
+ * useful number and matches the denominator Overview divides utilisation by.
+ *
+ * Four indexed counts on every shell render. If that ever shows up in a trace,
+ * the fix is to stream the rail's counts behind their own boundary rather than
+ * to cache them — a stale badge is worse than a late one.
+ */
+export async function getNavCounts(): Promise<NavCounts> {
+  const [openOrders, rentableUnits, unpaidInvoices, activeClients] =
+    await Promise.all([
+      prisma.reservation.count({
+        where: { status: { in: ["APPROVED", "PREPARING", "SHIPPED", "ACTIVE"] } },
+      }),
+      // Retired and sold units aren't fleet any more.
+      prisma.assetUnit.count({
+        where: { status: { notIn: ["RETIRED", "SOLD"] } },
+      }),
+      prisma.invoice.count({
+        where: { status: { in: ["SENT", "PARTIAL", "OVERDUE"] } },
+      }),
+      // `Client` has no active flag, so "active" is what the data can prove:
+      // a client with an order currently running.
+      prisma.client.count({
+        where: {
+          reservations: {
+            some: {
+              status: { in: ["APPROVED", "PREPARING", "SHIPPED", "ACTIVE"] },
+            },
+          },
+        },
+      }),
+    ]);
+
+  return {
+    clusters: {
+      operate: openOrders,
+      inventory: rentableUnits,
+      // Service center has no count until WorkOrder exists (Stage 4). Absent
+      // rather than 0: zero would claim an empty queue that isn't there yet.
+      revenue: unpaidInvoices,
+      clients: activeClients,
+      // Insight carries no count in the reference — it's a read surface.
+    },
+    pages: {},
+  };
+}

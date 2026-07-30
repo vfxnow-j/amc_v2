@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { NavPanel } from "@/components/shell/nav-panel";
+import { getNavCounts } from "@/lib/queries/nav-counts";
 import { getSessionUser } from "@/lib/roles";
 
 /**
@@ -22,9 +23,11 @@ export default async function ShellLayout({
   const user = await getSessionUser();
   if (!user) redirect("/login");
 
+  const counts = await getNavCounts();
+
   return (
     <div className="flex min-h-0 flex-1 gap-3 bg-ground p-3">
-      <NavPanel user={user} />
+      <NavPanel user={user} counts={counts} />
       <main className="flex min-w-0 flex-1 flex-col gap-3">{children}</main>
     </div>
   );

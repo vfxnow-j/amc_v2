@@ -12,7 +12,7 @@ import {
   findNavPage,
   type ClusterId,
 } from "@/lib/nav/clusters";
-import { SAMPLE_NAV_COUNTS } from "@/lib/nav/counts";
+import type { NavCounts } from "@/lib/nav/counts";
 import type { SessionUser } from "@/lib/roles";
 
 function isTypingTarget(target: EventTarget | null) {
@@ -33,7 +33,13 @@ function isTypingTarget(target: EventTarget | null) {
  * warehouse staff: 1–6 jump to a cluster, ↑/↓ walk its pages, Enter navigates
  * (the rows are links, so that comes for free), ⌘K bypasses the rail entirely.
  */
-export function NavPanel({ user }: { user: SessionUser }) {
+export function NavPanel({
+  user,
+  counts,
+}: {
+  user: SessionUser;
+  counts: NavCounts;
+}) {
   const pathname = usePathname();
   const clusters = useMemo(() => clustersForRole(user.role), [user.role]);
   const active = useMemo(() => findNavPage(pathname), [pathname]);
@@ -145,7 +151,7 @@ export function NavPanel({ user }: { user: SessionUser }) {
             open={openCluster === cluster.id}
             holdsActivePage={activeClusterId === cluster.id}
             activeHref={active?.page.href ?? null}
-            counts={SAMPLE_NAV_COUNTS}
+            counts={counts}
             onToggle={() => toggleCluster(cluster.id)}
           />
         ))}

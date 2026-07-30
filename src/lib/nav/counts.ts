@@ -1,32 +1,22 @@
 import type { ClusterId } from "@/lib/nav/clusters";
 
 /**
- * Cluster totals shown in the rail.
+ * Shape of the counts shown in the rail. The figures themselves come from
+ * `lib/queries/nav-counts.ts`; this module stays free of Prisma so the client
+ * components can import `formatCount` without pulling the pg driver into the
+ * browser bundle.
  *
- * These are the illustrative figures from the design reference, kept so the rail
- * reads at the right density while the screens are built. They are NOT real:
- * replace this module with the Prisma counts (open reservations, units in
- * inventory, open work orders, …) and the rail picks them up unchanged.
+ * A cluster with no entry renders no count — which is how Service center reads
+ * until `WorkOrder` exists. Absent, not zero: zero claims an empty queue, and
+ * there is no queue there yet to be empty.
  *
- * Per-page counts are deliberately absent — the reference doesn't specify any,
+ * Per-page counts are deliberately absent. The reference doesn't specify any,
  * and inventing them would put fake numbers next to real labels. The rail
- * renders per-page counts whenever `pages` supplies them.
+ * renders them whenever `pages` supplies them.
  */
 export type NavCounts = {
   clusters: Partial<Record<ClusterId, number>>;
   pages: Record<string, number>;
-};
-
-export const SAMPLE_NAV_COUNTS: NavCounts = {
-  clusters: {
-    operate: 42,
-    inventory: 1638,
-    service: 23,
-    revenue: 61,
-    clients: 9,
-    // Insight carries no count in the reference — it's a read surface.
-  },
-  pages: {},
 };
 
 const FORMATTER = new Intl.NumberFormat("en-US");
