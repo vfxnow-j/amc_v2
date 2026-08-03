@@ -27,6 +27,10 @@ it looks.
 
 ## Shipped
 
+Snapshot taken 2026-08-03. `npx tsx scripts/smoke-routes.ts` is the live answer —
+it walks all 63 reachable pages with a real session and reports built /
+placeholder / broken. Trust it over this table.
+
 | Stage | What | Commit |
 |---|---|---|
 | 0a | Token layer, theming, fonts | `e58231d` |
@@ -35,14 +39,31 @@ it looks.
 | 0d | Database: `vfxnow_amc_v2` restored, env isolated | — |
 | 0e | Insight → Overview against real data | `9e7593e` |
 | X1 | Auth gate: proxy, session, signed-out screens | `64b8d32` |
-| 1 | Operate → Today's movements | — |
-
-Everything else in the rail renders a placeholder that names its v1 source.
+| 1 | Operate → Today's movements | `5bd1cdb` |
+| 2 | Reservations hub, record, check-in/out, order builder | `1844502`…`f16a39f` |
+| 4 | Service Centre | `eacc010` |
+| 3 | Inventory | `bac454c` |
+| 5 | Revenue | `e72e0da` |
+| 6 | Clients | `7db30a8` |
+| 1b | The last six rail placeholders: calendar, mobile, packages, cloud, services, maintenance | `eec1f6e` |
+| — | MFA behind `AUTH_MFA` so the restored users can sign in | `4efa954` |
+| — | Accounts record + the shared record kit (`components/record`) | `0312490` |
+| — | Route smoke harness | `8e0889f`, `65dc8ce` |
+| 6b | Lead record (v1's kanban dropped) | `6e8b194` |
+| 5b | Invoice record; payments question settled | `893d1de` |
+| 3b | Asset and Unit records | `810e9e4` |
+| 5c | Purchase order record + receive flow | `89eaf8c` |
+| 7a | Insights | `28dc77a` |
+| 8a | Settings index + first six children | `dd8351c` |
+| 3c | Vendor record | `2f58d8f` |
 
 **X1 was pulled ahead of Stage 1.** Every ported action gates on
 `requireAuth`/`requireEditor`, so any screen that writes returns `Unauthorized`
 until a session exists — building a mutating screen first would have produced
 one that could not be exercised at all.
+
+**Every list screen and almost every record screen now renders.** What remains is
+listed under "Still open" at the bottom of this document.
 
 ---
 
@@ -250,6 +271,40 @@ These need a product decision, not more code.
    guesswork would bury the evidence. Reported instead — per-line on the order
    record, per-order as a system flag from `lib/analytics/data-integrity.ts`,
    which surfaces on Insights in Stage 7.
+
+## Still open — 2026-08-03
+
+Read this with `scripts/smoke-routes.ts`, which is the live answer.
+
+**Screens**
+- `rate-cards/[id]` — the last unbuilt record. Answers 200 from the `[...path]`
+  catch-all, so it looks healthy unless you read the body.
+- `settings` — the remaining children beyond the first six, and QuickBooks,
+  which the plan calls a first-class deliverable of Stage 8.
+- Notifications — bell, feed and preferences are in the tree; the digest email
+  cannot be exercised here because `RESEND_API_KEY` is blank.
+
+**Never exercised against data**
+- `service/work-orders/[id]` — the `WorkOrder` table is empty, so the record has
+  never rendered against a real row. The Service Centre's mutating lifecycle
+  (open → file runs → close → unit status) is still unproven end to end.
+- QuickBooks OAuth — integration secrets are blank in v2 by design.
+
+**Known wrong, deliberately not fixed yet**
+- The `[...path]` placeholder claims a screen "hasn't been rebuilt in v2 yet"
+  for any unbuilt sub-path under a built screen, because `findNavPage` matches on
+  prefix. `/dashboard/vendors/<bad-id>` said exactly that while the Vendors list
+  was built and only the record was missing. It should 404. Left alone while
+  five agents were mid-flight, since flipping it turns their not-yet-built
+  children into 404s underneath them.
+
+**Cross-cutting, untouched:** X3 (`MetricSnapshot` rollup), X4 (API/cron
+handlers), X5 (lint burn-down — 116 inherited `any`s), X6 (design asks: SVG
+mark, light-ground logo, sign-off on the invented `--danger`/`--success`/
+`--warning` tokens).
+
+**Owner's call, still pending:** the movement-log schema change (drop the three
+counters, make `Checkout` the append-only truth) and the nav label renames.
 
 ## Suggested order
 
