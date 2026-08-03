@@ -27,9 +27,9 @@ it looks.
 
 ## Shipped
 
-Snapshot taken 2026-08-03. `npx tsx scripts/smoke-routes.ts` is the live answer —
-it walks all 63 reachable pages with a real session and reports built /
-placeholder / broken. Trust it over this table.
+Snapshot taken 2026-08-03, with every stage in. `npx tsx scripts/smoke-routes.ts`
+is the live answer — it walks all 65 reachable pages with a real session and
+reports built / placeholder / broken. Trust it over this table.
 
 | Stage | What | Commit |
 |---|---|---|
@@ -56,14 +56,30 @@ placeholder / broken. Trust it over this table.
 | 7a | Insights | `28dc77a` |
 | 8a | Settings index + first six children | `dd8351c` |
 | 3c | Vendor record | `2f58d8f` |
+| 5d | Contract record, over both sale/RTO and Lease | `8b4ffb1` |
+| 3d | Locations finished + the audit scan session | `a3e564b` |
+| 7b | Notifications: producer, bell, feed, preferences, digest cron | `8b4ffb1`, `db7dbef`, `a29f43a` |
+| 5e | Rate card record + bulk repricing moved onto it | `5124ac4` |
+| 7c | Reports — index and six children | `a8aa184` |
+| 8b | QuickBooks, Integrations and the OAuth routes | `05cab74` |
+
+**`8b4ffb1` is mis-titled.** It reads "feat(revenue): build the contract record"
+and does contain that, but it also swept up the whole notifications system and
+Settings' documents and imports: three agents were building in parallel against
+one git index, and staging and committing were two separate critical sections
+rather than one. Nothing was lost and the code is unchanged; the history is
+simply wrong about who did what, and rewriting it under agents still committing
+would have risked their work. `b212d07` records the same thing from the other
+side.
 
 **X1 was pulled ahead of Stage 1.** Every ported action gates on
 `requireAuth`/`requireEditor`, so any screen that writes returns `Unauthorized`
 until a session exists — building a mutating screen first would have produced
 one that could not be exercised at all.
 
-**Every list screen and almost every record screen now renders.** What remains is
-listed under "Still open" at the bottom of this document.
+**Every screen in the rail now renders** — 65 of 65 routes, against real data.
+What remains is listed under "Still open" at the bottom of this document, and it
+is verification, wiring and decisions rather than screens.
 
 ---
 
@@ -311,34 +327,63 @@ These need a product decision, not more code.
 
 ## Still open — 2026-08-03
 
-Read this with `scripts/smoke-routes.ts`, which is the live answer.
+**Every screen in the rail is built.** 65 of 65 routes render against the
+restored database; `npm run build` and `tsc` are clean. Run
+`scripts/smoke-routes.ts` — it is the live answer and beats this document.
 
-**Screens**
-- `rate-cards/[id]` — the last unbuilt record. Answers 200 from the `[...path]`
-  catch-all, so it looks healthy unless you read the body.
-- `settings` — the remaining children beyond the first six, and QuickBooks,
-  which the plan calls a first-class deliverable of Stage 8.
-- Notifications — bell, feed and preferences are in the tree; the digest email
-  cannot be exercised here because `RESEND_API_KEY` is blank.
+What remains is not screens. It is verification, wiring, and decisions.
 
-**Never exercised against data**
-- `service/work-orders/[id]` — the `WorkOrder` table is empty, so the record has
-  never rendered against a real row. The Service Centre's mutating lifecycle
+**Built but never exercised.** Not bugs — unfinished proof, and recording them
+as shipped would bury that.
+- `service/work-orders/[id]` — the `WorkOrder` table is empty, so it has never
+  rendered against a real row. The Service Centre's mutating lifecycle
   (open → file runs → close → unit status) is still unproven end to end.
-- QuickBooks OAuth — integration secrets are blank in v2 by design.
+- **Every write path built during the Stage 3–8 push.** Record payment, receive
+  a PO, assign a lead, convert a lead, log activity, run an import. They render,
+  gate and refuse correctly, but a server action cannot be driven from a script,
+  and exercising them means writing real rows into restored customer data. The
+  three importers were deliberately never run: testing a bulk loader against
+  production data to see what happens is the one thing not to do with it.
+- QuickBooks OAuth — `QB_CLIENT_ID`/`QB_CLIENT_SECRET` are blank. Every refusal
+  path *was* exercised (`not_configured`, `invalid_state`, the session gate).
+- The notification digest — composed and rendered end to end, and the send was
+  made and refused, because `RESEND_API_KEY` is blank. Composition and routing
+  are verified; delivery is not.
 
-**Known wrong, deliberately not fixed yet**
-- The `[...path]` placeholder claims a screen "hasn't been rebuilt in v2 yet"
-  for any unbuilt sub-path under a built screen, because `findNavPage` matches on
-  prefix. `/dashboard/vendors/<bad-id>` said exactly that while the Vendors list
-  was built and only the record was missing. It should 404. Left alone while
-  five agents were mid-flight, since flipping it turns their not-yet-built
-  children into 404s underneath them.
+**Wiring that does not exist yet**
+- **Nothing schedules the daily digest.** The handler exists and is callable.
+- **The recurring-billing job does not run in v2.** 8 of 9 live recurring orders
+  have a `nextBillingDate` in the past — $60,002/cycle of contracted income
+  absent from the forecast. A job, not a report.
+- **Zapier's inbound handler was never carried across** (X4), so a secret set on
+  the Integrations screen has nothing listening. The screen says so.
+- **The `documents/` tree was never copied to v2.** All 93 `Document` rows point
+  at files that exist only on v1's box.
 
-**Cross-cutting, untouched:** X3 (`MetricSnapshot` rollup), X4 (API/cron
-handlers), X5 (lint burn-down — 116 inherited `any`s), X6 (design asks: SVG
-mark, light-ground logo, sign-off on the invented `--danger`/`--success`/
-`--warning` tokens).
+**Needs a decision, not more code**
+- **`AssetUnit.loanAmount`** — data gap 7 above. A ported export overstates debt
+  by 432×.
+- **No invoice has ever been marked paid** (32 draft, 2 sent, 1 void). Reports
+  moved to earned-revenue; confirm whether that is real or a restore artefact.
+- **Insights contradicts itself on market prices.** All 114 are past its own
+  30-day staleness rule, yet 56 *high-priority* items derive from them —
+  including $22,893/mo for an asset priced at $560, because the maths divides a
+  whole-rack figure by 7. Thresholds untouched: the Overview reads the same
+  module.
+- **The default rate card would reprice laptops ~4×**, and prices 1 of 30
+  categories. Decide whether the card or the catalogue is right before anyone
+  uses the bulk apply.
+- **Four units are retired and bookable at once** — the fleet is offering
+  hardware the record says has left.
+- **HubSpot's outbound half is live**: setting a token starts pushing deals from
+  a restored database immediately.
+- **Send-invoice was not built.** With mail off it would flip DRAFT→SENT and log
+  a warning, leaving the app claiming money was asked for that never was.
+- **MFA re-enrolment** across all accounts, once email and the key are settled.
+
+**Cross-cutting:** X3 (`MetricSnapshot` rollup), X4 (API/cron handlers),
+X5 (lint burn-down), X6 (design asks: SVG mark, light-ground logo, sign-off on
+the invented `--danger`/`--success`/`--warning` tokens).
 
 **Owner's call, still pending:** the movement-log schema change (drop the three
 counters, make `Checkout` the append-only truth) and the nav label renames.
