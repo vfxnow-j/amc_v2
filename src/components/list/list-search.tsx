@@ -5,9 +5,13 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Search } from "lucide-react";
 
 /**
- * Search across order number, project and client. Debounced into the URL so the
- * server does the filtering — the hub can hold thousands of orders and the
- * client is never given the whole set to sift.
+ * The list search every rail screen puts in its header card. Debounced into the
+ * URL as `q` so the server does the filtering — these lists run to thousands of
+ * rows and the client is never handed the whole set to sift.
+ *
+ * Written for the Reservations hub and generalised when the rest of the rail
+ * landed; it was already path-agnostic, so only the placeholder differs per
+ * screen. Which columns `q` actually matches is each screen's query decision.
  */
 export function ListSearch({
   placeholder = "Search orders, projects, clients",
