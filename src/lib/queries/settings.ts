@@ -410,6 +410,67 @@ export async function getCloudProduct(id: string) {
   };
 }
 
+/* ── Integrations ───────────────────────────────────────────────────────── */
+
+export type IntegrationState = {
+  hubspot: {
+    enabled: boolean;
+    /** Presence only. The token itself must never reach a rendered page. */
+    hasToken: boolean;
+    hasWebhookSecret: boolean;
+    pipelineRental: string;
+    pipelineSale: string;
+    pipelineRTO: string;
+    pipelineCloud: string;
+  };
+  zapier: { hasSecret: boolean };
+};
+
+/**
+ * What is configured, without saying what it is configured *with*.
+ *
+ * `getHubSpotSettings` in `lib/actions/hubspot-settings.ts` returns the access
+ * token and the webhook secret in full, which is right for the code that calls
+ * HubSpot and wrong for anything that renders. A screen only ever needs to know
+ * whether a credential is set, so that is all this returns — the values stay in
+ * the database and in the outbound call.
+ */
+export async function getIntegrationState(): Promise<IntegrationState> {
+  const rows = await prisma.setting.findMany({
+    where: {
+      key: {
+        in: [
+          "hubspot_access_token",
+          "hubspot_webhook_secret",
+          "hubspot_enabled",
+          "hubspot_pipeline_rental",
+          "hubspot_pipeline_sale",
+          "hubspot_pipeline_rto",
+          "hubspot_pipeline_cloud",
+          "zapier_webhook_secret",
+        ],
+      },
+    },
+  });
+
+  const map = new Map(rows.map((row) => [row.key, row.value]));
+  const text = (key: string, fallback = "default") =>
+    (map.get(key) as string) || fallback;
+
+  return {
+    hubspot: {
+      enabled: map.get("hubspot_enabled") === true,
+      hasToken: !!map.get("hubspot_access_token"),
+      hasWebhookSecret: !!map.get("hubspot_webhook_secret"),
+      pipelineRental: text("hubspot_pipeline_rental"),
+      pipelineSale: text("hubspot_pipeline_sale"),
+      pipelineRTO: text("hubspot_pipeline_rto"),
+      pipelineCloud: text("hubspot_pipeline_cloud"),
+    },
+    zapier: { hasSecret: !!map.get("zapier_webhook_secret") },
+  };
+}
+
 /* ── Documents ──────────────────────────────────────────────────────────── */
 
 export type DocumentRow = {
