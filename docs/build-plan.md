@@ -225,8 +225,12 @@ These need a product decision, not more code.
 
 1. **Utilisation delta ("+2.1 pts").** Nothing snapshots utilisation over time.
    Needs X3, a nightly `MetricSnapshot` row. Until then the card shows the ratio.
-2. **Revenue target ("64% of target").** No target exists in the schema. Needs a
-   target per period, probably in settings.
+2. ~~**Revenue target ("64% of target").** No target exists in the schema.~~
+   **Narrowed 2026-08-03.** The mechanism was already ported and nobody had
+   looked: `Setting` rows keyed `kpi_YYYY-MM`, with `getKpiTargets` and
+   `saveKpiTargets` both present. Only the numbers are missing, and Reports now
+   carries the form to enter them. This was never a schema gap — it was an empty
+   table read as an absent feature.
 3. **Overdue means recurring-excluded.** Recurring orders' `endDate` is a billing
    period end, not a return date; including them read 214 overdue instead of 35.
    Confirm with whoever runs the desk.
@@ -271,6 +275,39 @@ These need a product decision, not more code.
    guesswork would bury the evidence. Reported instead — per-line on the order
    record, per-order as a system flag from `lib/analytics/data-integrity.ts`,
    which surfaces on Insights in Stage 7.
+
+7. **`AssetUnit.loanAmount` is the whole lease, copied onto every unit.** Found
+   2026-08-03 while building the contract record. It is not a per-unit share of
+   the financing, which is what the field name and the Stage 5 plan both imply.
+
+   **Root cause is live code, not the import.** `lib/actions/leases.ts:148`
+   stamps `loanAmount: data.totalAmount` onto every unit when a lease is
+   created, and `:222`/`:239` reapply it on update. `amortizationEndDate` and
+   `fundingBusiness` are likewise copies of the lease's own `endDate` and
+   `lender`.
+
+   **What it costs.** FCB REFI 2024 carries `totalAmount` $1,353,495.37 across
+   555 units, each holding the full amount — summing them gives **$751,189,930**.
+   Across the fleet, `lib/actions/exports.ts:977` does exactly that sum
+   (`totalLoanBalance += Number(u.loanAmount)` over `ownershipType === 'LOAN'`)
+   and would report **$762,539,766** against 765 units. The real figure — every
+   lease's `totalAmount` added up — is **$1,765,175**. That is a 432×
+   overstatement in a ported export, sitting behind a plausible label.
+
+   **Why it isn't just a bad number.** Any roll-up of `loanAmount` across units
+   is meaningless while the column is a denormalised copy. Per-unit financing
+   cannot be recovered from what is stored: nothing records how the lease was
+   apportioned, and dividing by unit count would be a guess dressed as a figure.
+
+   **Not repaired.** Reported on the contract record instead. The decision the
+   owner has to make is which the field is meant to be — a per-unit share
+   (needs a real apportionment, and every writer above fixed) or a convenience
+   copy of the lease total (then nothing may ever sum it, and the export is
+   wrong). Same shape as the movement-log counters: a derived copy that no
+   longer agrees with the thing it was copied from.
+
+   Also: 15 of 20 leases carry `monthlyPayment` 0 — placeholders from
+   `seedLeasesFromNotOwned` with no amount, payment or lender.
 
 ## Still open — 2026-08-03
 
