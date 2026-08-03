@@ -52,7 +52,33 @@ export async function getInsights(): Promise<Insight[]> {
   return generateInsights()
 }
 
-async function generateInsights(): Promise<Insight[]> {
+/**
+ * Every insight, in a stable order — the Insights screen's read.
+ *
+ * The capped variants above are built for the Overview's two-slot "Needs a
+ * decision" card: eight at most, shuffled inside each priority tier so the same
+ * two don't sit there for a week. Both of those are wrong for a screen whose
+ * whole job is to be the full list. A cap silently hides work, and a shuffle
+ * means the page reorders itself under somebody halfway down it — so this
+ * returns all of them, sorted and never shuffled.
+ *
+ * Auth-checked, like `getInsights`. There is one unchecked path in this module
+ * and it exists for cron; a second one reachable from a route would undo the
+ * gate.
+ */
+export async function getAllInsights(): Promise<Insight[]> {
+  const authResult = await requireAuth()
+  if (!authResult.authorized) return []
+
+  return generateInsights({ limit: null, shuffle: false })
+}
+
+async function generateInsights(
+  options: { limit: number | null; shuffle: boolean } = {
+    limit: MAX_INSIGHTS,
+    shuffle: true,
+  }
+): Promise<Insight[]> {
   const now = new Date()
   const threeMonthsAgo = new Date(now)
   threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3)
@@ -542,7 +568,10 @@ async function generateInsights(): Promise<Insight[]> {
           category: 'asset',
           priority: 'medium',
           title: 'Missing Market Data',
-          description: `${missingMarketData} revenue-generating assets don't have market reference prices. Enable NowBot Market Insights for better ROI analysis.`,
+          // v1 read "Enable NowBot Market Insights" here. NowBot is dropped in
+          // v2, so that sentence pointed at a feature that no longer exists —
+          // and a flag whose next action doesn't exist is worse than no flag.
+          description: `${missingMarketData} revenue-generating assets have no market reference price, so neither their ROI position nor a suggested rate can be worked out. Set one on the asset, or from the pricing report.`,
           link: '/dashboard/reports/pricing',
         })
       }
@@ -726,7 +755,9 @@ async function generateInsights(): Promise<Insight[]> {
       }
     }
 
-    // Group by priority, shuffle within each tier, then flatten
+    // Group by priority, then order within each tier. The capped read shuffles
+    // so the Overview's two slots rotate; the full read sorts by type and id so
+    // the same list comes back twice running.
     const high = insights.filter((i) => i.priority === 'high')
     const medium = insights.filter((i) => i.priority === 'medium')
     const low = insights.filter((i) => i.priority === 'low')
@@ -740,9 +771,14 @@ async function generateInsights(): Promise<Insight[]> {
       return arr
     }
 
-    const sorted = [...shuffle(high), ...shuffle(medium), ...shuffle(low)]
+    const settle = (tier: Insight[]) =>
+      options.shuffle
+        ? shuffle(tier)
+        : tier.sort((a, b) => a.type.localeCompare(b.type) || a.id.localeCompare(b.id))
 
-    return sorted.slice(0, MAX_INSIGHTS)
+    const sorted = [...settle(high), ...settle(medium), ...settle(low)]
+
+    return options.limit === null ? sorted : sorted.slice(0, options.limit)
   } catch (error) {
     console.error('Failed to generate insights:', error)
     return []
@@ -759,8 +795,30 @@ async function generateInsights(): Promise<Insight[]> {
  * evidence and make the wrong number permanent.
  */
 export async function getSystemFlags(): Promise<Insight[]> {
+  const board = await getSystemFlagBoard()
+  return [...board.consistency, ...board.completeness]
+}
+
+/**
+ * The same flags, split the way the Insights screen shows them.
+ *
+ * Completeness and consistency are different problems and want different
+ * answers. "This asset has no rate" is a gap somebody fills in a minute.
+ * "This order says six of a thing and has three attached" is a disagreement
+ * between two records, and the fix needs whoever knows what happened in the
+ * warehouse — which is why `./data-integrity` reports it and never repairs it.
+ *
+ * Flattening them into one priority-sorted list buries the second kind: the
+ * import-doubling flags are deliberately `low` (nothing is broken for anyone
+ * standing at a shelf), so they sink under every missing rate on the screen
+ * that is supposed to be reporting them.
+ */
+export async function getSystemFlagBoard(): Promise<{
+  consistency: Insight[]
+  completeness: Insight[]
+}> {
   const authResult = await requireAuth()
-  if (!authResult.authorized) return []
+  if (!authResult.authorized) return { consistency: [], completeness: [] }
 
   try {
     const now = new Date()
@@ -832,7 +890,8 @@ export async function getSystemFlags(): Promise<Insight[]> {
       getInventoryStateDrift(),
     ])
 
-    const flags: Insight[] = [...inventoryStateDrift, ...unitCountDrift]
+    const consistency: Insight[] = [...inventoryStateDrift, ...unitCountDrift]
+    const flags: Insight[] = []
 
     // --- No rental rates ---
     for (const asset of assetsNoRates) {
@@ -889,11 +948,14 @@ export async function getSystemFlags(): Promise<Insight[]> {
 
     // Sort: high first, then medium, then low
     const priorityOrder: Record<InsightPriority, number> = { high: 0, medium: 1, low: 2 }
-    flags.sort((a, b) => priorityOrder[a.priority] - priorityOrder[b.priority])
+    const byPriority = (a: Insight, b: Insight) =>
+      priorityOrder[a.priority] - priorityOrder[b.priority] || a.id.localeCompare(b.id)
+    flags.sort(byPriority)
+    consistency.sort(byPriority)
 
-    return flags
+    return { consistency, completeness: flags }
   } catch (error) {
     console.error('Failed to generate system flags:', error)
-    return []
+    return { consistency: [], completeness: [] }
   }
 }
