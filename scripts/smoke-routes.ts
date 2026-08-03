@@ -31,8 +31,15 @@ import { NAV_CLUSTERS, SETTINGS_PAGE } from "@/lib/nav/clusters";
 const BASE = process.env.APP_URL ?? "http://localhost:3001";
 const VERBOSE = process.argv.includes("--verbose");
 
-/** Phrases only the `[...path]` placeholder screen renders. */
-const PLACEHOLDER_MARKERS = ["rebuilt in v2 yet", "new in v2 —", "merges"];
+/**
+ * The `[...path]` placeholder screen tags itself with this attribute.
+ *
+ * It used to be detected by matching its prose, which reported the Integrations
+ * screen as unbuilt — that screen truthfully says Zapier's inbound handler "has
+ * not been rebuilt in v2 yet". A real screen describing unbuilt work reads
+ * exactly like a placeholder. One attribute cannot be ambiguous that way.
+ */
+const PLACEHOLDER_MARKER = 'data-unbuilt="true"';
 
 /**
  * Record routes, and how to find one real id for each.
@@ -201,7 +208,7 @@ async function check(
     label,
     status: response.status,
     bytes: body.length,
-    placeholder: PLACEHOLDER_MARKERS.some((marker) => body.includes(marker)),
+    placeholder: body.includes(PLACEHOLDER_MARKER),
     error,
   };
 }

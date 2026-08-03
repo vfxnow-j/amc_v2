@@ -67,7 +67,16 @@ export default async function PlaceholderScreen({ params }: Params) {
   return (
     <>
       <PageHeader eyebrow={resolved.eyebrow} title={resolved.page.label} />
-      <section className="flex flex-1 items-center justify-center rounded-card bg-panel p-[14px] shadow-sm">
+      {/* A machine-readable "this screen does not exist yet". An unbuilt screen
+          answers a perfectly healthy 200 from here, so scripts/smoke-routes.ts
+          has to read the body to tell built from unbuilt — and matching on the
+          prose below reported the Integrations screen as a placeholder, because
+          it truthfully says Zapier's inbound handler "has not been rebuilt in
+          v2 yet". One attribute is unambiguous; a phrase never is. */}
+      <section
+        data-unbuilt="true"
+        className="flex flex-1 items-center justify-center rounded-card bg-panel p-[14px] shadow-sm"
+      >
         <p className="max-w-md text-center text-body text-balance text-ink-muted">
           <Origin page={resolved.page} /> Press{" "}
           <kbd className="rounded-row bg-sunken px-[6px] py-px text-[11px] font-bold">
