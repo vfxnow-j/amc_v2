@@ -22,7 +22,16 @@ function resolve(path: string[]): Resolved | null {
   if (href === SETTINGS_PAGE.href) return { page: SETTINGS_PAGE };
 
   const match = findNavPage(href);
-  return match ? { eyebrow: match.cluster.label, page: match.page } : null;
+  // Exact matches only. `findNavPage` matches on prefix so that a record route
+  // highlights its list in the rail, which is right there and wrong here: it
+  // made every unknown path beneath a built screen render "hasn't been rebuilt
+  // in v2 yet". /dashboard/vendors/<bad-id> said exactly that while the Vendors
+  // list was live and only its record was missing. An unbuilt screen is a
+  // different thing from a path that does not exist, and only the first one has
+  // anything to say.
+  return match && match.page.href === href
+    ? { eyebrow: match.cluster.label, page: match.page }
+    : null;
 }
 
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
