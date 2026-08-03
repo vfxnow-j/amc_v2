@@ -193,16 +193,33 @@ export async function getLeadList({
   };
 }
 
+/**
+ * The header's three figures.
+ *
+ * Pipeline is the one thing v1's kanban showed that this list didn't, so it is
+ * carried here rather than in a second screen. It sums `estimatedValue` across
+ * everything still in play, and reports how many of those leads carry no value
+ * at all — half of them don't, and a total that quietly excludes them while
+ * looking like the whole pipeline is worse than no total.
+ */
 export async function getLeadHeaderStats() {
-  const [unassigned, open] = await Promise.all([
+  const live = { status: { in: LEAD_VIEW_STATUS.working ?? [] } };
+
+  const [unassigned, open, pipeline, unsized] = await Promise.all([
     prisma.lead.count({
       where: { assignedToId: null, status: { in: ["NEW", "CONTACTED"] } },
     }),
-    prisma.lead.count({
-      where: { status: { in: LEAD_VIEW_STATUS.working ?? [] } },
-    }),
+    prisma.lead.count({ where: live }),
+    prisma.lead.aggregate({ where: live, _sum: { estimatedValue: true } }),
+    prisma.lead.count({ where: { ...live, estimatedValue: null } }),
   ]);
-  return { unassigned, open };
+
+  return {
+    unassigned,
+    open,
+    pipeline: Number(pipeline._sum.estimatedValue ?? 0),
+    unsized,
+  };
 }
 
 /* ── Quotes ─────────────────────────────────────────────────────────────── */

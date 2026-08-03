@@ -54,10 +54,16 @@ const EMPTY: Record<LeadView, React.ReactNode> = {
 };
 
 async function HeaderBlurb() {
-  const { unassigned, open } = await getLeadHeaderStats();
+  const { unassigned, open, pipeline, unsized } = await getLeadHeaderStats();
   return (
     <>
       {open} in play
+      {pipeline > 0 ? (
+        <>
+          {" · "}
+          {money(pipeline)} estimated across {open - unsized} of them
+        </>
+      ) : null}
       {unassigned > 0 ? (
         <>
           {" · "}
@@ -124,6 +130,7 @@ async function Table({
       }
       rows={rows.map((row) => ({
         id: row.id,
+        href: `/dashboard/leads/${row.id}`,
         // Nobody owns it and it's still live — that's the one that goes cold.
         flagged: row.owner === null && (row.status === "NEW" || row.status === "CONTACTED"),
         cells: {
@@ -164,9 +171,11 @@ async function Table({
 /**
  * Clients → Leads.
  *
- * v1 had both a list and a kanban; this is the list. The kanban is deferred
- * with the other deep views — it's a second rendering of the same query, and
- * the list is the one that answers "what needs picking up".
+ * v1 had both a list and a kanban; this is the list, and the kanban is not
+ * being built. It renders the same query as a board of links to the record, so
+ * it adds a layout rather than a capability. Its two genuine signals are kept
+ * here instead: pipeline value per stage is folded into the header, and
+ * staleness lives on the record as "days in this stage".
  *
  * Unowned live leads are tinted and their owner cell says so, because an
  * unassigned enquiry is the one failure mode this screen exists to catch.
