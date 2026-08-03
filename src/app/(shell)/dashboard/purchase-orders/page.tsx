@@ -120,6 +120,7 @@ async function Table({
       }
       rows={rows.map((row) => ({
         id: row.id,
+        href: `/dashboard/purchase-orders/${row.id}`,
         cells: {
           number: <span className="font-bold tabular-nums">{row.poNumber}</span>,
           vendor: row.vendorName,
