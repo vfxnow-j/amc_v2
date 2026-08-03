@@ -134,7 +134,13 @@ async function FormCard({
       title={selected ? `Edit ${selected.name}` : "Add a product"}
       meta={selected ? cloudCategoryLabel(selected.category) : "or pick a row"}
     >
-      <CloudProductForm product={selected ?? null} canDelete={canDelete} />
+      {/* Keyed on the selection, so picking another row remounts the form with
+          that product's twelve fields rather than copying props into state. */}
+      <CloudProductForm
+        key={selected?.id ?? "new"}
+        product={selected ?? null}
+        canDelete={canDelete}
+      />
     </Card>
   );
 }

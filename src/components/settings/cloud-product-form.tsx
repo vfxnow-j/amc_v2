@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { CloudProductCategory } from "@/generated/prisma/enums";
 import {
@@ -48,6 +49,11 @@ const PERIODS = [
  * The same rule is what the Cloud services list marks with "·d" and explains in
  * its footer: a derived price is not a price somebody set, and the two are
  * never shown as if they were the same fact.
+ *
+ * Twelve fields are seeded from props and then owned here. Picking another row
+ * remounts the form — the page keys it on the selected id — rather than an
+ * effect copying props into state, which with this many fields is a cascade of
+ * renders and a real chance of saving the previous product's costs.
  */
 export function CloudProductForm({
   product,
@@ -70,18 +76,6 @@ export function CloudProductForm({
   const [active, setActive] = useState(product?.active ?? true);
   const [cost, setCost] = useState(() => moneyFields(product, "cost"));
   const [sell, setSell] = useState(() => moneyFields(product, "sell"));
-
-  useEffect(() => {
-    setCategory((product?.category as CloudProductCategory) ?? "HOST_CPU");
-    setName(product?.name ?? "");
-    setDescription(product?.description ?? "");
-    setMargin(String(product?.marginPercent ?? 25));
-    setActive(product?.active ?? true);
-    setCost(moneyFields(product, "cost"));
-    setSell(moneyFields(product, "sell"));
-    setError("");
-    setConfirming(false);
-  }, [product]);
 
   const marginNumber = Number(margin) || 0;
 
@@ -282,12 +276,12 @@ export function CloudProductForm({
           {busy ? "Saving…" : product ? "Save changes" : "Add product"}
         </button>
         {product ? (
-          <a
+          <Link
             href="/dashboard/settings/cloud-products"
             className="rounded-pill bg-sunken px-3 py-[6px] text-pill text-ink-muted hover:bg-row-hover hover:text-ink"
           >
             Cancel
-          </a>
+          </Link>
         ) : null}
       </div>
 

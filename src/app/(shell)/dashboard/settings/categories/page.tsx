@@ -97,7 +97,10 @@ async function FormCard({
       title={selected ? `Edit ${selected.name}` : "Add a category"}
       meta={selected ? undefined : "or pick a row to change one"}
     >
+      {/* Keyed on the selection, so picking another row remounts the form with
+          that row's values instead of an effect copying props into state. */}
       <CategoryForm
+        key={selected?.id ?? "new"}
         category={
           selected
             ? {

@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   createCategory,
@@ -30,6 +31,11 @@ export type CategoryDraft = {
  * GPU sub-items on an order; a category that is both, or a component category
  * with no configurable parent to hang off, is a shape the order builder cannot
  * render. So they are described in terms of what they do to an order line.
+ *
+ * The fields are seeded from props and then owned by this component. Selecting
+ * a different row remounts it — the page keys this on the selected id — rather
+ * than an effect copying props into state on every change, which is a cascade
+ * of renders and one stale field away from saving somebody else's values.
  */
 export function CategoryForm({ category }: { category: CategoryDraft | null }) {
   const router = useRouter();
@@ -42,17 +48,6 @@ export function CategoryForm({ category }: { category: CategoryDraft | null }) {
   const [component, setComponent] = useState(category?.isComponent ?? false);
   const [error, setError] = useState("");
   const [confirming, setConfirming] = useState(false);
-
-  // The selected row changes under this component when the URL changes, so the
-  // fields have to follow it rather than keeping the first row's values.
-  useEffect(() => {
-    setName(category?.name ?? "");
-    setDescription(category?.description ?? "");
-    setConfigurable(category?.isConfigurable ?? false);
-    setComponent(category?.isComponent ?? false);
-    setError("");
-    setConfirming(false);
-  }, [category]);
 
   function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -144,12 +139,12 @@ export function CategoryForm({ category }: { category: CategoryDraft | null }) {
           {busy ? "Saving…" : category ? "Save changes" : "Add category"}
         </button>
         {category ? (
-          <a
+          <Link
             href="/dashboard/settings/categories"
             className="rounded-pill bg-sunken px-3 py-[6px] text-pill text-ink-muted hover:bg-row-hover hover:text-ink"
           >
             Cancel
-          </a>
+          </Link>
         ) : null}
       </div>
 

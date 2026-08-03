@@ -66,6 +66,12 @@ export function QuickBooksPanel({
 
       {!connected ? (
         configured ? (
+          // Deliberately not next/link. The target is a route handler, not a
+          // page: Link would attempt a client-side navigation and ask for an
+          // RSC payload that a redirect response cannot provide. This has to be
+          // a real browser navigation, because the whole point is to leave for
+          // Intuit's consent screen and come back.
+          // eslint-disable-next-line @next/next/no-html-link-for-pages
           <a
             href="/api/quickbooks/connect"
             className="self-start rounded-pill bg-accent-solid px-4 py-[6px] text-pill text-accent-on-solid transition-colors hover:bg-accent-800"
