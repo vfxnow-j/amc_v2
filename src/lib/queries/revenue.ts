@@ -17,8 +17,12 @@ export const PAGE_SIZE = 40;
  * Unsettled money. `OVERDUE` is a stored status that a nightly job maintains, so
  * an invoice can be past its due date while still reading `SENT` — the views
  * below lean on the dates rather than trusting the column alone.
+ *
+ * Exported because the Accounts record shows the same client's position: two
+ * definitions of "owed" in one app means the list and the record disagree in
+ * front of whoever is chasing the money.
  */
-const UNSETTLED: Prisma.InvoiceWhereInput = {
+export const UNSETTLED: Prisma.InvoiceWhereInput = {
   status: { in: ["SENT", "PARTIAL", "OVERDUE"] },
 };
 

@@ -63,6 +63,7 @@ async function Table({ search, page }: { search: string; page: number }) {
       }
       rows={rows.map((row) => ({
         id: row.id,
+        href: `/dashboard/clients/${row.id}`,
         cells: {
           name: (
             <span className="font-bold">

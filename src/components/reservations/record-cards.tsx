@@ -1,10 +1,15 @@
 import Link from "next/link";
+import { Card, CardSkeleton } from "@/components/record/record-card";
 import {
   getReservationActivity,
   getReservationInvoices,
   getReservationLines,
   type RecordUnit,
 } from "@/lib/queries/reservation-record";
+
+// Re-exported so the order record's existing imports keep working; the chrome
+// itself now lives in components/record and is shared with every other record.
+export { Card, CardSkeleton };
 
 const MONEY = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -17,33 +22,6 @@ const STAMP = new Intl.DateTimeFormat("en-US", {
   hour: "numeric",
   minute: "2-digit",
 });
-
-export function Card({
-  title,
-  meta,
-  action,
-  children,
-  className = "",
-}: {
-  title: string;
-  meta?: React.ReactNode;
-  action?: React.ReactNode;
-  children: React.ReactNode;
-  className?: string;
-}) {
-  return (
-    <section
-      className={`flex min-h-0 flex-col overflow-hidden rounded-card bg-panel pt-[14px] shadow-sm ${className}`}
-    >
-      <header className="flex items-center gap-2 px-4 pb-3">
-        <h2 className="text-card-title">{title}</h2>
-        {meta ? <span className="text-detail text-ink-muted">{meta}</span> : null}
-        {action ? <span className="ml-auto">{action}</span> : null}
-      </header>
-      {children}
-    </section>
-  );
-}
 
 /** Where a unit has got to on this order. One vocabulary, used everywhere. */
 export function unitState(unit: RecordUnit): {
@@ -241,20 +219,3 @@ export async function ActivityCard({ id }: { id: string }) {
   );
 }
 
-export function CardSkeleton({ title, rows = 6 }: { title: string; rows?: number }) {
-  return (
-    <section className="flex min-h-0 flex-col rounded-card bg-panel pt-[14px] shadow-sm">
-      <div className="px-4 pb-3">
-        <h2 className="text-card-title text-ink-muted">{title}</h2>
-      </div>
-      <div className="flex flex-col gap-[2px] px-2 pb-3">
-        {Array.from({ length: rows }, (_, index) => (
-          <div
-            key={index}
-            className="h-[30px] animate-pulse rounded-row bg-row-alt"
-          />
-        ))}
-      </div>
-    </section>
-  );
-}

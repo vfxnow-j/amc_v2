@@ -48,7 +48,18 @@ function iso(date: Date) {
  * The offer moves the whole order's window instead, and says so, rather than
  * pretending to a granularity the schema doesn't have.
  */
-export function OrderBuilder() {
+/**
+ * `initialClient` is set when the builder is opened from an account record —
+ * the client is already known, so asking for it again is a step backwards. It
+ * is resolved on the server from the `client` query parameter, so an id that
+ * doesn't exist arrives here as null and the picker appears as normal rather
+ * than the screen half-filling with a phantom.
+ */
+export function OrderBuilder({
+  initialClient = null,
+}: {
+  initialClient?: Client | null;
+}) {
   const router = useRouter();
   const today = new Date();
   const [start, setStart] = useState(iso(today));
@@ -57,7 +68,7 @@ export function OrderBuilder() {
   );
   const [projectName, setProjectName] = useState("");
 
-  const [client, setClient] = useState<Client | null>(null);
+  const [client, setClient] = useState<Client | null>(initialClient);
   const [clientQuery, setClientQuery] = useState("");
   const [clientHits, setClientHits] = useState<Client[]>([]);
 
