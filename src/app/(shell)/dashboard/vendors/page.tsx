@@ -38,6 +38,7 @@ async function Table({ search }: { search: string }) {
       }
       rows={vendors.map((vendor) => ({
         id: vendor.id,
+        href: `/dashboard/vendors/${vendor.id}`,
         cells: {
           name: <span className="font-bold">{vendor.name}</span>,
           contact: (
