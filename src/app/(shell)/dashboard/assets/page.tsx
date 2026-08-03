@@ -115,6 +115,7 @@ async function Table({
       }
       rows={rows.map((row) => ({
         id: row.id,
+        href: `/dashboard/assets/${row.id}`,
         cells: {
           name: <span className="font-bold">{row.name}</span>,
           category: <span className="text-ink-muted">{row.categoryName}</span>,

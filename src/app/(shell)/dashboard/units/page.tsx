@@ -125,6 +125,7 @@ async function Table({
       }
       rows={rows.map((row) => ({
         id: row.id,
+        href: `/dashboard/units/${row.id}`,
         cells: {
           barcode: (
             <span className="font-bold tabular-nums">{row.barcode}</span>
