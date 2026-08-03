@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import type { Insight } from "@/lib/analytics/insights";
-import { MUST_NOT_BE_OUT } from "@/lib/inventory/availability";
+import { MUST_NOT_BE_OUT, OPEN_CHECKOUT } from "@/lib/inventory/availability";
 
 /**
  * Data-quality checks that report rather than repair.
@@ -155,7 +155,7 @@ export async function getInventoryStateDrift(): Promise<Insight[]> {
       where: {
         status: { in: MUST_NOT_BE_OUT },
         OR: [
-          { checkouts: { some: { actualReturn: null, status: { notIn: ["CANCELLED", "RETURNED"] } } } },
+          { checkouts: { some: OPEN_CHECKOUT } },
           { reservationItemUnits: { some: { checkedOutAt: { not: null }, checkedInAt: null } } },
         ],
       },
@@ -178,7 +178,7 @@ export async function getInventoryStateDrift(): Promise<Insight[]> {
     prisma.assetUnit.count({
       where: {
         status: "CHECKED_OUT",
-        checkouts: { none: { actualReturn: null, status: { notIn: ["CANCELLED", "RETURNED"] } } },
+        checkouts: { none: OPEN_CHECKOUT },
         reservationItemUnits: { none: { checkedOutAt: { not: null }, checkedInAt: null } },
       },
     }),

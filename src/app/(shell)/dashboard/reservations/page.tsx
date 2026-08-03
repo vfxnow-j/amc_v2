@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import Link from "next/link";
 import { PageHeader } from "@/components/shell/page-header";
-import { ListSearch } from "@/components/reservations/list-search";
+import { ListSearch } from "@/components/list/list-search";
 import {
   ReservationTable,
   ReservationTableSkeleton,

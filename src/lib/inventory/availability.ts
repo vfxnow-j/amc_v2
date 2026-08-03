@@ -1,4 +1,4 @@
-import type { AssetStatus } from "@/generated/prisma/client";
+import type { AssetStatus, CheckoutStatus } from "@/generated/prisma/client";
 
 /**
  * What a unit's status means for booking. One definition, because "is this
@@ -36,6 +36,27 @@ export const OUT_OF_FLEET: AssetStatus[] = ["RETIRED", "SOLD"];
  * check exists to prevent.
  */
 export const MUST_NOT_BE_OUT: AssetStatus[] = ["AVAILABLE", "RESERVED"];
+
+/**
+ * What "still out" means on a `Checkout` row, as a reusable `where` fragment.
+ *
+ * A returned row is stamped with `actualReturn`, but a cancelled one never is —
+ * so the date alone would count cancellations as custody forever. Both halves
+ * are required. Named here rather than retyped per query because this is the
+ * same "if it's out, it's not available" rule, asked of the movement log
+ * instead of the unit.
+ *
+ * A plain object literal, not a `Prisma.CheckoutWhereInput`: keeping this module
+ * free of value imports from the client is what lets client components import
+ * from it. It is assignable to the Prisma type at every call site.
+ */
+export const OPEN_CHECKOUT: {
+  actualReturn: null;
+  status: { notIn: CheckoutStatus[] };
+} = {
+  actualReturn: null,
+  status: { notIn: ["CANCELLED", "RETURNED"] },
+};
 
 export function isBookable(status: AssetStatus): boolean {
   return BOOKABLE.includes(status);
