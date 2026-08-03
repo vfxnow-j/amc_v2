@@ -58,7 +58,7 @@ async function Table({ search, page }: { search: string; page: number }) {
       }
       rows={rows.map((row) => ({
         id: row.id,
-        href: `/dashboard/invoices?q=${encodeURIComponent(row.invoiceNumber)}`,
+        href: `/dashboard/invoices/${row.invoiceId}`,
         cells: {
           date: (
             <span className="tabular-nums text-ink-muted">
@@ -99,6 +99,13 @@ async function Table({ search, page }: { search: string; page: number }) {
  * one invoice at a time, or in QuickBooks. Rows link back to the invoice they
  * settle rather than to a record of their own; a payment on its own says very
  * little, and the allocation is the interesting part.
+ *
+ * **A payment gets no record screen** (decided while building the Revenue
+ * records, 2026-08-03). Every column a `Payment` has is already on this row, and
+ * `Payment.invoiceId` is a required single link — there is no many-to-many
+ * allocation to build a screen around. Allocation therefore lives on the invoice
+ * record, which is the only place the balance being settled is on screen; that
+ * is where a payment is recorded, and where it can be read in context.
  *
  * Amounts carry cents here, unlike the rest of the app: this is the one list
  * somebody reconciles line by line against a bank statement.

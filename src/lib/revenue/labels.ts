@@ -16,6 +16,31 @@ export const INVOICE_STATUS_LABEL: Record<InvoiceStatus, string> = {
   VOID: "Void",
 };
 
+/**
+ * Unsettled: money somebody is still waiting for. `OVERDUE` is in the list
+ * because it is a stored status a nightly job maintains, not because the column
+ * can be trusted on its own — see `isInvoiceOverdue`.
+ *
+ * Lives here rather than in the query layer so the record screens, which judge
+ * one invoice at a time, and the list, which judges them in bulk, can't drift
+ * apart. `queries/revenue.ts` builds its `UNSETTLED` where-clause from this.
+ */
+export const UNSETTLED_STATUSES: InvoiceStatus[] = ["SENT", "PARTIAL", "OVERDUE"];
+
+/**
+ * The one definition of overdue in this app: unsettled **and** past its due
+ * date. The stored `Invoice.status = OVERDUE` lags a nightly job, so an invoice
+ * can be genuinely late while the column still reads SENT — and a screen that
+ * believed the column would quietly disagree with the list beside it.
+ */
+export function isInvoiceOverdue(
+  status: InvoiceStatus,
+  dueDate: Date,
+  now: Date,
+): boolean {
+  return UNSETTLED_STATUSES.includes(status) && dueDate < now;
+}
+
 export const INVOICE_VIEWS = [
   "outstanding",
   "overdue",
@@ -84,3 +109,20 @@ export const PO_VIEW_LABEL: Record<POView, string> = {
 export function isPOView(value: unknown): value is POView {
   return PO_VIEWS.includes(value as POView);
 }
+
+/**
+ * How a PO line lands when it is received.
+ *
+ * `POItem` stores this as two booleans whose combinations are not all
+ * meaningful, so it is resolved into one word at the query layer and both the
+ * record and the receive panel read that. Lives here, with the rest of the
+ * cluster's Prisma-free vocabulary, because the receive panel is a client
+ * component and importing the query module would drag the pg driver into the
+ * browser.
+ *
+ * - `units` — serialised: one `AssetUnit` per item received.
+ * - `serials` — held for resale: serial numbers recorded on the line, no units.
+ * - `consumable` — cable, fan, licence: no serials, never touches the fleet.
+ * - `unlinked` — marked serialised but with no product type to hang units off.
+ */
+export type ReceiveMode = "units" | "serials" | "consumable" | "unlinked";

@@ -130,6 +130,7 @@ async function Table({
       }
       rows={rows.map((row) => ({
         id: row.id,
+        href: `/dashboard/invoices/${row.id}`,
         // Past due and still unsettled — the rows that need chasing.
         flagged: row.isOverdue,
         cells: {

@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import {
   INVOICE_VIEWS,
   PO_VIEWS,
+  UNSETTLED_STATUSES,
   type InvoiceView,
   type POView,
 } from "@/lib/revenue/labels";
@@ -20,10 +21,12 @@ export const PAGE_SIZE = 40;
  *
  * Exported because the Accounts record shows the same client's position: two
  * definitions of "owed" in one app means the list and the record disagree in
- * front of whoever is chasing the money.
+ * front of whoever is chasing the money. The statuses themselves live in
+ * `revenue/labels`, which the record screens read too — they judge one invoice
+ * rather than querying for many, and a second hand-typed list would rot.
  */
 export const UNSETTLED: Prisma.InvoiceWhereInput = {
-  status: { in: ["SENT", "PARTIAL", "OVERDUE"] },
+  status: { in: UNSETTLED_STATUSES },
 };
 
 function invoiceViewWhere(
