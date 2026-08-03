@@ -6,6 +6,7 @@ import bcrypt from 'bcryptjs'
 import { checkRateLimit } from '@/lib/utils/rate-limit'
 import { sendMfaOtp } from './mfa'
 import { validateTrustToken } from '@/lib/mfa-trust'
+import { isMfaEnforced } from '@/lib/mfa-enforcement'
 
 export type ValidateCredentialsResult = {
   success: boolean
@@ -58,7 +59,9 @@ export async function validateCredentials(
       return { success: false, mfaRequired: false, error: 'Invalid email or password.' }
     }
 
-    if (user.mfaEnabled) {
+    // While AUTH_MFA is off this never reports mfaRequired, so the login form
+    // stays on its first step and signs in on the password alone.
+    if (isMfaEnforced() && user.mfaEnabled) {
       // Check for valid trust token cookie
       const cookieStore = await cookies()
       const trustCookie = cookieStore.get('mfa_trust')

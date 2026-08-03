@@ -9,6 +9,7 @@ import { prisma } from './prisma';
 import { checkRateLimit, resetRateLimit } from '@/lib/utils/rate-limit';
 import { decryptSecret, verifyTotpCode } from '@/lib/totp';
 import { validateTrustToken } from '@/lib/mfa-trust';
+import { isMfaEnforced } from '@/lib/mfa-enforcement';
 import type { UserRole } from '@/generated/prisma/client';
 
 declare module 'next-auth' {
@@ -90,8 +91,9 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           return null;
         }
 
-        // MFA verification
-        if (user.mfaEnabled) {
+        // MFA verification — skipped entirely while AUTH_MFA is off, so a
+        // correct password is the whole of sign-in. See lib/mfa-enforcement.
+        if (isMfaEnforced() && user.mfaEnabled) {
           const mfaCode = credentials.mfaCode as string | undefined;
           const mfaMethod = (credentials.mfaMethod as string) || 'email';
           if (!mfaCode) {
