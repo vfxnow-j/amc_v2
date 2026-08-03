@@ -1,4 +1,6 @@
 import "dotenv/config";
+import { readdirSync } from "node:fs";
+import { join } from "node:path";
 import { encode } from "next-auth/jwt";
 import { prisma } from "@/lib/prisma";
 import { NAV_CLUSTERS, SETTINGS_PAGE } from "@/lib/nav/clusters";
@@ -89,7 +91,70 @@ const RECORD_ROUTES: {
     path: (id) => `/dashboard/service/work-orders/${id}`,
     find: () => firstId(() => prisma.workOrder.findFirst({ select: { id: true } })),
   },
+  {
+    label: "contract record",
+    path: (id) => `/dashboard/sales/${id}`,
+    find: () =>
+      firstId(() =>
+        prisma.reservation.findFirst({
+          where: { reservationType: { in: ["SALE", "RENT_TO_OWN"] } },
+          select: { id: true },
+        }),
+      ),
+  },
+  {
+    label: "rate card record",
+    path: (id) => `/dashboard/rate-cards/${id}`,
+    find: () => firstId(() => prisma.rateCard.findFirst({ select: { id: true } })),
+  },
+  {
+    label: "audit record",
+    path: (id) => `/dashboard/audits/${id}`,
+    find: () =>
+      firstId(() => prisma.inventoryAudit.findFirst({ select: { id: true } })),
+  },
+  {
+    label: "scan list record",
+    path: (id) => `/dashboard/audits/scan-lists/${id}`,
+    find: () => firstId(() => prisma.scanList.findFirst({ select: { id: true } })),
+  },
+  {
+    label: "user record",
+    path: (id) => `/dashboard/settings/users/${id}`,
+    find: () => firstId(() => prisma.user.findFirst({ select: { id: true } })),
+  },
 ];
+
+/**
+ * Every static route on disk, discovered rather than listed.
+ *
+ * The rail names ~28 destinations, but the screens beneath them — six reports,
+ * a dozen settings children, the import flows — are reachable only from inside
+ * those screens. A hand-maintained list would have gone stale the first time
+ * somebody added a child, and an unchecked route is exactly where a regression
+ * hides.
+ *
+ * Dynamic segments are skipped here and probed above with a real id instead; a
+ * literal "[id]" in a URL proves nothing.
+ */
+function staticRoutes(dir: string, prefix = ""): string[] {
+  const found: string[] = [];
+
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.isFile() && entry.name === "page.tsx" && prefix) {
+      found.push(prefix);
+      continue;
+    }
+    if (!entry.isDirectory()) continue;
+    // Route groups like (shell) don't appear in the URL; dynamic and catch-all
+    // segments can't be fetched without a value.
+    if (entry.name.startsWith("[")) continue;
+    const segment = entry.name.startsWith("(") ? "" : `/${entry.name}`;
+    found.push(...staticRoutes(join(dir, entry.name), prefix + segment));
+  }
+
+  return found;
+}
 
 async function firstId(
   query: () => Promise<{ id: string } | null>,
@@ -162,12 +227,24 @@ async function main() {
 
   const targets: { path: string; label: string }[] = [];
 
+  // The rail first, labelled by cluster, so the report reads in the order the
+  // app is actually organised.
+  const railLabel = new Map<string, string>();
   for (const cluster of NAV_CLUSTERS) {
     for (const page of cluster.pages) {
+      railLabel.set(page.href, `${cluster.label} · ${page.label}`);
       targets.push({ path: page.href, label: `${cluster.label} · ${page.label}` });
     }
   }
+  railLabel.set(SETTINGS_PAGE.href, "Settings");
   targets.push({ path: SETTINGS_PAGE.href, label: "Settings" });
+
+  // Then everything else on disk — the children the rail never names.
+  const onDisk = staticRoutes(join(process.cwd(), "src/app/(shell)"));
+  for (const path of onDisk.sort()) {
+    if (railLabel.has(path)) continue;
+    targets.push({ path, label: "child" });
+  }
 
   const missingData: string[] = [];
   for (const record of RECORD_ROUTES) {
