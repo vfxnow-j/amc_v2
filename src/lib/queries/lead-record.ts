@@ -122,13 +122,24 @@ export async function getLeadActivity(id: string) {
  * warm the moment somebody fixes a typo on it. A lead that has never changed
  * status has been in its stage since it arrived.
  */
-export async function getLeadStageSince(id: string, createdAt: Date) {
+export async function getLeadStageSince(
+  id: string,
+  createdAt: Date,
+  now = new Date(),
+) {
   const change = await prisma.leadActivity.findFirst({
     where: { leadId: id, type: "STATUS_CHANGE" },
     orderBy: { createdAt: "desc" },
     select: { createdAt: true },
   });
-  return change?.createdAt ?? createdAt;
+
+  const since = change?.createdAt ?? createdAt;
+  // Counted here rather than in the card: reading the clock during a render is
+  // impure, and the figure belongs beside the date it is measured from.
+  return {
+    since,
+    days: Math.floor((now.getTime() - since.getTime()) / 86_400_000),
+  };
 }
 
 /**

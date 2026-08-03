@@ -52,8 +52,10 @@ export function isResolved(status: LeadStatus) {
 const RUN: LeadStatus[] = ["NEW", "CONTACTED", "QUALIFIED", "PROSPECT", "WON"];
 
 export async function PipelineCard({ lead }: { lead: LeadHeader }) {
-  const inStageSince = await getLeadStageSince(lead.id, lead.createdAt);
-  const days = Math.floor((Date.now() - inStageSince.getTime()) / 86_400_000);
+  const { since: inStageSince, days } = await getLeadStageSince(
+    lead.id,
+    lead.createdAt,
+  );
   const branched =
     lead.status === "LOST" ||
     lead.status === "UNQUALIFIED" ||
