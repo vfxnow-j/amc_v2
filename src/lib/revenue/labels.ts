@@ -111,6 +111,32 @@ export function isPOView(value: unknown): value is POView {
 }
 
 /**
+ * Which column on `Asset` a rate card's tier corresponds to.
+ *
+ * Only three of the six `PricingType` members have one. HOURLY, PROJECT and
+ * CUSTOM exist on an order line but have no catalogue column behind them, so a
+ * rate card carrying one has nothing to be compared against or applied to — the
+ * record says so rather than dropping it silently.
+ */
+export const RATE_FIELD = {
+  DAILY: "dailyRate",
+  WEEKLY: "weeklyRate",
+  MONTHLY: "monthlyRate",
+} as const;
+
+export type PricedRateType = keyof typeof RATE_FIELD;
+
+export function isPricedRateType(value: string): value is PricedRateType {
+  return value === "DAILY" || value === "WEEKLY" || value === "MONTHLY";
+}
+
+export const RATE_TIER_LABEL: Record<PricedRateType, string> = {
+  DAILY: "Daily",
+  WEEKLY: "Weekly",
+  MONTHLY: "Monthly",
+};
+
+/**
  * How a PO line lands when it is received.
  *
  * `POItem` stores this as two booleans whose combinations are not all

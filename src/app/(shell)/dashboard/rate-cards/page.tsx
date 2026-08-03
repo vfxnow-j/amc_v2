@@ -34,6 +34,7 @@ async function Table() {
       }
       rows={cards.map((card) => ({
         id: card.id,
+        href: `/dashboard/rate-cards/${card.id}`,
         cells: {
           name: (
             <span className="font-bold">

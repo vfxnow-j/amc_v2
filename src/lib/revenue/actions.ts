@@ -111,6 +111,78 @@ export async function recordInvoicePayment(
   };
 }
 
+export type ApplyRatesOutcome =
+  | { status: "ok"; message: string }
+  | { status: "error"; message: string };
+
+/**
+ * Write a rate card's figures onto the assets in the categories it prices.
+ *
+ * The bulk rate update the plan moves out of Assets, where changing prices
+ * never belonged. It is offered only after the record has listed every asset it
+ * would change and what it would change each one from — a price change nobody
+ * previewed is one nobody can check, and `Asset` keeps no rate history to undo
+ * from.
+ *
+ * It is safe in one specific and worth-stating way: `ReservationItem.rate` is
+ * stored per line, so nothing here reaches an existing order. This changes what
+ * the *next* line priced off these assets will cost, and nothing that has
+ * already been agreed.
+ *
+ * Retired assets are left alone. They are not going out again, and rewriting
+ * their rates would only make the retired catalogue disagree with the orders
+ * that used it.
+ */
+export async function applyRateCard(
+  rateCardId: string,
+  expectedChanges: number,
+): Promise<ApplyRatesOutcome> {
+  const auth = await requireEditor();
+  if (!auth.authorized) {
+    return { status: "error", message: auth.error ?? "Not allowed." };
+  }
+
+  const { RATE_FIELD, isPricedRateType } = await import("@/lib/revenue/labels");
+  const { getRateCardGap } = await import("@/lib/queries/rate-card-record");
+
+  // Recomputed rather than taken from the caller: the gap the person read may
+  // be minutes old, and a bulk price change must write what is true now. If the
+  // count has moved, nothing is written and they are told to look again.
+  const { rows } = await getRateCardGap(rateCardId);
+  if (rows.length === 0) {
+    return { status: "error", message: "Nothing differs from this card now." };
+  }
+  if (rows.length !== expectedChanges) {
+    return {
+      status: "error",
+      message: `${rows.length} assets differ now, not ${expectedChanges} — the catalogue has changed since this list was drawn. Reload and check it again.`,
+    };
+  }
+
+  const updates = rows.flatMap((row) =>
+    isPricedRateType(row.pricingType)
+      ? [
+          prisma.asset.update({
+            where: { id: row.assetId },
+            data: { [RATE_FIELD[row.pricingType]]: row.card },
+          }),
+        ]
+      : [],
+  );
+
+  await prisma.$transaction(updates);
+
+  revalidatePath(`/dashboard/rate-cards/${rateCardId}`);
+  revalidatePath("/dashboard/rate-cards");
+  revalidatePath("/dashboard/assets");
+
+  const assets = new Set(rows.map((row) => row.assetId)).size;
+  return {
+    status: "ok",
+    message: `${rows.length} rates rewritten across ${assets} ${assets === 1 ? "asset" : "assets"}. Orders already priced are untouched.`,
+  };
+}
+
 export type ReceiveOutcome =
   | { status: "ok"; message: string }
   | { status: "error"; message: string };
