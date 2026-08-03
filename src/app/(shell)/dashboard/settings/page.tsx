@@ -42,8 +42,6 @@ export default async function SettingsIndexPage() {
     pages: pages.filter((page) => page.group === group),
   })).filter((entry) => entry.pages.length > 0);
 
-  const reachable = pages.filter((page) => !page.pending).length;
-
   return (
     <>
       <PageHeader
@@ -51,7 +49,9 @@ export default async function SettingsIndexPage() {
         title="Settings"
         blurb={
           <>
-            {reachable} of {pages.length} screens built · signed in as{" "}
+            {/* The count is per-role: an administrator sees eleven, a viewer
+                five. Saying which is whose avoids "where did Users go". */}
+            {pages.length} screens your access can open · signed in as{" "}
             {user.name} ({user.title.toLowerCase()})
           </>
         }
@@ -92,32 +92,22 @@ async function GroupCard({
       <ul className="flex flex-col gap-px px-2 pb-3">
         {pages.map((page) => (
           <li key={page.id}>
-            {page.pending ? (
-              <div className="grid grid-cols-[1fr_auto] items-baseline gap-3 rounded-row px-2 py-[7px] opacity-60">
-                <span className="min-w-0">
-                  <span className="text-body font-bold">{page.label}</span>
-                  <span className="block truncate text-detail text-ink-muted">
-                    {page.blurb}
-                  </span>
+            <Link
+              href={page.href}
+              className="grid grid-cols-[1fr_auto] items-baseline gap-3 rounded-row px-2 py-[7px] transition-colors duration-[160ms] hover:bg-row-hover"
+            >
+              <span className="min-w-0">
+                <span className="text-body font-bold">{page.label}</span>
+                <span className="block truncate text-detail text-ink-muted">
+                  {page.blurb}
                 </span>
-                <span className="text-detail text-ink-faint">Being built</span>
-              </div>
-            ) : (
-              <Link
-                href={page.href}
-                className="grid grid-cols-[1fr_auto] items-baseline gap-3 rounded-row px-2 py-[7px] transition-colors duration-[160ms] hover:bg-row-hover"
-              >
-                <span className="min-w-0">
-                  <span className="text-body font-bold">{page.label}</span>
-                  <span className="block truncate text-detail text-ink-muted">
-                    {page.blurb}
-                  </span>
-                </span>
-                <span className="text-detail text-ink-muted">
-                  {state[page.id] ?? ""}
-                </span>
-              </Link>
-            )}
+              </span>
+              {/* Blank where nothing is provable — My profile and Notifications
+                  are about the reader, and a count would be filler. */}
+              <span className="text-detail text-ink-muted">
+                {state[page.id] ?? ""}
+              </span>
+            </Link>
           </li>
         ))}
       </ul>

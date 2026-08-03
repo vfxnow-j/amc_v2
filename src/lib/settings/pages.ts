@@ -37,12 +37,6 @@ export type SettingsPage = {
   blurb: string;
   access: SettingsAccess;
   group: SettingsGroup;
-  /**
-   * Listed but not yet built. The notifications system is a separate piece of
-   * work with its own owner; the slot is here so the index is the whole map of
-   * the area rather than the part that happened to land first.
-   */
-  pending?: boolean;
 };
 
 export const SETTINGS_PAGES: SettingsPage[] = [
@@ -127,13 +121,16 @@ export const SETTINGS_PAGES: SettingsPage[] = [
     group: "Connections",
   },
   {
+    // Built alongside the rest of this area by the notifications workstream,
+    // not here. Listed because the index is the whole map of Settings, and
+    // filed under People because it is per-account: it decides what reaches
+    // *you*, which is why anyone who can sign in can open it.
     id: "notifications",
     label: "Notifications",
     href: "/dashboard/settings/notifications",
-    blurb: "Who gets told what, and when the digest goes out.",
-    access: "admin",
-    group: "Connections",
-    pending: true,
+    blurb: "What reaches you, and by which route.",
+    access: "everyone",
+    group: "People and access",
   },
 ];
 
