@@ -21,9 +21,12 @@ const DAY = new Intl.DateTimeFormat("en-US", {
 
 const LOCATION_COLUMNS: Column[] = [
   { key: "name", label: "Location", width: "minmax(0,1fr)" },
-  { key: "parent", label: "Within", width: "160px" },
-  { key: "address", label: "Address", width: "minmax(0,1.4fr)" },
-  { key: "units", label: "Units", width: "70px", align: "right" },
+  { key: "parent", label: "Within", width: "150px" },
+  { key: "address", label: "Address", width: "minmax(0,1.3fr)" },
+  { key: "fleet", label: "In fleet", width: "72px", align: "right" },
+  { key: "free", label: "Free", width: "64px", align: "right" },
+  { key: "out", label: "Out", width: "64px", align: "right" },
+  { key: "service", label: "Service", width: "72px", align: "right" },
 ];
 
 const TRANSFER_COLUMNS: Column[] = [
@@ -40,6 +43,14 @@ async function Locations() {
     getUnlocatedUnitCount(),
   ]);
 
+  // Retired and sold units keep the location they were last at, so the counts
+  // above deliberately exclude them and the footer says how many were left out.
+  // The alternative is a shelf count that includes hardware that isn't there.
+  const gone = locations.reduce(
+    (sum, location) => sum + (location.total - location.inFleet),
+    0,
+  );
+
   return (
     <ListTable
       title="Locations"
@@ -53,13 +64,20 @@ async function Locations() {
         </>
       }
       footerNote={
-        // Worth saying only when true: these units can be booked but not found.
-        unlocated > 0 ? (
-          <span className="text-accent-text">
-            {unlocated} in-fleet {unlocated === 1 ? "unit has" : "units have"} no
-            location
-          </span>
-        ) : null
+        <>
+          {gone > 0
+            ? `${gone} retired or sold ${gone === 1 ? "unit is" : "units are"} filed here and not counted`
+            : null}
+          {/* Worth saying only when true: these units can be booked but not
+              found, which is a job rather than a statistic. */}
+          {gone > 0 && unlocated > 0 ? " · " : null}
+          {unlocated > 0 ? (
+            <span className="text-accent-text">
+              {unlocated} in-fleet {unlocated === 1 ? "unit has" : "units have"}{" "}
+              no location
+            </span>
+          ) : null}
+        </>
       }
       rows={locations.map((location) => ({
         id: location.id,
@@ -71,7 +89,27 @@ async function Locations() {
           address: (
             <span className="text-ink-muted">{location.address ?? "—"}</span>
           ),
-          units: location.units || <span className="text-ink-faint">—</span>,
+          fleet: (
+            <span className="text-ink-muted">
+              {location.inFleet || "—"}
+            </span>
+          ),
+          // Nothing free here is worth seeing at a glance: it is the difference
+          // between "pull it from LA" and "somebody has to drive".
+          free:
+            location.inFleet === 0 ? (
+              <span className="text-ink-faint">—</span>
+            ) : location.free === 0 ? (
+              <span className="font-bold text-accent-text">0</span>
+            ) : (
+              <span>{location.free}</span>
+            ),
+          out: (
+            <span className="text-ink-muted">{location.out || "—"}</span>
+          ),
+          service: (
+            <span className="text-ink-muted">{location.service || "—"}</span>
+          ),
         },
       }))}
     />

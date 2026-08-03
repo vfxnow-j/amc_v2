@@ -89,6 +89,7 @@ async function Audits() {
       }
       rows={audits.map((audit) => ({
         id: audit.id,
+        href: `/dashboard/audits/${audit.id}`,
         // Exceptions are the reason to open one of these.
         flagged: audit.exceptions > 0,
         cells: {
@@ -145,6 +146,7 @@ async function ScanLists() {
       }
       rows={lists.map((list) => ({
         id: list.id,
+        href: `/dashboard/audits/scan-lists/${list.id}`,
         cells: {
           name: <span className="font-bold">{list.name}</span>,
           description: (

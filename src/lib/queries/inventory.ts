@@ -253,25 +253,53 @@ export async function getUnitList({
 
 /* ── Locations & transfers ──────────────────────────────────────────────── */
 
+/**
+ * The locations, counted the way the rest of Inventory counts.
+ *
+ * `_count.assetUnits` counts everything ever put at a location, retired and sold
+ * included — the same denormalised trap as `Asset.totalQuantity`. A warehouse
+ * holding 395 available units read "961" under that count, which is not a number
+ * anybody can act on. One `groupBy` over status gives the breakdown for every
+ * location at once, so this stays two queries however many locations exist.
+ */
 export async function getLocations() {
-  const records = await prisma.location.findMany({
-    orderBy: { name: "asc" },
-    select: {
-      id: true,
-      name: true,
-      address: true,
-      parentLocation: { select: { name: true } },
-      _count: { select: { assetUnits: true } },
-    },
-  });
+  const [records, groups] = await Promise.all([
+    prisma.location.findMany({
+      orderBy: { name: "asc" },
+      select: {
+        id: true,
+        name: true,
+        address: true,
+        parentLocation: { select: { name: true } },
+      },
+    }),
+    prisma.assetUnit.groupBy({
+      by: ["locationId", "status"],
+      where: { locationId: { not: null } },
+      _count: true,
+    }),
+  ]);
 
-  return records.map((record) => ({
-    id: record.id,
-    name: record.name,
-    address: record.address,
-    parentName: record.parentLocation?.name ?? null,
-    units: record._count.assetUnits,
-  }));
+  return records.map((record) => {
+    const mine = groups.filter((group) => group.locationId === record.id);
+    const count = (status: AssetStatus) =>
+      mine.find((group) => group.status === status)?._count ?? 0;
+
+    return {
+      id: record.id,
+      name: record.name,
+      address: record.address,
+      parentName: record.parentLocation?.name ?? null,
+      total: mine.reduce((sum, group) => sum + group._count, 0),
+      inFleet: mine
+        .filter((group) => IN_FLEET.includes(group.status))
+        .reduce((sum, group) => sum + group._count, 0),
+      // AVAILABLE only, the one bookable definition.
+      free: count("AVAILABLE"),
+      out: count("CHECKED_OUT"),
+      service: count("MAINTENANCE"),
+    };
+  });
 }
 
 /**
