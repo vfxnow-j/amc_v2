@@ -26,8 +26,19 @@ import type { SessionUser } from "@/lib/roles";
  * straight through, because two other things have to be reachable from the
  * shell and have nowhere else to live: the theme switch (both skins are in
  * scope, so a user must be able to pick one) and signing out.
+ *
+ * The bell sits beside the gear, and arrives as a prop rather than being
+ * imported: it is server-rendered behind its own Suspense boundary in the shell
+ * layout, and this is a client component. Passing the finished node through is
+ * what keeps the count's query off the rail's critical path.
  */
-export function UserPod({ user }: { user: SessionUser }) {
+export function UserPod({
+  user,
+  bell,
+}: {
+  user: SessionUser;
+  bell?: React.ReactNode;
+}) {
   const { preference, setPreference } = useTheme();
 
   return (
@@ -48,55 +59,59 @@ export function UserPod({ user }: { user: SessionUser }) {
         </span>
       </span>
 
-      <DropdownMenu>
-        <DropdownMenuTrigger
-          aria-label="Account menu"
-          className="ml-auto flex-none rounded-tile p-1 text-ink-faint transition-colors duration-200 hover:bg-row-hover hover:text-ink"
-        >
-          <Settings className="size-4" aria-hidden />
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" side="top" className="w-52">
-          <DropdownMenuLabel className="truncate text-detail font-normal text-ink-muted">
-            {user.email}
-          </DropdownMenuLabel>
-          <DropdownMenuSeparator />
+      <span className="ml-auto flex flex-none items-center gap-1">
+        {bell}
 
-          <DropdownMenuItem asChild>
-            <Link href={SETTINGS_PAGE.href}>
-              <Settings className="size-4" aria-hidden />
-              Settings
-            </Link>
-          </DropdownMenuItem>
-
-          <DropdownMenuSeparator />
-          <DropdownMenuLabel className="text-micro uppercase text-ink-muted">
-            Theme
-          </DropdownMenuLabel>
-          <DropdownMenuRadioGroup
-            value={preference}
-            onValueChange={(value) => {
-              if (isThemePreference(value)) setPreference(value);
-            }}
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            aria-label="Account menu"
+            className="flex-none rounded-tile p-1 text-ink-faint transition-colors duration-200 hover:bg-row-hover hover:text-ink"
           >
-            <DropdownMenuRadioItem value="light">Light</DropdownMenuRadioItem>
-            <DropdownMenuRadioItem value="system">
-              Match system
-            </DropdownMenuRadioItem>
-            <DropdownMenuRadioItem value="dark">Dark</DropdownMenuRadioItem>
-          </DropdownMenuRadioGroup>
+            <Settings className="size-4" aria-hidden />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" side="top" className="w-52">
+            <DropdownMenuLabel className="truncate text-detail font-normal text-ink-muted">
+              {user.email}
+            </DropdownMenuLabel>
+            <DropdownMenuSeparator />
 
-          <DropdownMenuSeparator />
-          <DropdownMenuItem
-            variant="destructive"
-            onSelect={() => {
-              void signOutAction();
-            }}
-          >
-            <LogOut className="size-4" aria-hidden />
-            Sign out
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+            <DropdownMenuItem asChild>
+              <Link href={SETTINGS_PAGE.href}>
+                <Settings className="size-4" aria-hidden />
+                Settings
+              </Link>
+            </DropdownMenuItem>
+
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel className="text-micro uppercase text-ink-muted">
+              Theme
+            </DropdownMenuLabel>
+            <DropdownMenuRadioGroup
+              value={preference}
+              onValueChange={(value) => {
+                if (isThemePreference(value)) setPreference(value);
+              }}
+            >
+              <DropdownMenuRadioItem value="light">Light</DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="system">
+                Match system
+              </DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="dark">Dark</DropdownMenuRadioItem>
+            </DropdownMenuRadioGroup>
+
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              variant="destructive"
+              onSelect={() => {
+                void signOutAction();
+              }}
+            >
+              <LogOut className="size-4" aria-hidden />
+              Sign out
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </span>
     </div>
   );
 }

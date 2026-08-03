@@ -36,9 +36,16 @@ function isTypingTarget(target: EventTarget | null) {
 export function NavPanel({
   user,
   counts,
+  bell,
 }: {
   user: SessionUser;
   counts: NavCounts;
+  /**
+   * The notification bell, server-rendered upstream so its count streams in
+   * behind its own boundary. Passed through untouched — this component is a
+   * client component and must not learn anything about notifications.
+   */
+  bell?: React.ReactNode;
 }) {
   const pathname = usePathname();
   const clusters = useMemo(() => clustersForRole(user.role), [user.role]);
@@ -157,7 +164,7 @@ export function NavPanel({
         ))}
       </nav>
 
-      <UserPod user={user} />
+      <UserPod user={user} bell={bell} />
 
       {paletteOpen ? (
         <CommandPalette role={user.role} onClose={closePalette} />

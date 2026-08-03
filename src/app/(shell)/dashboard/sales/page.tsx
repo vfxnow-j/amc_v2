@@ -104,7 +104,10 @@ async function Orders({
       }
       rows={rows.map((row) => ({
         id: row.id,
-        href: `/dashboard/reservations/${row.id}`,
+        // The contract record, not the order record: a sale opened from here is
+        // being read for its margin and its settlement, and the operational
+        // half is one click further on.
+        href: `/dashboard/sales/${row.id}`,
         cells: {
           number: (
             <span className="font-bold tabular-nums">
@@ -154,6 +157,7 @@ async function Leases() {
       }
       rows={leases.map((lease) => ({
         id: lease.id,
+        href: `/dashboard/sales/${lease.id}`,
         cells: {
           number: (
             <span className="font-bold tabular-nums">{lease.leaseNumber}</span>

@@ -410,6 +410,166 @@ export async function getCloudProduct(id: string) {
   };
 }
 
+/* ── Documents ──────────────────────────────────────────────────────────── */
+
+export type DocumentRow = {
+  id: string;
+  documentType: string;
+  filename: string;
+  fileSize: number;
+  entityType: string;
+  entityId: string;
+  /** "R-2026-0042" or the vendor's PO number — what a person calls it. */
+  entityLabel: string;
+  entitySubLabel: string;
+  isSigned: boolean;
+  signedBy: string | null;
+  signedAt: Date | null;
+  createdAt: Date;
+  deletedAt: Date | null;
+  deleteReason: string | null;
+  fileExists: boolean;
+};
+
+export type DocumentSweep = {
+  rows: DocumentRow[];
+  /**
+   * True when the whole `documents/` tree is absent, which is a different
+   * problem from individual files having gone missing — and the only one of
+   * the two that "repair" cannot help with.
+   */
+  storeMissing: boolean;
+  missing: number;
+};
+
+export async function getDocumentRows(filters: {
+  documentType?: string;
+  search?: string;
+  trash?: boolean;
+}): Promise<DocumentSweep> {
+  const fs = await import("fs/promises");
+  const { resolveDocPath } = await import("@/lib/actions/documents");
+
+  const where: Prisma.DocumentWhereInput = {
+    deletedAt: filters.trash ? { not: null } : null,
+  };
+  if (filters.documentType)
+    where.documentType = filters.documentType as Prisma.DocumentWhereInput["documentType"];
+  if (filters.search)
+    where.filename = { contains: filters.search, mode: "insensitive" };
+
+  const documents = await prisma.document.findMany({
+    where,
+    orderBy: filters.trash ? { deletedAt: "desc" } : { createdAt: "desc" },
+  });
+
+  // One probe decides whether this instance holds the document store at all.
+  // v2 is a fresh checkout against a restored database, so "every row is
+  // broken" is the expected state here and 93 individual stat calls would be
+  // 93 ways of finding out the same thing.
+  let storeMissing = false;
+  if (documents.length > 0) {
+    const probe = await resolveDocPath(documents[0].filePath);
+    const root = probe.slice(0, probe.lastIndexOf("/documents/") + 10);
+    try {
+      await fs.access(root);
+    } catch {
+      storeMissing = true;
+    }
+  }
+
+  const present = storeMissing
+    ? documents.map(() => false)
+    : await Promise.all(
+        documents.map(async (doc) => {
+          try {
+            await fs.access(await resolveDocPath(doc.filePath));
+            return true;
+          } catch {
+            return false;
+          }
+        }),
+      );
+
+  // Resolve what each document is attached to, in one query per entity kind
+  // rather than one per row.
+  const byType = new Map<string, Set<string>>();
+  for (const doc of documents) {
+    const set = byType.get(doc.entityType) ?? new Set<string>();
+    set.add(doc.entityId);
+    byType.set(doc.entityType, set);
+  }
+  const ids = (type: string) => [...(byType.get(type) ?? [])];
+
+  const [reservations, purchaseOrders, clients, assets] = await Promise.all([
+    prisma.reservation.findMany({
+      where: { id: { in: ids("RESERVATION") } },
+      select: {
+        id: true,
+        reservationNumber: true,
+        client: { select: { name: true } },
+      },
+    }),
+    prisma.purchaseOrder.findMany({
+      where: { id: { in: ids("PURCHASE_ORDER") } },
+      select: { id: true, poNumber: true, vendor: { select: { name: true } } },
+    }),
+    prisma.client.findMany({
+      where: { id: { in: ids("CLIENT") } },
+      select: { id: true, name: true },
+    }),
+    prisma.asset.findMany({
+      where: { id: { in: ids("ASSET") } },
+      select: { id: true, name: true },
+    }),
+  ]);
+
+  const labels = new Map<string, { label: string; sub: string }>();
+  for (const row of reservations)
+    labels.set(row.id, {
+      label: row.reservationNumber,
+      sub: row.client?.name ?? "",
+    });
+  for (const row of purchaseOrders)
+    labels.set(row.id, { label: row.poNumber, sub: row.vendor?.name ?? "" });
+  for (const row of clients) labels.set(row.id, { label: row.name, sub: "" });
+  for (const row of assets) labels.set(row.id, { label: row.name, sub: "" });
+
+  const rows = documents.map((doc, index): DocumentRow => {
+    const named = labels.get(doc.entityId);
+    return {
+      id: doc.id,
+      documentType: doc.documentType,
+      filename: doc.filename,
+      fileSize: doc.fileSize,
+      entityType: doc.entityType,
+      entityId: doc.entityId,
+      // A missing label means the order or PO it hung off has been deleted;
+      // the id is shown rather than a blank, so the row still identifies itself.
+      entityLabel: named?.label ?? doc.entityId,
+      entitySubLabel: named?.sub ?? "",
+      isSigned: doc.isSigned,
+      signedBy: doc.signedBy,
+      signedAt: doc.signedAt,
+      createdAt: doc.createdAt,
+      deletedAt: doc.deletedAt,
+      deleteReason: doc.deleteReason,
+      fileExists: present[index],
+    };
+  });
+
+  return {
+    rows,
+    storeMissing,
+    missing: rows.filter((row) => !row.fileExists).length,
+  };
+}
+
+/** How many are in Trash, for the tab that offers to show them. */
+export async function getTrashedDocumentCount(): Promise<number> {
+  return prisma.document.count({ where: { deletedAt: { not: null } } });
+}
+
 /* ── Audit log ──────────────────────────────────────────────────────────── */
 
 export const AUDIT_PAGE_SIZE = 50;
