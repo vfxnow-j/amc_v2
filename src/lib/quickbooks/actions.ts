@@ -50,36 +50,33 @@ export async function disconnectQuickBooks(): Promise<QuickBooksOutcome> {
 }
 
 export async function pushCustomers(): Promise<QuickBooksOutcome> {
-  const auth = await requireAdmin();
-  if (!auth.authorized) {
-    return { status: "error", message: auth.error ?? "Unauthorized" };
-  }
-
-  try {
-    const result = await syncAllCustomers();
-    revalidatePath("/dashboard/settings/quickbooks");
-    return {
-      status: "ok",
-      message: describe("customers", result),
-    };
-  } catch (cause) {
-    return { status: "error", message: reason(cause) };
-  }
+  return push("customers", syncAllCustomers);
 }
 
 export async function pushInvoices(): Promise<QuickBooksOutcome> {
+  return push("invoices", syncAllInvoices);
+}
+
+type SyncResult = { synced: number; errors: string[] };
+
+/**
+ * Both pushes are the same four steps — gate, sync, revalidate, describe — over
+ * a different `syncAll*`. Kept as one so a change to the failure handling
+ * cannot land on customers and be forgotten on invoices.
+ */
+async function push(
+  what: string,
+  sync: () => Promise<SyncResult>,
+): Promise<QuickBooksOutcome> {
   const auth = await requireAdmin();
   if (!auth.authorized) {
     return { status: "error", message: auth.error ?? "Unauthorized" };
   }
 
   try {
-    const result = await syncAllInvoices();
+    const result = await sync();
     revalidatePath("/dashboard/settings/quickbooks");
-    return {
-      status: "ok",
-      message: describe("invoices", result),
-    };
+    return { status: "ok", message: describe(what, result) };
   } catch (cause) {
     return { status: "error", message: reason(cause) };
   }
@@ -92,10 +89,7 @@ export async function pushInvoices(): Promise<QuickBooksOutcome> {
  * the first entry is worth more than the count: one rejected token or one
  * missing income account explains all of them.
  */
-function describe(
-  what: string,
-  result: { synced: number; errors: string[] },
-): string {
+function describe(what: string, result: SyncResult): string {
   if (result.errors.length === 0) {
     return result.synced === 0
       ? `Nothing to push — every ${what.replace(/s$/, "")} already carries a QuickBooks id.`

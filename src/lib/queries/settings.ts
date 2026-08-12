@@ -454,8 +454,13 @@ export async function getIntegrationState(): Promise<IntegrationState> {
   });
 
   const map = new Map(rows.map((row) => [row.key, row.value]));
-  const text = (key: string, fallback = "default") =>
-    (map.get(key) as string) || fallback;
+  // `Setting.value` is a Json column, so it is worth checking rather than
+  // asserting: a key holding a number would satisfy `as string` and then be
+  // rendered as one.
+  const text = (key: string, fallback = "default") => {
+    const value = map.get(key);
+    return typeof value === "string" && value ? value : fallback;
+  };
 
   return {
     hubspot: {
