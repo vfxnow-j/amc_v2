@@ -2,11 +2,12 @@ import type { NotificationType } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { sendEmail } from "@/lib/email/send";
 import { APP_URL, isEmailConfigured } from "@/lib/email/client";
+import { escapeHtml } from "@/lib/email/templates";
 import { getAllNotificationPreferences } from "@/lib/notifications/preferences";
 import {
+  DEFAULT_PREFERENCES,
   NOTIFICATION_LABEL,
   NOTIFICATION_TYPES,
-  mergePreferences,
   typesOn,
 } from "@/lib/notifications/types";
 
@@ -27,19 +28,11 @@ import {
  * has no business in it while notifications are still landing.
  */
 
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
-}
-
 /**
  * Same frame as `lib/email/templates.ts`'s `baseLayout`, retyped because that
- * one isn't exported. Worth saying plainly: if a third module needs it, export
- * it from there rather than growing a second copy.
+ * one isn't exported — and because the footer differs: this mail is subscribed
+ * to, so it has to say how to stop it. That difference is the whole reason this
+ * one exists. `escapeHtml` had no such excuse and is imported from there.
  */
 function layout(content: string): string {
   return `<!DOCTYPE html>
@@ -174,21 +167,28 @@ export async function sendNotificationDigests(): Promise<DigestRun> {
     subscribers: 0,
   };
 
-  const stored = await getAllNotificationPreferences();
-  const subscriberIds = [...stored.entries()]
-    .filter(([, preferences]) => preferences.digest)
-    .map(([userId]) => userId);
+  // Already merged against the defaults by `getAllNotificationPreferences`, so
+  // these are complete objects — kept keyed rather than reduced to ids, because
+  // the loop below needs the preferences again and re-merging them there was
+  // doing the same work twice.
+  const subscribers = new Map(
+    [...(await getAllNotificationPreferences())].filter(
+      ([, preferences]) => preferences.digest,
+    ),
+  );
 
-  run.subscribers = subscriberIds.length;
-  if (subscriberIds.length === 0) return run;
+  run.subscribers = subscribers.size;
+  if (subscribers.size === 0) return run;
 
   const users = await prisma.user.findMany({
-    where: { id: { in: subscriberIds } },
+    where: { id: { in: [...subscribers.keys()] } },
     select: { id: true, name: true, email: true },
   });
 
   for (const user of users) {
-    const preferences = mergePreferences(stored.get(user.id));
+    // Every user here came out of the map, so the fallback is unreachable —
+    // it is there to keep the type honest without an assertion.
+    const preferences = subscribers.get(user.id) ?? DEFAULT_PREFERENCES;
     const wanted = typesOn(preferences, "email");
     if (wanted.length === 0) {
       run.nothingToSay += 1;

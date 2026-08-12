@@ -32,6 +32,8 @@ import { daysUntil } from "@/lib/format";
  *   something", and a sweep has nothing to say.
  */
 
+const DAY_MS = 86_400_000;
+
 /** Expiries this far out are worth a warning; nearer than this is not new news. */
 const EXPIRY_HORIZON_DAYS = 30;
 
@@ -54,6 +56,21 @@ type Draft = {
   message: string;
   link: string;
 };
+
+/** What a rule found, before it is addressed to anyone. */
+type Alert = Omit<Draft, "userId">;
+
+/**
+ * Address a rule's findings to each of its recipients.
+ *
+ * Three of the five rules go to every admin, and each was writing the same
+ * nested loop to fan one finding out across them.
+ */
+function addressedTo(recipients: string[], alerts: Alert[]): Draft[] {
+  return alerts.flatMap((alert) =>
+    recipients.map((userId) => ({ userId, ...alert })),
+  );
+}
 
 export type RaiseResult = {
   /** Rows written. */
@@ -113,6 +130,10 @@ async function overdueReturns(now: Date): Promise<Draft[]> {
   const groups = new Map<string, Group>();
 
   for (const row of late) {
+    // The where-clause compares it against `now`, so it is never null here.
+    const due = row.expectedReturn;
+    if (!due) continue;
+
     // A checkout with no order is a `SIMPLE` one-off against a client, so the
     // client record is the only place that can show it in context.
     const key = row.reservationId ?? `client:${row.client.id}`;
@@ -128,11 +149,11 @@ async function overdueReturns(now: Date): Promise<Draft[]> {
       what,
       client: row.client.companyName || row.client.name,
       units: 0,
-      oldest: row.expectedReturn!,
+      oldest: due,
       owners: new Set<string>(),
     };
     group.units += 1;
-    if (row.expectedReturn! < group.oldest) group.oldest = row.expectedReturn!;
+    if (due < group.oldest) group.oldest = due;
     group.owners.add(row.createdById);
     groups.set(key, group);
   }
@@ -158,39 +179,34 @@ async function overdueReturns(now: Date): Promise<Draft[]> {
  * dismissed as it is chased. Deliberately computed from the due date rather
  * than read off `Invoice.status` — see `UNSETTLED`.
  */
-async function invoiceReminders(now: Date): Promise<Draft[]> {
-  const [invoices, admins] = await Promise.all([
-    prisma.invoice.findMany({
-      // The same `AND` the Invoices list's "overdue" view is built from, so the
-      // notification and the screen it links to can never disagree.
-      where: { AND: [UNSETTLED, { dueDate: { lt: now } }] },
-      select: {
-        invoiceNumber: true,
-        dueDate: true,
-        total: true,
-        amountPaid: true,
-        client: { select: { name: true, companyName: true } },
-      },
-    }),
-    adminIds(),
-  ]);
+async function invoiceReminders(now: Date, admins: string[]): Promise<Draft[]> {
+  const invoices = await prisma.invoice.findMany({
+    // The same `AND` the Invoices list's "overdue" view is built from, so the
+    // notification and the screen it links to can never disagree.
+    where: { AND: [UNSETTLED, { dueDate: { lt: now } }] },
+    select: {
+      invoiceNumber: true,
+      dueDate: true,
+      total: true,
+      amountPaid: true,
+      client: { select: { name: true, companyName: true } },
+    },
+  });
 
-  const drafts: Draft[] = [];
-  for (const invoice of invoices) {
-    const outstanding = Number(invoice.total) - Number(invoice.amountPaid);
-    const over = -daysUntil(invoice.dueDate, now);
-    const client = invoice.client.companyName || invoice.client.name;
-    for (const userId of admins) {
-      drafts.push({
-        userId,
+  return addressedTo(
+    admins,
+    invoices.map((invoice) => {
+      const outstanding = Number(invoice.total) - Number(invoice.amountPaid);
+      const over = -daysUntil(invoice.dueDate, now);
+      const client = invoice.client.companyName || invoice.client.name;
+      return {
         type: "INVOICE_REMINDER",
         title: `${invoice.invoiceNumber} is ${plural(over, "day")} past due`,
         message: `${client} owes $${outstanding.toLocaleString("en-US", { maximumFractionDigits: 2 })} on this invoice.`,
         link: `/dashboard/invoices?view=all&q=${encodeURIComponent(invoice.invoiceNumber)}`,
-      });
-    }
-  }
-  return drafts;
+      };
+    }),
+  );
 }
 
 /**
@@ -225,74 +241,65 @@ async function approvalRequests(): Promise<Draft[]> {
 }
 
 /** Service coverage running out within the horizon. */
-async function coverageExpiring(now: Date): Promise<Draft[]> {
-  const horizon = new Date(now.getTime() + EXPIRY_HORIZON_DAYS * 86_400_000);
-  const [coverages, admins] = await Promise.all([
-    prisma.serviceCoverage.findMany({
-      where: {
-        endDate: { gte: now, lte: horizon },
-        unit: { status: { in: IN_FLEET } },
+async function coverageExpiring(now: Date, admins: string[]): Promise<Draft[]> {
+  const horizon = new Date(now.getTime() + EXPIRY_HORIZON_DAYS * DAY_MS);
+  const coverages = await prisma.serviceCoverage.findMany({
+    where: {
+      endDate: { gte: now, lte: horizon },
+      unit: { status: { in: IN_FLEET } },
+    },
+    select: {
+      name: true,
+      endDate: true,
+      provider: true,
+      unit: {
+        select: { barcode: true, asset: { select: { name: true } } },
       },
-      select: {
-        name: true,
-        endDate: true,
-        provider: true,
-        unit: {
-          select: { barcode: true, asset: { select: { name: true } } },
-        },
-      },
-    }),
-    adminIds(),
-  ]);
+    },
+  });
 
-  const drafts: Draft[] = [];
-  for (const coverage of coverages) {
-    const days = daysUntil(coverage.endDate, now);
-    for (const userId of admins) {
-      drafts.push({
-        userId,
-        type: "COVERAGE_EXPIRING",
-        title: `${coverage.name} ends in ${plural(days, "day")}`,
-        message: `${coverage.unit.asset.name} · ${coverage.unit.barcode}${coverage.provider ? ` · ${coverage.provider}` : ""}. Renew or let it lapse deliberately.`,
-        link: "/dashboard/service/coverage",
-      });
-    }
-  }
-  return drafts;
+  return addressedTo(
+    admins,
+    coverages.map((coverage) => ({
+      type: "COVERAGE_EXPIRING",
+      title: `${coverage.name} ends in ${plural(daysUntil(coverage.endDate, now), "day")}`,
+      message: `${coverage.unit.asset.name} · ${coverage.unit.barcode}${coverage.provider ? ` · ${coverage.provider}` : ""}. Renew or let it lapse deliberately.`,
+      link: "/dashboard/service/coverage",
+    })),
+  );
 }
 
 /** Manufacturer warranty running out within the horizon, fleet units only. */
-async function warrantyExpiring(now: Date): Promise<Draft[]> {
-  const horizon = new Date(now.getTime() + EXPIRY_HORIZON_DAYS * 86_400_000);
-  const [units, admins] = await Promise.all([
-    prisma.assetUnit.findMany({
-      where: {
-        warrantyExpiry: { gte: now, lte: horizon },
-        status: { in: IN_FLEET },
-      },
-      select: {
-        barcode: true,
-        warrantyExpiry: true,
-        asset: { select: { name: true } },
-      },
-    }),
-    adminIds(),
-  ]);
+async function warrantyExpiring(now: Date, admins: string[]): Promise<Draft[]> {
+  const horizon = new Date(now.getTime() + EXPIRY_HORIZON_DAYS * DAY_MS);
+  const units = await prisma.assetUnit.findMany({
+    where: {
+      // A date range, so the column cannot be null in anything that comes back.
+      warrantyExpiry: { gte: now, lte: horizon },
+      status: { in: IN_FLEET },
+    },
+    select: {
+      barcode: true,
+      warrantyExpiry: true,
+      asset: { select: { name: true } },
+    },
+  });
 
-  const drafts: Draft[] = [];
-  for (const unit of units) {
-    const days = daysUntil(unit.warrantyExpiry!, now);
-    for (const userId of admins) {
-      drafts.push({
-        userId,
-        type: "WARRANTY_EXPIRING",
-        title: `Warranty ends in ${plural(days, "day")} · ${unit.barcode}`,
-        message: `${unit.asset.name} comes off warranty. Any repair after that is billed to us.`,
-        link: `/dashboard/units?q=${encodeURIComponent(unit.barcode)}`,
-      });
-    }
-  }
-  return drafts;
+  return addressedTo(
+    admins,
+    units.flatMap((unit) =>
+      unit.warrantyExpiry
+        ? [
+            {
+              type: "WARRANTY_EXPIRING" as const,
+              title: `Warranty ends in ${plural(daysUntil(unit.warrantyExpiry, now), "day")} · ${unit.barcode}`,
+              message: `${unit.asset.name} comes off warranty. Any repair after that is billed to us.`,
+              link: `/dashboard/units?q=${encodeURIComponent(unit.barcode)}`,
+            },
+          ]
+        : [],
+    ),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -307,13 +314,17 @@ async function warrantyExpiring(now: Date): Promise<Draft[]> {
  * record of a condition that was true.
  */
 export async function raiseNotifications(now: Date = new Date()): Promise<RaiseResult> {
+  // Read once and handed down. Three of the five rules go to every admin, and
+  // each used to ask for the list itself — the same query three times a sweep.
+  const admins = await adminIds();
+
   const drafts = (
     await Promise.all([
       overdueReturns(now),
-      invoiceReminders(now),
+      invoiceReminders(now, admins),
       approvalRequests(),
-      coverageExpiring(now),
-      warrantyExpiring(now),
+      coverageExpiring(now, admins),
+      warrantyExpiring(now, admins),
     ])
   ).flat();
 
@@ -322,7 +333,7 @@ export async function raiseNotifications(now: Date = new Date()): Promise<RaiseR
 
   // One read for the whole quiet-period check. Anything unread counts as still
   // being said, however old; anything recent counts whether or not it was read.
-  const since = new Date(now.getTime() - QUIET_DAYS * 86_400_000);
+  const since = new Date(now.getTime() - QUIET_DAYS * DAY_MS);
   const spoken = await prisma.notification.findMany({
     where: {
       userId: { in: [...new Set(drafts.map((draft) => draft.userId))] },

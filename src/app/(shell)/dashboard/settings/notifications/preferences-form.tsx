@@ -22,6 +22,9 @@ import {
  * component would drag the pg driver into the browser bundle and fail the build
  * on `dns`.
  */
+/** Header and rows share one track list, so the columns cannot drift apart. */
+const COLUMNS = { gridTemplateColumns: "minmax(0,1fr) 72px 72px" };
+
 export function PreferencesForm({
   initial,
   emailConfigured,
@@ -42,7 +45,7 @@ export function PreferencesForm({
     <form action={save} className="flex min-h-0 flex-col">
       <div
         className="grid gap-2 px-4 pb-[6px] text-colhead uppercase text-ink-muted"
-        style={{ gridTemplateColumns: "minmax(0,1fr) 72px 72px" }}
+        style={COLUMNS}
       >
         <span>Type</span>
         <span className="text-center">In app</span>
@@ -54,7 +57,7 @@ export function PreferencesForm({
           <li
             key={type}
             className={`grid items-center gap-2 rounded-row p-2 ${index % 2 === 1 ? "bg-row-alt" : ""}`}
-            style={{ gridTemplateColumns: "minmax(0,1fr) 72px 72px" }}
+            style={COLUMNS}
           >
             <span className="min-w-0">
               <span className="block truncate font-bold">
