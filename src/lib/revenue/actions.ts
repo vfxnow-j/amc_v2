@@ -5,6 +5,8 @@ import { requireEditor } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { recordPayment } from "@/lib/actions/invoices";
 import { receivePurchaseOrder } from "@/lib/actions/purchase-orders";
+import { getRateCardGap } from "@/lib/queries/rate-card-record";
+import { RATE_FIELD } from "@/lib/revenue/labels";
 
 /**
  * The Revenue cluster's writes, as the record screens need them.
@@ -142,9 +144,6 @@ export async function applyRateCard(
     return { status: "error", message: auth.error ?? "Not allowed." };
   }
 
-  const { RATE_FIELD, isPricedRateType } = await import("@/lib/revenue/labels");
-  const { getRateCardGap } = await import("@/lib/queries/rate-card-record");
-
   // Recomputed rather than taken from the caller: the gap the person read may
   // be minutes old, and a bulk price change must write what is true now. If the
   // count has moved, nothing is written and they are told to look again.
@@ -159,18 +158,18 @@ export async function applyRateCard(
     };
   }
 
-  const updates = rows.flatMap((row) =>
-    isPricedRateType(row.pricingType)
-      ? [
-          prisma.asset.update({
-            where: { id: row.assetId },
-            data: { [RATE_FIELD[row.pricingType]]: row.card },
-          }),
-        ]
-      : [],
+  // One update per row, unconditionally: `RateGapRow.pricingType` is narrowed to
+  // the tiers `Asset` has a column for, so there is no row here that could be
+  // skipped. It matters that the counts agree — the message below reports
+  // `rows.length` as written, and a filter here could quietly make that untrue.
+  await prisma.$transaction(
+    rows.map((row) =>
+      prisma.asset.update({
+        where: { id: row.assetId },
+        data: { [RATE_FIELD[row.pricingType]]: row.card },
+      }),
+    ),
   );
-
-  await prisma.$transaction(updates);
 
   revalidatePath(`/dashboard/rate-cards/${rateCardId}`);
   revalidatePath("/dashboard/rate-cards");

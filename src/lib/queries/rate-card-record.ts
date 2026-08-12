@@ -1,5 +1,9 @@
 import { prisma } from "@/lib/prisma";
-import { RATE_FIELD, isPricedRateType } from "@/lib/revenue/labels";
+import {
+  RATE_FIELD,
+  isPricedRateType,
+  type PricedRateType,
+} from "@/lib/revenue/labels";
 
 /**
  * Queries behind the Rate card record.
@@ -39,8 +43,12 @@ export async function getRateCard(id: string) {
   if (!card) return null;
 
   const categoryIds = [
-    ...new Set(card.rates.map((rate) => rate.categoryId).filter(Boolean)),
-  ] as string[];
+    ...new Set(
+      card.rates
+        .map((rate) => rate.categoryId)
+        .filter((id): id is string => id !== null),
+    ),
+  ];
 
   const categories = await prisma.assetCategory.findMany({
     where: { id: { in: categoryIds } },
@@ -74,7 +82,7 @@ export async function getRateCard(id: string) {
  * is nothing there".
  */
 export async function getRateCardCoverage(id: string) {
-  const [categories, card] = await Promise.all([
+  const [categories, rates] = await Promise.all([
     prisma.assetCategory.findMany({
       orderBy: { name: "asc" },
       select: { id: true, name: true, _count: { select: { assets: true } } },
@@ -85,7 +93,7 @@ export async function getRateCardCoverage(id: string) {
     }),
   ]);
 
-  const priced = new Set(card.map((rate) => rate.categoryId).filter(Boolean));
+  const priced = new Set(rates.map((rate) => rate.categoryId).filter(Boolean));
 
   return categories.map((category) => ({
     id: category.id,
@@ -99,7 +107,13 @@ export type RateGapRow = {
   assetId: string;
   assetName: string;
   categoryName: string;
-  pricingType: string;
+  /**
+   * Narrower than `Rate.pricingType` on purpose: the gap is computed only for
+   * tiers `Asset` has a column for, so a row here can never carry HOURLY,
+   * PROJECT or CUSTOM. Saying so in the type spares every consumer a re-check
+   * whose other branch is unreachable.
+   */
+  pricingType: PricedRateType;
   current: number | null;
   card: number;
 };
@@ -122,7 +136,16 @@ export async function getRateCardGap(id: string) {
     select: { id: true, categoryId: true, pricingType: true, rate: true },
   });
 
-  const comparable = rates.filter((rate) => isPricedRateType(rate.pricingType));
+  // flatMap rather than filter so the narrowing survives into the row type —
+  // `filter` leaves `pricingType` as the full enum however the predicate reads.
+  // The `categoryId` test is the where-clause above restated for the compiler;
+  // it drops nothing at runtime, and it is what spares the rest of the function
+  // a cast on every use.
+  const comparable = rates.flatMap((rate) =>
+    isPricedRateType(rate.pricingType) && rate.categoryId
+      ? [{ ...rate, pricingType: rate.pricingType, categoryId: rate.categoryId }]
+      : [],
+  );
   const uncomparable = rates.length - comparable.length;
   if (comparable.length === 0) {
     return { rows: [], matched: 0, uncomparable, assetsCovered: 0 };
@@ -130,7 +153,7 @@ export async function getRateCardGap(id: string) {
 
   const assets = await prisma.asset.findMany({
     where: {
-      categoryId: { in: comparable.map((rate) => rate.categoryId as string) },
+      categoryId: { in: comparable.map((rate) => rate.categoryId) },
       retiredAt: null,
     },
     orderBy: { name: "asc" },
@@ -145,14 +168,24 @@ export async function getRateCardGap(id: string) {
     },
   });
 
+  // Bucketed once rather than re-scanned per rate: a card with three tiers
+  // across ten categories would otherwise walk the whole catalogue thirty times
+  // to reach the handful of assets in each.
+  const byCategory = new Map<string, typeof assets>();
+  for (const asset of assets) {
+    if (!asset.categoryId) continue;
+    const bucket = byCategory.get(asset.categoryId);
+    if (bucket) bucket.push(asset);
+    else byCategory.set(asset.categoryId, [asset]);
+  }
+
   const rows: RateGapRow[] = [];
   let matched = 0;
 
   for (const rate of comparable) {
-    const field = RATE_FIELD[rate.pricingType as keyof typeof RATE_FIELD];
+    const field = RATE_FIELD[rate.pricingType];
     const target = Number(rate.rate);
-    for (const asset of assets) {
-      if (asset.categoryId !== rate.categoryId) continue;
+    for (const asset of byCategory.get(rate.categoryId) ?? []) {
       const raw = asset[field];
       const current = raw === null ? null : Number(raw);
       if (current !== null && Math.abs(current - target) < 0.005) {

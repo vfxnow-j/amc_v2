@@ -126,8 +126,17 @@ export const RATE_FIELD = {
 
 export type PricedRateType = keyof typeof RATE_FIELD;
 
+/**
+ * The priced tiers, shortest period first — the order a rate card is read in.
+ *
+ * Derived from `RATE_FIELD` rather than listed again, so a tier cannot be added
+ * to one and forgotten in the other. Screens that lay the tiers out as columns
+ * import this instead of writing the three names a fourth time.
+ */
+export const PRICED_RATE_TIERS = Object.keys(RATE_FIELD) as PricedRateType[];
+
 export function isPricedRateType(value: string): value is PricedRateType {
-  return value === "DAILY" || value === "WEEKLY" || value === "MONTHLY";
+  return Object.hasOwn(RATE_FIELD, value);
 }
 
 export const RATE_TIER_LABEL: Record<PricedRateType, string> = {

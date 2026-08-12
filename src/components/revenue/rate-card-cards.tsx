@@ -6,7 +6,7 @@ import {
   getRateCardCoverage,
   getRateCardGap,
 } from "@/lib/queries/rate-card-record";
-import { RATE_TIER_LABEL, isPricedRateType } from "@/lib/revenue/labels";
+import { RATE_TIER_LABEL } from "@/lib/revenue/labels";
 
 /**
  * The Rate card record's cards.
@@ -72,9 +72,7 @@ export async function RateGapCard({ id }: { id: string }) {
             >
               <span className="truncate">{row.assetName}</span>
               <span className="truncate text-ink-muted">
-                {isPricedRateType(row.pricingType)
-                  ? RATE_TIER_LABEL[row.pricingType]
-                  : row.pricingType}
+                {RATE_TIER_LABEL[row.pricingType]}
               </span>
               <span className="text-right tabular-nums text-ink-muted">
                 {row.current === null ? (

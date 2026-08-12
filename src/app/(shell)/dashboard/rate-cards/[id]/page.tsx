@@ -6,7 +6,11 @@ import { Card, CardEmpty, CardSkeleton } from "@/components/record/record-card";
 import { CoverageCard, RateGapCard } from "@/components/revenue/rate-card-cards";
 import { dayYear, moneyExact } from "@/lib/format";
 import { getRateCard } from "@/lib/queries/rate-card-record";
-import { RATE_TIER_LABEL, isPricedRateType } from "@/lib/revenue/labels";
+import {
+  PRICED_RATE_TIERS,
+  RATE_TIER_LABEL,
+  isPricedRateType,
+} from "@/lib/revenue/labels";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -57,7 +61,6 @@ export default async function RateCardRecordPage({ params }: Params) {
     entry.tiers.set(rate.pricingType, rate.rate);
     byCategory.set(key, entry);
   }
-  const tiers = ["DAILY", "WEEKLY", "MONTHLY"] as const;
 
   return (
     <>
@@ -101,7 +104,7 @@ export default async function RateCardRecordPage({ params }: Params) {
               <>
                 <div className="grid grid-cols-[1fr_78px_78px_78px] gap-2 px-4 pb-[6px] text-colhead uppercase text-ink-muted">
                   <span>Category</span>
-                  {tiers.map((tier) => (
+                  {PRICED_RATE_TIERS.map((tier) => (
                     <span key={tier} className="text-right">
                       {RATE_TIER_LABEL[tier]}
                     </span>
@@ -114,18 +117,21 @@ export default async function RateCardRecordPage({ params }: Params) {
                       className="grid grid-cols-[1fr_78px_78px_78px] items-baseline gap-2 rounded-row px-2 py-[6px] text-detail"
                     >
                       <span className="truncate">{entry.name}</span>
-                      {tiers.map((tier) => (
-                        <span
-                          key={tier}
-                          className="text-right tabular-nums text-ink-muted"
-                        >
-                          {entry.tiers.has(tier) ? (
-                            moneyExact(entry.tiers.get(tier) as number)
-                          ) : (
-                            <span className="text-ink-faint">—</span>
-                          )}
-                        </span>
-                      ))}
+                      {PRICED_RATE_TIERS.map((tier) => {
+                        const rate = entry.tiers.get(tier);
+                        return (
+                          <span
+                            key={tier}
+                            className="text-right tabular-nums text-ink-muted"
+                          >
+                            {rate === undefined ? (
+                              <span className="text-ink-faint">—</span>
+                            ) : (
+                              moneyExact(rate)
+                            )}
+                          </span>
+                        );
+                      })}
                     </li>
                   ))}
                 </ul>
