@@ -8,6 +8,7 @@ import {
   pushInvoices,
   type QuickBooksOutcome,
 } from "@/lib/quickbooks/actions";
+import { Notice } from "@/components/feedback/notice";
 
 /**
  * Connect, disconnect, and push what hasn't gone across yet.
@@ -52,16 +53,9 @@ export function QuickBooksPanel({
   return (
     <div className="flex flex-col gap-3 px-4 pb-4">
       {outcome ? (
-        <p
-          role={outcome.status === "error" ? "alert" : "status"}
-          className={
-            outcome.status === "error"
-              ? "rounded-well bg-destructive/10 px-3 py-2 text-detail text-destructive"
-              : "rounded-well bg-accent-tint px-3 py-2 text-detail text-accent-on-tint"
-          }
-        >
+        <Notice tone={outcome.status === "error" ? "error" : "ok"}>
           {outcome.message}
-        </p>
+        </Notice>
       ) : null}
 
       {!connected ? (

@@ -6,10 +6,10 @@ import {
   AuthShell,
   FIELD_CLASS,
   LABEL_CLASS,
-  Notice,
   PRIMARY_CLASS,
   SECONDARY_CLASS,
 } from "@/components/auth/auth-shell";
+import { Notice } from "@/components/feedback/notice";
 import { requestPasswordReset } from "@/lib/actions/password-reset";
 
 export default function ForgotPasswordPage() {
@@ -37,7 +37,7 @@ export default function ForgotPasswordPage() {
     >
       {sent ? (
         <>
-          <Notice tone="ok">
+          <Notice tone="ok" className="mb-4">
             If an account uses {email || "that address"}, a reset link is on its
             way. It’s good for one hour.
           </Notice>

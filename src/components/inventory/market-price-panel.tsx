@@ -6,6 +6,7 @@ import {
   saveMarketPrice,
   type MarketPriceOutcome,
 } from "@/lib/inventory/market-actions";
+import { Notice } from "@/components/feedback/notice";
 
 /**
  * Setting the market price by hand.
@@ -100,12 +101,9 @@ export function MarketPricePanel({
       className="flex flex-col gap-3 border-t border-hairline px-4 py-3"
     >
       {outcome?.status === "error" ? (
-        <p
-          role="alert"
-          className="rounded-well bg-destructive/10 px-3 py-2 text-detail text-destructive"
-        >
+        <Notice tone="error">
           {outcome.message}
-        </p>
+        </Notice>
       ) : null}
 
       <div className="grid grid-cols-2 gap-3">

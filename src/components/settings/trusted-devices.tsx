@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { revokeAllTrustDevices, revokeTrustDevice } from "@/lib/actions/mfa-trust";
 import { dayYear } from "@/lib/format";
+import { Notice } from "@/components/feedback/notice";
 
 export type TrustedDevice = {
   id: string;
@@ -38,12 +39,9 @@ export function TrustedDevices({ devices }: { devices: TrustedDevice[] }) {
   return (
     <div className="px-2 pb-3">
       {error ? (
-        <p
-          role="alert"
-          className="mx-2 mb-2 rounded-well bg-destructive/10 px-3 py-2 text-detail text-destructive"
-        >
+        <Notice tone="error" className="mx-2 mb-2">
           {error}
-        </p>
+        </Notice>
       ) : null}
 
       <ul className="flex flex-col gap-px">

@@ -18,6 +18,7 @@ import {
   type RetiredAssetsResult,
 } from "@/lib/actions/import";
 import { money } from "@/lib/format";
+import { Notice } from "@/components/feedback/notice";
 
 /**
  * The three spreadsheet imports, and the shape they share.
@@ -78,23 +79,17 @@ function FilePick({
 
 function Problem({ children }: { children: React.ReactNode }) {
   return (
-    <p
-      role="alert"
-      className="rounded-well bg-destructive/10 px-3 py-2 text-detail text-destructive"
-    >
+    <Notice tone="error">
       {children}
-    </p>
+    </Notice>
   );
 }
 
 function Note({ children }: { children: React.ReactNode }) {
   return (
-    <p
-      role="status"
-      className="rounded-well bg-accent-tint px-3 py-2 text-detail text-accent-on-tint"
-    >
+    <Notice tone="ok">
       {children}
-    </p>
+    </Notice>
   );
 }
 

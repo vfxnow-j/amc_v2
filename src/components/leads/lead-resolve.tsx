@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { bindLeadToOrder, convertLeadToReservation } from "@/lib/actions/leads";
+import { Notice } from "@/components/feedback/notice";
 
 /**
  * The two ways an enquiry stops being an enquiry.
@@ -96,12 +97,9 @@ export function LeadResolve({
   return (
     <div className="px-4 pb-4">
       {error ? (
-        <p
-          role="alert"
-          className="mb-3 rounded-well bg-destructive/10 px-3 py-2 text-detail text-destructive"
-        >
+        <Notice tone="error" className="mb-3">
           {error}
-        </p>
+        </Notice>
       ) : null}
 
       <form onSubmit={convert}>

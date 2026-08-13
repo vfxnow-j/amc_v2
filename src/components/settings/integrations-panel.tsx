@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { IntegrationState } from "@/lib/queries/settings";
 import { rotateZapierSecret, saveHubSpot } from "@/lib/settings/integrations";
+import { Notice } from "@/components/feedback/notice";
 
 /**
  * The two settings panels for outside systems that aren't QuickBooks.
@@ -56,20 +57,14 @@ export function HubSpotForm({ state }: { state: IntegrationState["hubspot"] }) {
   return (
     <form onSubmit={submit} className="flex flex-col gap-3 px-4 pb-4">
       {error ? (
-        <p
-          role="alert"
-          className="rounded-well bg-destructive/10 px-3 py-2 text-detail text-destructive"
-        >
+        <Notice tone="error">
           {error}
-        </p>
+        </Notice>
       ) : null}
       {saved ? (
-        <p
-          role="status"
-          className="rounded-well bg-accent-tint px-3 py-2 text-detail text-accent-on-tint"
-        >
+        <Notice tone="ok">
           Saved.
-        </p>
+        </Notice>
       ) : null}
 
       <label className="flex cursor-pointer items-start gap-2 rounded-well bg-sunken p-2">
@@ -200,12 +195,9 @@ export function ZapierSecret({ present }: { present: boolean }) {
   return (
     <div className="flex flex-col gap-2 px-4 pb-4">
       {error ? (
-        <p
-          role="alert"
-          className="rounded-well bg-destructive/10 px-3 py-2 text-detail text-destructive"
-        >
+        <Notice tone="error">
           {error}
-        </p>
+        </Notice>
       ) : null}
 
       {issued ? (

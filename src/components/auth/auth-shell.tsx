@@ -69,26 +69,9 @@ export const SECONDARY_CLASS =
   "flex h-10 w-full items-center justify-center rounded-pill bg-sunken px-4 text-pill text-ink transition-colors hover:bg-row-hover";
 
 /**
- * Inline status line. Sentence-case copy, and an error always says what to do
- * next rather than only what failed.
+ * `Notice` used to live here, scoped to the auth screens. It is now
+ * `components/feedback/notice` — the rest of the app had hand-rolled the same
+ * strip twenty-five times without ever finding this one, which is the argument
+ * for it not being in a cluster folder. The auth screens pass `mb-4`, which
+ * this version hard-coded.
  */
-export function Notice({
-  tone,
-  children,
-}: {
-  tone: "error" | "ok";
-  children: React.ReactNode;
-}) {
-  return (
-    <p
-      role={tone === "error" ? "alert" : "status"}
-      className={`mb-4 rounded-well px-3 py-2 text-detail ${
-        tone === "error"
-          ? "bg-destructive/10 text-destructive"
-          : "bg-accent-tint text-accent-on-tint"
-      }`}
-    >
-      {children}
-    </p>
-  );
-}

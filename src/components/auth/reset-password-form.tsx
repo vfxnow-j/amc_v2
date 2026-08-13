@@ -6,10 +6,10 @@ import { useSearchParams } from "next/navigation";
 import {
   FIELD_CLASS,
   LABEL_CLASS,
-  Notice,
   PRIMARY_CLASS,
   SECONDARY_CLASS,
 } from "@/components/auth/auth-shell";
+import { Notice } from "@/components/feedback/notice";
 import { resetPassword } from "@/lib/actions/password-reset";
 
 /** Matches `validatePassword` in lib/auth.ts — say the rule before it's broken. */
@@ -28,7 +28,7 @@ export function ResetPasswordForm() {
   if (!token) {
     return (
       <>
-        <Notice tone="error">
+        <Notice tone="error" className="mb-4">
           This link is missing its token, so it can’t be used. Reset links are
           single-use and expire after an hour — request a fresh one.
         </Notice>
@@ -42,7 +42,7 @@ export function ResetPasswordForm() {
   if (done) {
     return (
       <>
-        <Notice tone="ok">
+        <Notice tone="ok" className="mb-4">
           Your password is set. Sign in with it now.
         </Notice>
         <Link href="/login" className={SECONDARY_CLASS}>
@@ -75,7 +75,7 @@ export function ResetPasswordForm() {
 
   return (
     <>
-      {error ? <Notice tone="error">{error}</Notice> : null}
+      {error ? <Notice tone="error" className="mb-4">{error}</Notice> : null}
       <form onSubmit={submit}>
         <label htmlFor="password" className={LABEL_CLASS}>
           New password

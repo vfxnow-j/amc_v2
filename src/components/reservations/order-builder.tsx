@@ -11,6 +11,7 @@ import {
   type DraftLine,
 } from "@/lib/actions/order-builder";
 import type { AssetAvailability } from "@/lib/queries/order-builder";
+import { Notice } from "@/components/feedback/notice";
 
 const MONEY = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -472,17 +473,17 @@ export function OrderBuilder({
           </p>
 
           {error ? (
-            <p role="alert" className="mt-3 rounded-well bg-destructive/10 px-3 py-2 text-detail text-destructive">
+            <Notice tone="error" className="mt-3">
               {error}
-            </p>
+            </Notice>
           ) : null}
 
           {unresolved.length > 0 ? (
-            <p className="mt-3 rounded-well bg-accent-tint px-3 py-2 text-detail text-accent-on-tint">
+            <Notice tone="ok" className="mt-3">
               {unresolved.length} {unresolved.length === 1 ? "line needs" : "lines need"}{" "}
               an answer before this can be saved — substitute, move the start, or
               book anyway.
-            </p>
+            </Notice>
           ) : null}
 
           <button

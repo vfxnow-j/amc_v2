@@ -8,6 +8,7 @@ import {
   deleteCategory,
   updateCategory,
 } from "@/lib/actions/entities";
+import { Notice } from "@/components/feedback/notice";
 
 export type CategoryDraft = {
   id: string;
@@ -88,12 +89,9 @@ export function CategoryForm({ category }: { category: CategoryDraft | null }) {
   return (
     <form onSubmit={submit} className="flex flex-col gap-3 px-4 pb-4">
       {error ? (
-        <p
-          role="alert"
-          className="rounded-well bg-destructive/10 px-3 py-2 text-detail text-destructive"
-        >
+        <Notice tone="error">
           {error}
-        </p>
+        </Notice>
       ) : null}
 
       <label className="flex flex-col gap-[3px]">

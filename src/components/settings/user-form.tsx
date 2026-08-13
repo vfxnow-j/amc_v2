@@ -7,6 +7,7 @@ import type { UserRole } from "@/generated/prisma/client";
 import { deleteUser, updateUser } from "@/lib/actions/users";
 import { inviteUser, reissueInvite, type InviteResult } from "@/lib/settings/invites";
 import { ROLE_OPTIONS, isAdminLevel } from "@/lib/settings/roles";
+import { Notice } from "@/components/feedback/notice";
 
 /**
  * The two forms behind Settings → Users: invite somebody, and change somebody.
@@ -103,15 +104,15 @@ function TextField({
 function InviteOutcome({ result }: { result: Extract<InviteResult, { status: "ok" }> }) {
   if (result.delivered) {
     return (
-      <p className="rounded-well bg-accent-tint px-3 py-2 text-detail text-accent-on-tint">
+      <Notice tone="ok">
         Invited {result.email}. They have 72 hours to set a password from the
         link in their inbox.
-      </p>
+      </Notice>
     );
   }
 
   return (
-    <div className="rounded-well bg-accent-tint px-3 py-2 text-detail text-accent-on-tint">
+    <Notice tone="ok">
       <p className="mb-1">
         Account created for {result.email}, but{" "}
         <span className="font-bold">no email was sent</span> — outbound email is
@@ -128,7 +129,7 @@ function InviteOutcome({ result }: { result: Extract<InviteResult, { status: "ok
           invite.
         </p>
       )}
-    </div>
+    </Notice>
   );
 }
 
@@ -162,12 +163,9 @@ export function InviteForm({ canSetAdmin }: { canSetAdmin: boolean }) {
   return (
     <form onSubmit={submit} className="flex flex-col gap-3 px-4 pb-4">
       {error ? (
-        <p
-          role="alert"
-          className="rounded-well bg-destructive/10 px-3 py-2 text-detail text-destructive"
-        >
+        <Notice tone="error">
           {error}
-        </p>
+        </Notice>
       ) : null}
       {done ? <InviteOutcome result={done} /> : null}
 
@@ -269,20 +267,14 @@ export function UserEditor({
   return (
     <div className="flex flex-col gap-3 px-4 pb-4">
       {error ? (
-        <p
-          role="alert"
-          className="rounded-well bg-destructive/10 px-3 py-2 text-detail text-destructive"
-        >
+        <Notice tone="error">
           {error}
-        </p>
+        </Notice>
       ) : null}
       {saved ? (
-        <p
-          role="status"
-          className="rounded-well bg-accent-tint px-3 py-2 text-detail text-accent-on-tint"
-        >
+        <Notice tone="ok">
           Saved.
-        </p>
+        </Notice>
       ) : null}
       {invite ? <InviteOutcome result={invite} /> : null}
 

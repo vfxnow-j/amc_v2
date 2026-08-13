@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { LeadStatus } from "@/generated/prisma/client";
 import { addLeadActivity, assignLead, updateLeadStatus } from "@/lib/actions/leads";
+import { Notice } from "@/components/feedback/notice";
 
 /**
  * Working a lead: who owns it, where it is, and what just happened on it.
@@ -70,12 +71,9 @@ export function LeadDesk({
   return (
     <div className="px-4 pb-4">
       {error ? (
-        <p
-          role="alert"
-          className="mb-3 rounded-well bg-destructive/10 px-3 py-2 text-detail text-destructive"
-        >
+        <Notice tone="error" className="mb-3">
           {error}
-        </p>
+        </Notice>
       ) : null}
 
       <label

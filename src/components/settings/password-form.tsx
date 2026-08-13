@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { changePassword } from "@/lib/actions/users";
 import { validatePassword } from "@/lib/utils/password";
+import { Notice } from "@/components/feedback/notice";
 
 /**
  * Change your own password.
@@ -54,21 +55,15 @@ export function PasswordForm() {
   return (
     <form onSubmit={submit} className="flex flex-col gap-2 px-4 pb-4">
       {error ? (
-        <p
-          role="alert"
-          className="rounded-well bg-destructive/10 px-3 py-2 text-detail text-destructive"
-        >
+        <Notice tone="error">
           {error}
-        </p>
+        </Notice>
       ) : null}
       {done ? (
-        <p
-          role="status"
-          className="rounded-well bg-accent-tint px-3 py-2 text-detail text-accent-on-tint"
-        >
+        <Notice tone="ok">
           Password changed. Any device that was skipping the second factor will
           be asked again.
-        </p>
+        </Notice>
       ) : null}
 
       <Field

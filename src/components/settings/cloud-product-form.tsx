@@ -10,6 +10,7 @@ import {
   updateCloudProduct,
 } from "@/lib/actions/cloud-products";
 import { CLOUD_CATEGORIES, resolveCloudSellPrice } from "@/lib/cloud-products";
+import { Notice } from "@/components/feedback/notice";
 
 export type CloudProductDraft = {
   id: string;
@@ -131,12 +132,9 @@ export function CloudProductForm({
   return (
     <form onSubmit={submit} className="flex flex-col gap-3 px-4 pb-4">
       {error ? (
-        <p
-          role="alert"
-          className="rounded-well bg-destructive/10 px-3 py-2 text-detail text-destructive"
-        >
+        <Notice tone="error">
           {error}
-        </p>
+        </Notice>
       ) : null}
 
       <div className="grid grid-cols-2 gap-2">

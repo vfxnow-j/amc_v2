@@ -6,10 +6,10 @@ import { useSearchParams } from "next/navigation";
 import {
   FIELD_CLASS,
   LABEL_CLASS,
-  Notice,
   PRIMARY_CLASS,
   SECONDARY_CLASS,
 } from "@/components/auth/auth-shell";
+import { Notice } from "@/components/feedback/notice";
 import { setupAccount, validateSetupToken } from "@/lib/actions/users";
 
 const RULE =
@@ -60,7 +60,7 @@ export function SetupAccountForm() {
   if (!token || !invited) {
     return (
       <>
-        <Notice tone="error">
+        <Notice tone="error" className="mb-4">
           This invitation has expired or has already been used. Ask an
           administrator to send a fresh one.
         </Notice>
@@ -74,7 +74,7 @@ export function SetupAccountForm() {
   if (done) {
     return (
       <>
-        <Notice tone="ok">
+        <Notice tone="ok" className="mb-4">
           Your account is ready.
           {enableMfa
             ? " You’ll be asked for an emailed code the first time you sign in."
@@ -110,7 +110,7 @@ export function SetupAccountForm() {
 
   return (
     <>
-      {error ? <Notice tone="error">{error}</Notice> : null}
+      {error ? <Notice tone="error" className="mb-4">{error}</Notice> : null}
 
       <p className="mb-4 rounded-well bg-sunken px-3 py-2 text-detail">
         <span className="font-bold">{invited.name || invited.email}</span>

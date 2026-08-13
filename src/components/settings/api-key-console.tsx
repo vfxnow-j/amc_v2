@@ -9,6 +9,7 @@ import {
   revokeApiKey,
 } from "@/lib/actions/api-keys";
 import { API_KEY_ROLES, ROLE_OPTIONS } from "@/lib/settings/roles";
+import { Notice } from "@/components/feedback/notice";
 
 /**
  * Issuing and withdrawing API keys.
@@ -60,12 +61,9 @@ export function ApiKeyConsole({ canDelete }: { canDelete: boolean }) {
   return (
     <div className="px-4 pb-4">
       {error ? (
-        <p
-          role="alert"
-          className="mb-3 rounded-well bg-destructive/10 px-3 py-2 text-detail text-destructive"
-        >
+        <Notice tone="error" className="mb-3">
           {error}
-        </p>
+        </Notice>
       ) : null}
 
       {issued ? (

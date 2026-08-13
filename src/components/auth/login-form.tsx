@@ -7,9 +7,9 @@ import Link from "next/link";
 import {
   FIELD_CLASS,
   LABEL_CLASS,
-  Notice,
   PRIMARY_CLASS,
 } from "@/components/auth/auth-shell";
+import { Notice } from "@/components/feedback/notice";
 import { validateCredentials } from "@/lib/actions/auth";
 import { sendMfaOtp } from "@/lib/actions/mfa";
 import { createAndSetMfaTrust } from "@/lib/actions/mfa-trust";
@@ -157,7 +157,7 @@ export function LoginForm() {
   if (step === "method") {
     return (
       <>
-        {error ? <Notice tone="error">{error}</Notice> : null}
+        {error ? <Notice tone="error" className="mb-4">{error}</Notice> : null}
         <fieldset className="mb-4">
           <legend className="mb-2 text-detail text-ink-muted">
             How would you like to verify?
@@ -223,7 +223,7 @@ export function LoginForm() {
   if (step === "code") {
     return (
       <>
-        {error ? <Notice tone="error">{error}</Notice> : null}
+        {error ? <Notice tone="error" className="mb-4">{error}</Notice> : null}
         <form onSubmit={submitCode}>
           <label htmlFor="mfa-code" className={LABEL_CLASS}>
             {method === "totp"
@@ -304,7 +304,7 @@ export function LoginForm() {
   return (
     <>
       {error || providerError ? (
-        <Notice tone="error">
+        <Notice tone="error" className="mb-4">
           {error || "That sign-in didn’t complete. Try again."}
         </Notice>
       ) : null}

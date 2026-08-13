@@ -12,6 +12,7 @@ import {
   restoreDocument,
 } from "@/lib/actions/documents";
 import { fileSize } from "@/lib/settings/format";
+import { Notice } from "@/components/feedback/notice";
 
 /**
  * The three things you can do on the documents screen.
@@ -142,14 +143,11 @@ export function RepairButton({
       </p>
 
       {result ? (
-        <p
-          role="status"
-          className="mb-2 rounded-well bg-accent-tint px-3 py-2 text-detail text-accent-on-tint"
-        >
+        <Notice tone="ok" className="mb-2">
           Scanned {result.scanned}, found {result.missing} missing, rebuilt{" "}
           {result.regenerated}. {result.unrecoverable.length} could not be
           rebuilt and were left in place.
-        </p>
+        </Notice>
       ) : null}
 
       <button
@@ -209,12 +207,9 @@ export function AgreementTemplate({
   return (
     <div className="px-4 pb-4">
       {error ? (
-        <p
-          role="alert"
-          className="mb-2 rounded-well bg-destructive/10 px-3 py-2 text-detail text-destructive"
-        >
+        <Notice tone="error" className="mb-2">
           {error}
-        </p>
+        </Notice>
       ) : null}
 
       {template ? (

@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { QcResult, WorkOrderStatus } from "@/generated/prisma/client";
 import { recordTestRun, setWorkOrderStatus } from "@/lib/actions/service";
+import { Notice } from "@/components/feedback/notice";
 
 const MOVES: { status: WorkOrderStatus; label: string; detail: string }[] = [
   { status: "IN_TEST", label: "On the bench", detail: "Being tested now" },
@@ -90,9 +91,9 @@ export function WorkOrderActions({
   return (
     <div className="px-4 pb-4">
       {error ? (
-        <p role="alert" className="mb-3 rounded-well bg-destructive/10 px-3 py-2 text-detail text-destructive">
+        <Notice tone="error" className="mb-3">
           {error}
-        </p>
+        </Notice>
       ) : null}
 
       <form onSubmit={file} className="mb-4">
