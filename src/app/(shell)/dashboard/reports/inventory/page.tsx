@@ -8,6 +8,7 @@ import {
 import { PageHeader } from "@/components/shell/page-header";
 import { BackToReports } from "@/components/reports/directory";
 import { dayYear, money, moneyCompact } from "@/lib/format";
+import { oneOf } from "@/lib/guards";
 import { getInventoryReport } from "@/lib/queries/reports";
 
 export const metadata = { title: "Inventory" };
@@ -23,9 +24,7 @@ const VIEW_LABEL: Record<View, string> = {
   all: "Both",
 };
 
-function isView(value: unknown): value is View {
-  return VIEWS.includes(value as View);
-}
+const isView = oneOf(VIEWS);
 
 /** Unit · Asset · Cost · Book value · Depreciated · Earned · Where */
 const COLUMNS: Column[] = [

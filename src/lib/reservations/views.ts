@@ -1,3 +1,5 @@
+import { oneOf } from "@/lib/guards";
+
 /**
  * The hub's sub-views, per design/README.md ("Reservations … Sub-views: Open,
  * Out now, Quotes, Archive").
@@ -19,6 +21,4 @@ export const VIEW_LABEL: Record<View, string> = {
   all: "All",
 };
 
-export function isView(value: unknown): value is View {
-  return VIEWS.includes(value as View);
-}
+export const isView = oneOf(VIEWS);

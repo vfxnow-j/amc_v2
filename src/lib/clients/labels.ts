@@ -1,4 +1,5 @@
 import type { LeadSource, LeadStatus } from "@/generated/prisma/client";
+import { oneOf } from "@/lib/guards";
 
 /** The Clients cluster's vocabulary. Prisma-free, for the client-side strips. */
 
@@ -45,9 +46,7 @@ export const LEAD_VIEW_LABEL: Record<LeadView, string> = {
   all: "All",
 };
 
-export function isLeadView(value: unknown): value is LeadView {
-  return LEAD_VIEWS.includes(value as LeadView);
-}
+export const isLeadView = oneOf(LEAD_VIEWS);
 
 export const LEAD_VIEW_STATUS: Record<LeadView, LeadStatus[] | null> = {
   new: ["NEW"],

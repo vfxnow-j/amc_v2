@@ -8,6 +8,7 @@ import {
 import { PageHeader } from "@/components/shell/page-header";
 import { BackToReports } from "@/components/reports/directory";
 import { money } from "@/lib/format";
+import { oneOf } from "@/lib/guards";
 import { getPricing, type PricingVerdict } from "@/lib/queries/reports";
 
 export const metadata = { title: "Pricing" };
@@ -23,9 +24,7 @@ const VIEW_LABEL: Record<View, string> = {
   all: "All",
 };
 
-function isView(value: unknown): value is View {
-  return VIEWS.includes(value as View);
-}
+const isView = oneOf(VIEWS);
 
 /** Asset · Category · Units · Avg cost · Market · Rate · Payback · Earned back */
 const COLUMNS: Column[] = [

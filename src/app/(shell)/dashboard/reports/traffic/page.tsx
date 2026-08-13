@@ -30,8 +30,13 @@ const WINDOWS = {
 
 type WindowKey = keyof typeof WINDOWS;
 
+/**
+ * `hasOwn` rather than `in`: `in` walks the prototype chain, so `?window=toString`
+ * would have passed as a key and then read a function off Object.prototype,
+ * leaving `months` undefined and the range query holding an Invalid Date.
+ */
 function isWindow(value: unknown): value is WindowKey {
-  return typeof value === "string" && value in WINDOWS;
+  return typeof value === "string" && Object.hasOwn(WINDOWS, value);
 }
 
 /** Unit · Asset · Client · Out · Back · Days · Charge */

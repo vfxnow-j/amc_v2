@@ -1,4 +1,5 @@
 import type { NotificationType } from "@/generated/prisma/client";
+import { oneOf } from "@/lib/guards";
 
 /**
  * The notification vocabulary: what each `NotificationType` means, what raises
@@ -107,9 +108,7 @@ export const DEFAULT_PREFERENCES: NotificationPreferences = {
   },
 };
 
-export function isNotificationType(value: unknown): value is NotificationType {
-  return NOTIFICATION_TYPES.includes(value as NotificationType);
-}
+export const isNotificationType = oneOf(NOTIFICATION_TYPES);
 
 /**
  * Read a stored preference blob back into a complete object.
@@ -165,6 +164,4 @@ export const FEED_VIEW_LABEL: Record<FeedView, string> = {
   all: "All",
 };
 
-export function isFeedView(value: unknown): value is FeedView {
-  return FEED_VIEWS.includes(value as FeedView);
-}
+export const isFeedView = oneOf(FEED_VIEWS);

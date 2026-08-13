@@ -1,4 +1,5 @@
 import type { InvoiceStatus, LeaseStatus, POStatus } from "@/generated/prisma/client";
+import { oneOf } from "@/lib/guards";
 
 /**
  * The Revenue cluster's vocabulary. Prisma-free so the filter strips, which are
@@ -58,9 +59,7 @@ export const INVOICE_VIEW_LABEL: Record<InvoiceView, string> = {
   all: "All",
 };
 
-export function isInvoiceView(value: unknown): value is InvoiceView {
-  return INVOICE_VIEWS.includes(value as InvoiceView);
-}
+export const isInvoiceView = oneOf(INVOICE_VIEWS);
 
 /**
  * Contracts merges three v1 screens. Leases is a **view, not a filter chip**
@@ -77,9 +76,7 @@ export const CONTRACT_VIEW_LABEL: Record<ContractView, string> = {
   leases: "Leases",
 };
 
-export function isContractView(value: unknown): value is ContractView {
-  return CONTRACT_VIEWS.includes(value as ContractView);
-}
+export const isContractView = oneOf(CONTRACT_VIEWS);
 
 export const LEASE_STATUS_LABEL: Record<LeaseStatus, string> = {
   ACTIVE: "Active",
@@ -106,9 +103,7 @@ export const PO_VIEW_LABEL: Record<POView, string> = {
   all: "All",
 };
 
-export function isPOView(value: unknown): value is POView {
-  return PO_VIEWS.includes(value as POView);
-}
+export const isPOView = oneOf(PO_VIEWS);
 
 /**
  * Which column on `Asset` a rate card's tier corresponds to.

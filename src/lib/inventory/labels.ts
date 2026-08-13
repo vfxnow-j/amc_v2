@@ -1,4 +1,5 @@
 import type { AssetStatus } from "@/generated/prisma/client";
+import { oneOf } from "@/lib/guards";
 
 /**
  * Display names for the inventory enums.
@@ -28,9 +29,7 @@ export const ASSET_VIEW_LABEL: Record<AssetView, string> = {
   all: "All",
 };
 
-export function isAssetView(value: unknown): value is AssetView {
-  return ASSET_VIEWS.includes(value as AssetView);
-}
+export const isAssetView = oneOf(ASSET_VIEWS);
 
 /** Unit list sub-views. "In fleet" is the working default, not "all". */
 export const UNIT_VIEWS = [
@@ -52,9 +51,7 @@ export const UNIT_VIEW_LABEL: Record<UnitView, string> = {
   all: "All",
 };
 
-export function isUnitView(value: unknown): value is UnitView {
-  return UNIT_VIEWS.includes(value as UnitView);
-}
+export const isUnitView = oneOf(UNIT_VIEWS);
 
 /** Audits & scan lists is one screen with two tabs — the Stage 3 merge. */
 export const AUDIT_TABS = ["audits", "scan-lists"] as const;
@@ -65,6 +62,4 @@ export const AUDIT_TAB_LABEL: Record<AuditTab, string> = {
   "scan-lists": "Scan lists",
 };
 
-export function isAuditTab(value: unknown): value is AuditTab {
-  return AUDIT_TABS.includes(value as AuditTab);
-}
+export const isAuditTab = oneOf(AUDIT_TABS);
