@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { getFullInventoryReport } from "@/lib/actions/reports";
 import { getEarnedRevenue } from "@/lib/analytics/earned-revenue";
 import { IN_FLEET as FLEET_STATUSES } from "@/lib/inventory/availability";
+import { isConfirmedPrice } from "@/lib/market-price";
 import { UNSETTLED } from "@/lib/queries/revenue";
 
 /**
@@ -206,7 +207,6 @@ export const getInventoryReport = cache(() => getFullInventoryReport());
  * falls back to and the two must agree or the same asset gets two verdicts.
  */
 const DEFAULT_TARGET_MONTHS = 7;
-const STALE_AFTER_DAYS = 30;
 
 export type PricingVerdict = "underpriced" | "fair" | "overpriced" | "unrated";
 
@@ -217,7 +217,8 @@ export type PricingRow = {
   units: number;
   avgCost: number | null;
   marketPrice: number | null;
-  marketStale: boolean;
+  /** Nobody has vouched for this figure — see `lib/market-price.ts`. */
+  marketUnconfirmed: boolean;
   monthlyRate: number | null;
   paybackMonths: number | null;
   revenue: number;
@@ -227,7 +228,7 @@ export type PricingRow = {
 };
 
 /** `cache`d: the screen reads it three times — blurb, tabs and table. */
-export const getPricing = cache(async function getPricing(now = new Date()) {
+export const getPricing = cache(async function getPricing() {
   const [setting, assets] = await Promise.all([
     prisma.setting.findUnique({
       where: { key: "market_price_roi_target_months" },
@@ -241,6 +242,7 @@ export const getPricing = cache(async function getPricing(now = new Date()) {
         monthlyRate: true,
         marketPrice: true,
         marketPriceUpdatedAt: true,
+        marketPriceSource: true,
         category: { select: { name: true } },
         units: {
           where: IN_FLEET,
@@ -253,7 +255,6 @@ export const getPricing = cache(async function getPricing(now = new Date()) {
   const parsed = Number(setting?.value);
   const targetMonths =
     Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_TARGET_MONTHS;
-  const staleBefore = now.getTime() - STALE_AFTER_DAYS * 86_400_000;
 
   const rows: PricingRow[] = assets.map((asset) => {
     const cost = asset.units.reduce(
@@ -286,10 +287,8 @@ export const getPricing = cache(async function getPricing(now = new Date()) {
       units: asset.units.length,
       avgCost,
       marketPrice,
-      marketStale:
-        marketPrice !== null &&
-        (asset.marketPriceUpdatedAt === null ||
-          asset.marketPriceUpdatedAt.getTime() < staleBefore),
+      marketUnconfirmed:
+        marketPrice !== null && !isConfirmedPrice(asset.marketPriceSource),
       monthlyRate,
       paybackMonths,
       revenue,
@@ -313,5 +312,5 @@ export const getPricing = cache(async function getPricing(now = new Date()) {
     };
   });
 
-  return { rows, targetMonths, staleAfterDays: STALE_AFTER_DAYS };
+  return { rows, targetMonths };
 });

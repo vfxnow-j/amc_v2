@@ -2,6 +2,7 @@
 
 import { prisma } from '@/lib/prisma'
 import { requireAuth } from '@/lib/auth-utils'
+import { isConfirmedPrice } from '@/lib/market-price'
 import { linearTrend, percentChange, zScores } from './statistics'
 import { getUnitCountDrift, getInventoryStateDrift } from './data-integrity'
 
@@ -227,6 +228,7 @@ async function generateInsights(
           name: true,
           marketPrice: true,
           marketPriceUpdatedAt: true,
+          marketPriceSource: true,
           monthlyRate: true,
           units: {
             where: { status: { not: 'RETIRED' } },
@@ -577,24 +579,36 @@ async function generateInsights(
       }
     }
 
-    // --- 10a. Stale Market Prices ---
+    // --- 10a. Unconfirmed Market Prices ---
     {
-      const thirtyDaysAgoMs = now.getTime() - 30 * 24 * 60 * 60 * 1000
-      const staleAssets = marketPriceData.filter(
-        (a) =>
-          a.marketPrice &&
-          a.marketPriceUpdatedAt &&
-          new Date(a.marketPriceUpdatedAt).getTime() < thirtyDaysAgoMs
+      // Market prices are maintained by hand (owner, 2026-08-12): the scraper
+      // that wrote them is not carried into v2, so "older than 30 days" was
+      // asking for a refresh job that will never run — an insight that could
+      // never be satisfied and so fired forever.
+      //
+      // What is worth saying instead is which prices nobody has vouched for.
+      // Every scraped row records its origin in `marketPriceSource`; a price
+      // somebody typed on the asset record does not carry that marker.
+      const unconfirmed = marketPriceData.filter(
+        (a) => a.marketPrice && !isConfirmedPrice(a.marketPriceSource)
       )
 
-      if (staleAssets.length >= 3) {
+      if (unconfirmed.length >= 3) {
+        const oldest = unconfirmed
+          .map((a) => a.marketPriceUpdatedAt)
+          .filter((d): d is Date => d !== null)
+          .sort((x, y) => x.getTime() - y.getTime())[0]
+
         insights.push({
-          id: 'market-stale',
+          id: 'market-unconfirmed',
           type: 'market_shift',
           category: 'asset',
-          priority: staleAssets.length >= 10 ? 'high' : 'medium',
-          title: 'Stale Market Data',
-          description: `${staleAssets.length} assets have market prices older than 30 days. Run a market price refresh to keep rental rates competitive.`,
+          priority: 'medium',
+          title: 'Unconfirmed Market Prices',
+          description:
+            `${unconfirmed.length} assets carry a market price nobody has checked` +
+            (oldest ? `, collected ${oldest.toISOString().slice(0, 10)}` : '') +
+            `. They are left out of the rate recommendations until someone confirms them on the asset record.`,
           link: '/dashboard/reports/pricing',
         })
       }
@@ -603,6 +617,10 @@ async function generateInsights(
     // --- 10b. Market Price Shifts ---
     {
       for (const asset of marketPriceData) {
+        // Only prices somebody has confirmed. See lib/market-price.ts: these
+        // are money recommendations, and the scraped figures behind them were
+        // collected once, six months ago, from whatever the crawler landed on.
+        if (!isConfirmedPrice(asset.marketPriceSource)) continue
         if (!asset.marketPrice || !asset.monthlyRate) continue
         const marketPrice = Number(asset.marketPrice)
         const monthlyRate = Number(asset.monthlyRate)
@@ -649,7 +667,20 @@ async function generateInsights(
     // --- 10c. Rate Adjustment Recommendations ---
     {
       const TARGET_PAYBACK_MONTHS = 7
+      /**
+       * Above this multiple of the current rate, the market price is the thing
+       * that is wrong, not the rate.
+       *
+       * Dividing a capital price by seven only yields a rental rate when the
+       * price is for the thing being rented. The worst stored figure suggests
+       * $22,893/mo against a rate of $560 — a whole-rack price read as a unit
+       * price. No genuine repricing is a fivefold increase, so past that this
+       * says nothing rather than something absurd.
+       */
+      const IMPLAUSIBLE_MULTIPLE = 5
+
       for (const asset of marketPriceData) {
+        if (!isConfirmedPrice(asset.marketPriceSource)) continue
         if (!asset.marketPrice || !asset.monthlyRate) continue
         const marketPrice = Number(asset.marketPrice)
         const monthlyRate = Number(asset.monthlyRate)
@@ -658,8 +689,9 @@ async function generateInsights(
         const suggestedMonthly = marketPrice / TARGET_PAYBACK_MONTHS
         const rateGap = (suggestedMonthly - monthlyRate) / monthlyRate
 
-        // Suggested rate is >25% higher than current — revenue opportunity
-        if (rateGap > 0.25) {
+        // Suggested rate is >25% higher than current — revenue opportunity,
+        // unless it is so much higher that the price itself is in doubt.
+        if (rateGap > 0.25 && suggestedMonthly <= monthlyRate * IMPLAUSIBLE_MULTIPLE) {
           insights.push({
             id: `rate-adj-${asset.id}`,
             type: 'market_shift',

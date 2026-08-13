@@ -97,13 +97,15 @@ export default async function PricingPage({
 async function HeaderBlurb() {
   const { rows, targetMonths } = await getPricing();
   const rated = rows.filter((row) => row.paybackMonths !== null);
-  const stale = rows.filter((row) => row.marketStale).length;
+  const unconfirmed = rows.filter((row) => row.marketUnconfirmed).length;
 
   return (
     <>
       {rated.length} of {rows.length} assets can be judged · target payback{" "}
       {targetMonths} months
-      {stale > 0 ? ` · ${stale} market prices out of date` : ""}
+      {unconfirmed > 0
+        ? ` · ${unconfirmed} market prices nobody has confirmed`
+        : ""}
     </>
   );
 }
@@ -129,7 +131,7 @@ async function Tabs({ view }: { view: View }) {
 }
 
 async function Table({ view }: { view: View }) {
-  const { rows, targetMonths, staleAfterDays } = await getPricing();
+  const { rows, targetMonths } = await getPricing();
   const shown =
     view === "all" ? rows : rows.filter((row) => row.verdict === view);
 
@@ -163,8 +165,8 @@ async function Table({ view }: { view: View }) {
       }
       footerNote={
         <>
-          Payback is average unit cost ÷ monthly rate. Market prices older than{" "}
-          {staleAfterDays} days are marked
+          Payback is average unit cost ÷ monthly rate. Market prices nobody has
+          confirmed are marked, and are left out of the rate recommendations
           {unearned > 0 ? (
             <>
               {" · "}
@@ -192,9 +194,16 @@ async function Table({ view }: { view: View }) {
             row.marketPrice === null ? (
               <span className="text-ink-faint">—</span>
             ) : (
-              <span className={row.marketStale ? "text-ink-faint" : undefined}>
+              <span
+                className={row.marketUnconfirmed ? "text-ink-faint" : undefined}
+                title={
+                  row.marketUnconfirmed
+                    ? "Collected by v1's price scraper; nobody has checked it"
+                    : undefined
+                }
+              >
                 {money(row.marketPrice)}
-                {row.marketStale ? "·old" : ""}
+                {row.marketUnconfirmed ? "·unchecked" : ""}
               </span>
             ),
           rate:
