@@ -231,7 +231,7 @@ Run alongside the stages; each is a prerequisite for something above.
 | X1 | **Auth gate** — port `(auth)` screens, gate the shell layout, real session in the user pod | Everything, before real customer data is exposed on :3001 | Also switches `getDecisions()` to the auth-checked `getInsights()`, and feeds the per-user theme + role default the shell already has seams for |
 | X2 | **Redirects** for the three merges | Stages 1, 3, 5 | Old URLs are in `NavPage.from` |
 | X3 | **`MetricSnapshot` + nightly rollup** | Utilisation delta, revenue vs target | See "Data gaps" |
-| X4 | **API handlers** — `/api/v1/*`, integrations, cron | HubSpot / Zapier / JustCall inbound already flowing in v1 | Drop `cron/knowledge`; `cron/insights` needs its `refreshKnowledge` import removed |
+| X4 | **API handlers** — `/api/v1/*`, integrations, cron | HubSpot / Zapier / JustCall inbound already flowing in v1 | Drop `cron/knowledge` and `cron/market-prices` (owner, 2026-08-12 — prices are maintained by hand); `cron/insights` needs its `refreshKnowledge` import removed |
 | X5 | **Lint burn-down** | — | 116 inherited `any`s, scoped per ported path; clear a module as its screen is rebuilt |
 | X6 | **Design asks** | — | SVG mark, light-ground logo, and sign-off on the invented `--danger`/`--success`/`--warning` tokens |
 
@@ -365,11 +365,25 @@ as shipped would bury that.
   by 432×.
 - **No invoice has ever been marked paid** (32 draft, 2 sent, 1 void). Reports
   moved to earned-revenue; confirm whether that is real or a restore artefact.
-- **Insights contradicts itself on market prices.** All 114 are past its own
-  30-day staleness rule, yet 56 *high-priority* items derive from them —
-  including $22,893/mo for an asset priced at $560, because the maths divides a
-  whole-rack figure by 7. Thresholds untouched: the Overview reads the same
-  module.
+- ~~**Insights contradicts itself on market prices.**~~ **Settled 2026-08-12
+  (owner): market prices are maintained by hand.** v1's price scraper is not
+  ported — its sources were too inconsistent to price hardware against, so what
+  is stored is what we have and it changes when somebody changes it. `cron/
+  market-prices` is a decision now, not an outstanding task; do not port it.
+
+  That retired the contradiction rather than tuning it. The scraper stamped its
+  origin into `marketPriceSource`, so `lib/market-price.ts` is the one place
+  that says what makes a price worth acting on: a figure a person entered, not
+  one a crawler landed on. 113 of the 114 are the latter — all written in a
+  single run on 2026-02-20, which is why every one of them tripped the old
+  30-day rule.
+
+  Insight 10a no longer asks for a refresh no job can perform; 10b and 10c are
+  gated on confirmed prices. High-priority pricing insights fell from **55 to
+  1**, the survivor being the one asset priced by hand. 10c also refuses a
+  suggestion above 5× the current rate — the price is what is wrong at that
+  point, not the rate. The pricing report's separate 30-day rule was folded into
+  the same definition rather than left to drift.
 - **The default rate card would reprice laptops ~4×**, and prices 1 of 30
   categories. Decide whether the card or the catalogue is right before anyone
   uses the bulk apply.
