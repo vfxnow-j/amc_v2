@@ -1,7 +1,8 @@
 "use client";
 
+import { useTransition } from "react";
 import Link from "next/link";
-import { LogOut, Settings } from "lucide-react";
+import { LogOut, Settings, SlidersHorizontal } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -12,7 +13,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { AccentSwatches } from "@/components/theme/accent-swatches";
 import { useTheme } from "@/components/theme/theme-provider";
+import { saveAppearance } from "@/lib/actions/appearance";
 import { signOutAction } from "@/lib/actions/session";
 import { SETTINGS_PAGE } from "@/lib/nav/clusters";
 import { isThemePreference } from "@/lib/theme";
@@ -24,8 +27,14 @@ import type { SessionUser } from "@/lib/roles";
  *
  * The design shows a single settings gear. It opens a menu rather than linking
  * straight through, because two other things have to be reachable from the
- * shell and have nowhere else to live: the theme switch (both skins are in
- * scope, so a user must be able to pick one) and signing out.
+ * shell and have nowhere else to live: appearance (both skins are in scope, so
+ * a user must be able to pick one) and signing out.
+ *
+ * Appearance is both halves here, not just the theme. Sending somebody to a
+ * settings page to change a color when the theme switch is already under their
+ * cursor is the kind of split that makes a preference feel like a chore — and
+ * the menu is where people already look. The full card on the profile keeps the
+ * explanations; this is the same control without the prose.
  *
  * The bell sits beside the gear, and arrives as a prop rather than being
  * imported: it is server-rendered behind its own Suspense boundary in the shell
@@ -40,6 +49,25 @@ export function UserPod({
   bell?: React.ReactNode;
 }) {
   const { preference, setPreference } = useTheme();
+  const [, startTransition] = useTransition();
+
+  /**
+   * Applies immediately and saves behind it. The save is the only part that can
+   * fail, and it fails quietly: the choice is already on screen and mirrored to
+   * localStorage, so all that is lost is it following you to another browser —
+   * not worth an error state inside a dropdown.
+   */
+  function chooseTheme(value: string) {
+    if (!isThemePreference(value)) return;
+    setPreference(value);
+    startTransition(async () => {
+      try {
+        await saveAppearance({ preference: value });
+      } catch {
+        // See above.
+      }
+    });
+  }
 
   return (
     <div className="mt-[10px] flex items-center gap-[9px] rounded-well bg-sunken px-[10px] py-2">
@@ -88,9 +116,7 @@ export function UserPod({
             </DropdownMenuLabel>
             <DropdownMenuRadioGroup
               value={preference}
-              onValueChange={(value) => {
-                if (isThemePreference(value)) setPreference(value);
-              }}
+              onValueChange={chooseTheme}
             >
               <DropdownMenuRadioItem value="light">Light</DropdownMenuRadioItem>
               <DropdownMenuRadioItem value="system">
@@ -98,6 +124,23 @@ export function UserPod({
               </DropdownMenuRadioItem>
               <DropdownMenuRadioItem value="dark">Dark</DropdownMenuRadioItem>
             </DropdownMenuRadioGroup>
+
+            <DropdownMenuLabel className="text-micro uppercase text-ink-muted">
+              Accent
+            </DropdownMenuLabel>
+            {/* Plain buttons, not menu items: a menu item closes the menu on
+                select, and choosing a color is something you do two or three
+                times in a row while looking at the result. */}
+            <div className="px-2 pb-1">
+              <AccentSwatches layout="grid" />
+            </div>
+
+            <DropdownMenuItem asChild>
+              <Link href="/dashboard/settings/profile">
+                <SlidersHorizontal className="size-4" aria-hidden />
+                More appearance options
+              </Link>
+            </DropdownMenuItem>
 
             <DropdownMenuSeparator />
             <DropdownMenuItem

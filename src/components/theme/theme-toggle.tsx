@@ -16,7 +16,7 @@ const OPTIONS: { value: ThemePreference; label: string }[] = [
  * track with a raised thumb on the selected option.
  *
  * The hydration render shows the server-side default; the store swaps in the
- * stored preference immediately after. Page colours never flash — ThemeScript
+ * stored preference immediately after. Page colors never flash — ThemeScript
  * settled those before first paint — only the thumb moves.
  *
  * Theme and accent together are Settings → My profile → Appearance; this is the
@@ -44,7 +44,7 @@ export function ThemeToggle() {
   return (
     <div
       role="radiogroup"
-      aria-label="Colour theme"
+      aria-label="Color theme"
       className="inline-flex gap-px rounded-pill bg-segmented-track p-[3px]"
     >
       {OPTIONS.map((option) => {
