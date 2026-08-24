@@ -3,7 +3,7 @@ import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import { encode } from "next-auth/jwt";
 import { prisma } from "@/lib/prisma";
-import { NAV_CLUSTERS, SETTINGS_PAGE } from "@/lib/nav/clusters";
+import { DASHBOARD_PAGE, NAV_CLUSTERS, SETTINGS_PAGE } from "@/lib/nav/clusters";
 
 /**
  * Fetches every destination in the rail with a real session and reports what
@@ -54,9 +54,51 @@ const RECORD_ROUTES: {
   find: () => Promise<string | null>;
 }[] = [
   {
-    label: "order record",
-    path: (id) => `/dashboard/reservations/${id}`,
-    find: () => firstId(() => prisma.reservation.findFirst({ select: { id: true } })),
+    label: "order record · rental",
+    path: (id) => `/dashboard/orders/${id}`,
+    find: () =>
+      firstId(() =>
+        prisma.reservation.findFirst({
+          where: { reservationType: "RENTAL" },
+          select: { id: true },
+        }),
+      ),
+  },
+  {
+    // One record now serves all four types, and the type decides which cards
+    // render — so walking one of each is the only way this catches a card that
+    // only breaks on, say, a cloud order with no asset lines.
+    label: "order record · sale",
+    path: (id) => `/dashboard/orders/${id}`,
+    find: () =>
+      firstId(() =>
+        prisma.reservation.findFirst({
+          where: { reservationType: "SALE" },
+          select: { id: true },
+        }),
+      ),
+  },
+  {
+    label: "order record · rent to own",
+    path: (id) => `/dashboard/orders/${id}`,
+    find: () =>
+      firstId(() =>
+        prisma.reservation.findFirst({
+          where: { reservationType: "RENT_TO_OWN" },
+          select: { id: true },
+        }),
+      ),
+  },
+  {
+    label: "order record · cloud",
+    path: (id) => `/dashboard/orders/${id}`,
+    find: () =>
+      firstId(() =>
+        prisma.reservation.findFirst({
+          where: { reservationType: "CLOUD" },
+          select: { id: true },
+        }),
+      ),
   },
   {
     label: "account record",
@@ -99,15 +141,9 @@ const RECORD_ROUTES: {
     find: () => firstId(() => prisma.workOrder.findFirst({ select: { id: true } })),
   },
   {
-    label: "contract record",
-    path: (id) => `/dashboard/sales/${id}`,
-    find: () =>
-      firstId(() =>
-        prisma.reservation.findFirst({
-          where: { reservationType: { in: ["SALE", "RENT_TO_OWN"] } },
-          select: { id: true },
-        }),
-      ),
+    label: "lease record",
+    path: (id) => `/dashboard/leases/${id}`,
+    find: () => firstId(() => prisma.lease.findFirst({ select: { id: true } })),
   },
   {
     label: "rate card record",
@@ -182,6 +218,8 @@ type Result = {
   bytes: number;
   placeholder: boolean;
   error: string | null;
+  /** Set on a 307/308: where the retired route sends you. */
+  location: string | null;
 };
 
 async function check(
@@ -210,6 +248,9 @@ async function check(
     bytes: body.length,
     placeholder: body.includes(PLACEHOLDER_MARKER),
     error,
+    // Where a moved route sends you. `redirect: "manual"` above means this is
+    // the shim's own answer, not the destination's.
+    location: response.headers.get("location"),
   };
 }
 
@@ -243,6 +284,8 @@ async function main() {
       targets.push({ path: page.href, label: `${cluster.label} · ${page.label}` });
     }
   }
+  railLabel.set(DASHBOARD_PAGE.href, "Dashboard");
+  targets.push({ path: DASHBOARD_PAGE.href, label: "Dashboard" });
   railLabel.set(SETTINGS_PAGE.href, "Settings");
   targets.push({ path: SETTINGS_PAGE.href, label: "Settings" });
 
@@ -272,7 +315,17 @@ async function main() {
     results.push(await check(cookie, target.path, target.label));
   }
 
-  const broken = results.filter((r) => r.status !== 200 || r.error);
+  // A 307 from a route that was deliberately retired is the shim working, not
+  // a broken screen. Reservations, the contracts list and the old new-order
+  // path all redirect into Orders now, and counting those as failures would
+  // have meant the walk cried wolf on every run from here on. They are still
+  // reported — a shim pointing nowhere is worth knowing about — but as moved.
+  const moved = results.filter(
+    (r) => (r.status === 307 || r.status === 308) && !r.error,
+  );
+  const broken = results.filter(
+    (r) => r.error || (r.status !== 200 && !moved.includes(r)),
+  );
   const placeholders = results.filter((r) => r.placeholder && !r.error);
   const built = results.filter(
     (r) => r.status === 200 && !r.placeholder && !r.error,
@@ -282,21 +335,38 @@ async function main() {
   for (const result of results) {
     const mark = result.error
       ? "ERR "
-      : result.status !== 200
-        ? `${result.status} `
-        : result.placeholder
-          ? "todo"
-          : "ok  ";
+      : moved.includes(result)
+        ? "→   "
+        : result.status !== 200
+          ? `${result.status} `
+          : result.placeholder
+            ? "todo"
+            : "ok  ";
+    const note = result.error
+      ? `  — ${result.error}`
+      : moved.includes(result)
+        ? `  — moved to ${result.location ?? "nowhere"}`
+        : "";
     console.log(
-      `${mark} ${result.path.padEnd(pad)}  ${String(result.bytes).padStart(7)}b  ${result.label}${
-        result.error ? `  — ${result.error}` : ""
-      }`,
+      `${mark} ${result.path.padEnd(pad)}  ${String(result.bytes).padStart(7)}b  ${result.label}${note}`,
     );
   }
 
   console.log(
-    `\n${built.length} built · ${placeholders.length} still placeholder · ${broken.length} broken · ${results.length} checked`,
+    `\n${built.length} built · ${moved.length} moved · ${placeholders.length} still placeholder · ${broken.length} broken · ${results.length} checked`,
   );
+
+  // A shim that redirects to a path nothing serves is worse than no shim: it
+  // turns a 404 into a loop.
+  const walked = new Set(results.map((r) => r.path));
+  const danglers = moved.filter((r) => {
+    const target = (r.location ?? "").split("?")[0];
+    return target.startsWith("/dashboard") && !walked.has(target);
+  });
+  if (danglers.length > 0) {
+    console.log("\nredirects pointing at unwalked paths:");
+    for (const r of danglers) console.log(`  ${r.path} → ${r.location}`);
+  }
   if (missingData.length > 0) {
     console.log(`no rows to test: ${missingData.join(", ")}`);
   }
