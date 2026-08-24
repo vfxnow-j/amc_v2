@@ -1,11 +1,12 @@
-import Image from "next/image";
+import { BrandLockup } from "@/components/shell/brand-lockup";
 
 /**
  * The frame every signed-out screen shares: the ground color, a centerd panel
  * card, the brand lockup above it.
  *
  * Same vocabulary as the shell — panel surface, 16px card radius, shadow-sm,
- * no borders — so signing in doesn't look like a different product.
+ * no borders, the same lockup component — so signing in doesn't look like a
+ * different product.
  */
 export function AuthShell({
   title,
@@ -21,24 +22,9 @@ export function AuthShell({
   return (
     <div className="flex min-h-dvh flex-col items-center justify-center bg-ground p-4">
       <div className="w-full max-w-[380px]">
-        <div className="mb-6 flex items-center justify-center gap-[10px]">
-          <Image
-            src="/brand/vfxnow-mark.png"
-            alt=""
-            width={32}
-            height={32}
-            priority
-            className="size-8 flex-none"
-          />
-          <div className="leading-[1.02]">
-            <div className="text-[19px] font-extrabold tracking-[-0.01em]">
-              VFX<span className="text-brand-wordmark">now</span>
-            </div>
-            <div className="text-[10px] font-bold tracking-[0.2em] text-ink-faint">
-              AMC
-            </div>
-          </div>
-        </div>
+        {/* One lockup component, not a second hand-typeset copy of it. This
+            screen and the rail had drifted to two sizes of the same markup. */}
+        <BrandLockup size="auth" />
 
         <div className="rounded-card bg-panel p-6 shadow-sm">
           <h1 className="text-card-title text-[18px]">{title}</h1>
