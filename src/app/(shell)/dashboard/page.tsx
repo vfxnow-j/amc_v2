@@ -1,47 +1,63 @@
 import { Suspense } from "react";
 import Link from "next/link";
 import { PageHeader } from "@/components/shell/page-header";
+import {
+  IdleItemsCard,
+  TopItemsCard,
+} from "@/components/dashboard/item-cards";
+import {
+  CardSkeleton,
+  MaintenanceCard,
+} from "@/components/dashboard/maintenance-card";
 import { KpiRow, KpiRowSkeleton } from "@/components/overview/kpi-row";
 import {
   DueBackCard,
   DueBackCardSkeleton,
 } from "@/components/overview/due-back-card";
 import { RangeControl } from "@/components/overview/range-control";
+import { DecisionsCard, SideCardSkeleton } from "@/components/overview/side-cards";
 import {
-  DecisionsCard,
-  ServiceCenterCard,
-  SideCardSkeleton,
-} from "@/components/overview/side-cards";
+  RevenueStrip,
+  RevenueStripSkeleton,
+} from "@/components/orders/revenue-strip";
+import { moneyCompact } from "@/lib/format";
 import { getHeaderStats } from "@/lib/queries/overview";
 import { isRange, type Range } from "@/lib/queries/range";
 
-export const metadata = { title: "Overview" };
-
-const MONEY = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-  notation: "compact",
-  maximumFractionDigits: 2,
-});
+export const metadata = { title: "Dashboard" };
 
 async function HeaderBlurb() {
   const { openOrders, booked } = await getHeaderStats();
   return (
     <>
       {openOrders} open {openOrders === 1 ? "order" : "orders"} ·{" "}
-      {MONEY.format(booked)} booked
+      {moneyCompact(booked)} booked
     </>
   );
 }
 
 /**
- * Insight → Overview: the owner's morning read on top, the warehouse lead's
- * "what needs hands today" underneath.
+ * The Dashboard: the whole business on one screen, pinned at the top of the
+ * rail so it is one click from anywhere.
  *
- * Each card has its own Suspense boundary, so the KPI aggregates never hold up
- * the work queues — the slowest query delays only its own card.
+ * It was Insight → Overview, and it answered two of the questions an owner
+ * actually has — how are we trading, and what needs hands today. The other
+ * three were spread across the rail: which hardware earns, which hardware is
+ * dead weight, and what is broken. Those are not reporting questions you go
+ * looking for once a month; they are the ones you want answered while you are
+ * looking at everything else.
+ *
+ * Reading order is deliberate, top to bottom: how we are trading (KPIs), where
+ * that money comes from (revenue by order type), what the fleet is doing
+ * (earning most / never booked), and what needs a person (due back, in service,
+ * decisions).
+ *
+ * Every card has its own Suspense boundary. The revenue strip runs an accrual
+ * calculation across every recurring order and the fleet cards group the whole
+ * order book — none of them may hold up the KPIs, and none of them holds up
+ * each other.
  */
-export default async function OverviewPage({
+export default async function DashboardPage({
   searchParams,
 }: {
   searchParams: Promise<{ range?: string }>;
@@ -52,8 +68,8 @@ export default async function OverviewPage({
   return (
     <>
       <PageHeader
-        eyebrow="Insight"
-        title="Overview"
+        eyebrow="Dashboard"
+        title="The business today"
         blurb={
           <Suspense fallback="Counting open orders…">
             <HeaderBlurb />
@@ -63,29 +79,46 @@ export default async function OverviewPage({
           <>
             <RangeControl range={range} />
             <Link
-              href="/dashboard/reservations/new"
+              href="/dashboard/orders/new"
               className="rounded-pill bg-accent-solid px-4 py-2 text-pill text-accent-on-solid"
             >
-              New reservation
+              New order
             </Link>
           </>
         }
       />
 
-      <Suspense fallback={<KpiRowSkeleton />}>
-        <KpiRow range={range} />
-      </Suspense>
-
-      <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[1.5fr_1fr]">
-        <Suspense fallback={<DueBackCardSkeleton />}>
-          <DueBackCard />
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
+        <Suspense fallback={<KpiRowSkeleton />}>
+          <KpiRow range={range} />
         </Suspense>
 
-        <div className="flex flex-col gap-3">
-          <ServiceCenterCard />
-          <Suspense fallback={<SideCardSkeleton />}>
-            <DecisionsCard />
+        <Suspense fallback={<RevenueStripSkeleton />}>
+          <RevenueStrip range={range} />
+        </Suspense>
+
+        <div className="grid gap-3 xl:grid-cols-2">
+          <Suspense fallback={<CardSkeleton rows={6} />}>
+            <TopItemsCard />
           </Suspense>
+          <Suspense fallback={<CardSkeleton rows={6} />}>
+            <IdleItemsCard />
+          </Suspense>
+        </div>
+
+        <div className="grid gap-3 lg:grid-cols-[1.5fr_1fr]">
+          <Suspense fallback={<DueBackCardSkeleton />}>
+            <DueBackCard />
+          </Suspense>
+
+          <div className="flex flex-col gap-3">
+            <Suspense fallback={<CardSkeleton rows={4} />}>
+              <MaintenanceCard />
+            </Suspense>
+            <Suspense fallback={<SideCardSkeleton />}>
+              <DecisionsCard />
+            </Suspense>
+          </div>
         </div>
       </div>
     </>

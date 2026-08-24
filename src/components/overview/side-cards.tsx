@@ -1,28 +1,6 @@
 import Link from "next/link";
 import { getDecisions } from "@/lib/queries/overview";
 
-/**
- * Service center: no data yet by design — WorkOrder and QcTestRun arrive with
- * the schema in step 5. The empty state names the next action rather than
- * showing a hollow table.
- */
-export function ServiceCenterCard() {
-  return (
-    <section className="flex-none rounded-card bg-panel p-[14px] shadow-sm">
-      <header className="mb-2 flex items-center gap-2">
-        <h2 className="text-card-title">Service center</h2>
-        <span className="rounded-pill bg-accent-tint-strong px-[6px] py-px text-[9px] font-bold tracking-[0.1em] text-accent-on-tint">
-          NEW
-        </span>
-      </header>
-      <p className="text-detail text-ink-muted">
-        Work orders and QC test runs land here once the Service Center schema
-        exists. Until then, flag a failed unit from the desk at check-in.
-      </p>
-    </section>
-  );
-}
-
 export async function DecisionsCard() {
   const decisions = await getDecisions();
 
