@@ -26,12 +26,12 @@ v1's ~28 sibling dashboard routes collapse into six clusters:
 
 | Cluster        | Code | Contains                                                           |
 |----------------|------|--------------------------------------------------------------------|
-| Operate        | `OP` | Reservations, Desk (check-out/in), Mobile scan, Calendar, Packages  |
+| Operate        | `OP` | Orders, Today's movements, Mobile scan, Calendar, Packages          |
 | Inventory      | `IN` | Assets, Units, Locations & transfers, Audits & scan lists, Vendors  |
 | Service center | `SC` | Work orders, QC test runs, Maintenance log, Coverage & RMA — **new** |
-| Revenue        | `RV` | Invoices, Payments, Contracts, Rate cards, Purchase orders          |
+| Revenue        | `RV` | Invoices, Payments, Leases, Rate cards, Purchase orders             |
 | Clients        | `CL` | Accounts, Leads, Quotes, Marketing                                  |
-| Insight        | `IQ` | Overview, Reports, Insights                                         |
+| Insight        | `IQ` | Reports, Insights                                                   |
 
 ## Getting started
 
