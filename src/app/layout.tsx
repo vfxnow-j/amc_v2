@@ -2,7 +2,9 @@ import type { Metadata } from "next";
 import { Schibsted_Grotesk } from "next/font/google";
 import { ThemeProvider } from "@/components/theme/theme-provider";
 import { ThemeScript } from "@/components/theme/theme-script";
-import { defaultThemeFor, getSessionUser } from "@/lib/roles";
+import { getAppearance } from "@/lib/queries/appearance";
+import { getSessionUser } from "@/lib/roles";
+import { ACCENTS } from "@/lib/theme";
 import "./globals.css";
 
 const schibstedGrotesk = Schibsted_Grotesk({
@@ -27,12 +29,13 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  // The role default — dark for STAFF, light for admin/finance — is what a user
-  // gets before they've picked a theme. A picked theme lives in the localStorage
-  // mirror the pre-paint script reads, so it wins over this. Both places must be
-  // given the same value or the first paint flashes.
+  // The user's stored theme and accent, falling back to the role default —
+  // dark for STAFF, light for admin/finance — and the brand cyan. The
+  // localStorage mirror the pre-paint script reads wins over these, so a choice
+  // made on this browser lands before the row does. Both places must be given
+  // the same values or the first paint flashes.
   const user = await getSessionUser();
-  const theme = defaultThemeFor(user?.role);
+  const { preference, accent } = await getAppearance(user?.id, user?.role);
 
   return (
     <html
@@ -41,10 +44,16 @@ export default async function RootLayout({
       suppressHydrationWarning
     >
       <head>
-        <ThemeScript defaultTheme={theme} />
+        <ThemeScript
+          defaultTheme={preference}
+          defaultAccent={accent}
+          accents={ACCENTS.map((option) => option.id)}
+        />
       </head>
       <body className="min-h-full flex flex-col">
-        <ThemeProvider defaultPreference={theme}>{children}</ThemeProvider>
+        <ThemeProvider defaultPreference={preference} defaultAccent={accent}>
+          {children}
+        </ThemeProvider>
       </body>
     </html>
   );

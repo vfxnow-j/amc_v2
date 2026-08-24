@@ -66,11 +66,10 @@ export async function getSessionUser(): Promise<SessionUser | null> {
  * The theme a user gets before they've chosen one: dark for warehouse staff
  * (warehouse lighting), light for admin and finance, per design/README.md.
  *
- * The handoff also asks for the override to be persisted on the `User` record.
- * There is no `theme` column in the schema, so for now the override lives only
- * in the localStorage mirror — it survives reloads on that browser but not a
- * move to another machine. Adding the column is a schema change worth batching
- * with the next migration rather than doing on its own.
+ * A chosen theme now lives on `User.themePreference` alongside `accentTheme`
+ * and is read by `lib/queries/appearance`; this is only the answer for a row
+ * that has never picked. The accent has no role default — everybody starts on
+ * the brand cyan.
  */
 export function defaultThemeFor(role: Role | undefined): ThemePreference {
   if (role === "STAFF") return "dark";

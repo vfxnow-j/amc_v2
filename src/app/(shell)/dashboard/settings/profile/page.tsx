@@ -10,6 +10,7 @@ import {
 import { PasswordForm } from "@/components/settings/password-form";
 import { SettingsHeader } from "@/components/settings/settings-chrome";
 import { TrustedDevices } from "@/components/settings/trusted-devices";
+import { AppearanceControls } from "@/components/theme/appearance-controls";
 import { dayYear } from "@/lib/format";
 import { isMfaEnforced } from "@/lib/mfa-enforcement";
 import { prisma } from "@/lib/prisma";
@@ -22,8 +23,9 @@ export const metadata = { title: "My profile" };
  * Settings → My profile.
  *
  * The one settings screen everybody can open, and the only one that is about
- * the person reading it rather than about the business. Three things: who the
- * system thinks you are, your password, and where the second factor stands.
+ * the person reading it rather than about the business. Four things: who the
+ * system thinks you are, your password, where the second factor stands, and how
+ * you want the app to look.
  *
  * The second factor is the reason this screen needed care rather than a port.
  * v1 offers enrollment in email codes and an authenticator app; in v2 neither
@@ -54,12 +56,18 @@ export default async function ProfilePage() {
           </Suspense>
         </div>
 
-        <Card
-          title="Change password"
-          meta="8 characters, upper and lower case, a number and a symbol"
-        >
-          <PasswordForm />
-        </Card>
+        <div className="flex min-h-0 flex-col gap-3">
+          <Card
+            title="Change password"
+            meta="8 characters, upper and lower case, a number and a symbol"
+          >
+            <PasswordForm />
+          </Card>
+
+          <Card title="Appearance" meta="saved to your account, applied as you click">
+            <AppearanceControls />
+          </Card>
+        </div>
       </div>
     </>
   );
