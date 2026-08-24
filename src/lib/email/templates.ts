@@ -987,8 +987,14 @@ export function reservationConfirmedStaffEmail(data: ReservationConfirmedEmailDa
 }
 
 // ============================================
-// NOWBOT INSIGHTS DIGEST EMAIL
+// INSIGHTS DIGEST EMAIL
 // ============================================
+//
+// v1 sent this as the "NowBot Insights Digest" over a robot avatar, billed as
+// an AI-powered report. Nothing in it was ever AI: every line is computed from
+// the database by the rules in lib/analytics/insights. NowBot is dropped in v2,
+// so the digest keeps the work and loses the costume — claiming an assistant
+// that does not exist is the kind of thing somebody replies to.
 
 export type InsightEmailData = {
   title: string
@@ -1058,12 +1064,12 @@ export function insightsDigestEmail(data: InsightsDigestData) {
   const s = data.summary
 
   return {
-    subject: `NowBot Insights Digest — ${data.insights.length} actionable insight${data.insights.length !== 1 ? 's' : ''}`,
+    subject: `AMC insights digest — ${data.insights.length} actionable insight${data.insights.length !== 1 ? 's' : ''}`,
     html: baseLayout(`
       <div style="text-align: center; margin-bottom: 24px;">
-        <div style="display: inline-block; background: #f0f9ff; border-radius: 50%; width: 56px; height: 56px; line-height: 56px; font-size: 28px; margin-bottom: 8px;">🤖</div>
-        <h2 style="margin: 0 0 4px; color: #18181b; font-size: 22px;">NowBot Insights Digest</h2>
-        <p style="color: #71717a; font-size: 14px; margin: 0;">Your AI-powered business intelligence report</p>
+        <div style="display: inline-block; background: #f0f9ff; border-radius: 50%; width: 56px; height: 56px; line-height: 56px; font-size: 28px; margin-bottom: 8px;">💡</div>
+        <h2 style="margin: 0 0 4px; color: #18181b; font-size: 22px;">Insights digest</h2>
+        <p style="color: #71717a; font-size: 14px; margin: 0;">What your AMC data flagged today</p>
       </div>
 
       <div style="background: #f4f4f5; border-radius: 8px; padding: 16px; margin-bottom: 24px;">
@@ -1110,7 +1116,8 @@ export function insightsDigestEmail(data: InsightsDigestData) {
         </a>
       </div>
       <p style="color: #a1a1aa; font-size: 12px; text-align: center; line-height: 1.5; margin-top: 16px;">
-        This is an automated insights digest from NowBot, your VFXNow AMC AI assistant.<br>
+        Generated from your VFXNow AMC data on a schedule &mdash; every figure above
+        is read straight off the database.<br>
         Manage notification settings in Dashboard &rarr; Settings &rarr; Notifications.
       </p>
     `),

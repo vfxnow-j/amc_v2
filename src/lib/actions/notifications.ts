@@ -279,7 +279,7 @@ export async function notifyPurchaseOrderSubmitted(
 // ============================================
 
 /**
- * Generate and send the NowBot insights digest email.
+ * Generate and send the insights digest email.
  * Sends only to configured 'insights' recipients.
  * No auth check — this is called from cron or internal triggers.
  */
