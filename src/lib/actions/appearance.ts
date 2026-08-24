@@ -2,12 +2,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { getSessionUser } from "@/lib/roles";
-import {
-  isAccentId,
-  isThemePreference,
-  type AccentId,
-  type ThemePreference,
-} from "@/lib/theme";
+import { isColorMode, isThemeId, type ColorMode, type ThemeId } from "@/lib/theme";
 
 /**
  * Persist the signed-in user's appearance choices onto their own row.
@@ -23,19 +18,15 @@ import {
  * and the choice still holds on this machine.
  */
 export async function saveAppearance(input: {
-  preference?: ThemePreference;
-  accent?: AccentId;
+  mode?: ColorMode;
+  theme?: ThemeId;
 }): Promise<void> {
   const user = await getSessionUser();
   if (!user) throw new Error("Not signed in.");
 
-  const data: { themePreference?: string; accentTheme?: string } = {};
-  if (isThemePreference(input.preference)) {
-    data.themePreference = input.preference;
-  }
-  if (isAccentId(input.accent)) {
-    data.accentTheme = input.accent;
-  }
+  const data: { colorMode?: string; themeName?: string } = {};
+  if (isColorMode(input.mode)) data.colorMode = input.mode;
+  if (isThemeId(input.theme)) data.themeName = input.theme;
   if (Object.keys(data).length === 0) return;
 
   await prisma.user.update({ where: { id: user.id }, data });

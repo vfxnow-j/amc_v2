@@ -1,11 +1,11 @@
 "use client";
 
 import { useTransition } from "react";
-import { useTheme } from "@/components/theme/theme-provider";
+import { useAppearance } from "@/components/theme/theme-provider";
 import { saveAppearance } from "@/lib/actions/appearance";
-import type { ThemePreference } from "@/lib/theme";
+import type { ColorMode } from "@/lib/theme";
 
-const OPTIONS: { value: ThemePreference; label: string }[] = [
+const OPTIONS: { value: ColorMode; label: string }[] = [
   { value: "light", label: "Light" },
   { value: "system", label: "System" },
   { value: "dark", label: "Dark" },
@@ -15,26 +15,30 @@ const OPTIONS: { value: ThemePreference; label: string }[] = [
  * Segmented pill control, per the "Segmented pill controls" spec: a sunken
  * track with a raised thumb on the selected option.
  *
+ * Light / dark / system only — the half of appearance that says how bright the
+ * app is. Which of the six themes is loaded is `ThemePicker`, and the two are
+ * independent: every theme has a light and a dark face, so this control still
+ * means exactly what it says whichever one you are on.
+ *
  * The hydration render shows the server-side default; the store swaps in the
- * stored preference immediately after. Page colors never flash — ThemeScript
+ * stored choice immediately after. Page colours never flash — ThemeScript
  * settled those before first paint — only the thumb moves.
  *
- * Theme and accent together are Settings → My profile → Appearance; this is the
- * theme half on its own, for the foundations reference. It writes to the user
- * row like the full control does, so switching here isn't a choice that quietly
- * behaves differently from the same switch one screen over. A failed write is
- * swallowed: the localStorage mirror already holds it for this browser, and a
- * reference page is no place to surface a database error.
+ * It writes to the user row like the full control does, so switching here isn't
+ * a choice that quietly behaves differently from the same switch one screen
+ * over. A failed write is swallowed: the localStorage mirror already holds it
+ * for this browser, and a reference page is no place to surface a database
+ * error.
  */
-export function ThemeToggle() {
-  const { preference, setPreference } = useTheme();
+export function ModeToggle() {
+  const { mode, setMode } = useAppearance();
   const [, startTransition] = useTransition();
 
-  function choose(next: ThemePreference) {
-    setPreference(next);
+  function choose(next: ColorMode) {
+    setMode(next);
     startTransition(async () => {
       try {
-        await saveAppearance({ preference: next });
+        await saveAppearance({ mode: next });
       } catch {
         // Applied and mirrored regardless; see above.
       }
@@ -44,11 +48,11 @@ export function ThemeToggle() {
   return (
     <div
       role="radiogroup"
-      aria-label="Color theme"
+      aria-label="Color mode"
       className="inline-flex gap-px rounded-pill bg-segmented-track p-[3px]"
     >
       {OPTIONS.map((option) => {
-        const selected = preference === option.value;
+        const selected = mode === option.value;
         return (
           <button
             key={option.value}

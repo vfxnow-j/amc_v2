@@ -1,131 +1,152 @@
 /**
- * Theme model for the v2 shell.
+ * Appearance for the v2 shell: two independent choices, both persisted on the
+ * `User` record with a localStorage mirror to avoid a flash before hydration.
  *
- * Two independent choices, both persisted on the `User` record with a
- * localStorage mirror to avoid a flash before hydration:
+ * - **mode** — light / dark / system. `prefers-color-scheme` decides the first
+ *   load before any choice exists, and the app defaults to dark for STAFF
+ *   (warehouse lighting) and light for admin and finance.
+ * - **theme** — which of the six palettes is loaded. A theme is not an accent:
+ *   it sets every surface, every ink and the accent, so it repaints the app
+ *   rather than tinting the buttons. Each has a light and a dark face, so six
+ *   themes are twelve complete looks and the mode switch still means what it
+ *   says.
  *
- * - **preference** — light / dark / system. `prefers-color-scheme` decides the
- *   first load before any preference exists, and the app defaults to dark for
- *   STAFF (warehouse lighting) and light for admin/finance.
- * - **accent** — which hue the accent ramp carries. Independent of light/dark,
- *   so twelve accents give twenty-four looks rather than twelve.
+ * The two attributes they resolve to on <html> are `data-mode` and
+ * `data-theme`. Both are set before first paint by ThemeScript.
  *
  * This module is imported by both server and client code and must stay pure —
  * nothing here may reach `lib/prisma`.
  */
 
-export type ThemePreference = "light" | "dark" | "system";
-export type ResolvedTheme = "light" | "dark";
+export type ColorMode = "light" | "dark" | "system";
+export type ResolvedMode = "light" | "dark";
 
-/** Mirrors of the server-side preferences; read by the pre-paint script. */
+/** Mirrors of the server-side choices; read by the pre-paint script. */
+export const MODE_STORAGE_KEY = "vfxnow-amc-mode";
 export const THEME_STORAGE_KEY = "vfxnow-amc-theme";
-export const ACCENT_STORAGE_KEY = "vfxnow-amc-accent";
 
 /** Set on <html>; the CSS token layer keys its blocks off these. */
+export const MODE_ATTRIBUTE = "data-mode";
 export const THEME_ATTRIBUTE = "data-theme";
-export const ACCENT_ATTRIBUTE = "data-accent";
 
-export function isThemePreference(value: unknown): value is ThemePreference {
+export function isColorMode(value: unknown): value is ColorMode {
   return value === "light" || value === "dark" || value === "system";
 }
 
-export function systemTheme(): ResolvedTheme {
+export function systemMode(): ResolvedMode {
   if (typeof window === "undefined") return "light";
   return window.matchMedia("(prefers-color-scheme: dark)").matches
     ? "dark"
     : "light";
 }
 
-export function resolveTheme(preference: ThemePreference): ResolvedTheme {
-  return preference === "system" ? systemTheme() : preference;
+export function resolveMode(mode: ColorMode): ResolvedMode {
+  return mode === "system" ? systemMode() : mode;
 }
 
 /* -------------------------------------------------------------------------
-   Accents
+   Themes
 ------------------------------------------------------------------------- */
 
-export type Accent = {
-  id: string;
+export type ThemeId = string;
+
+export type Theme = {
+  id: ThemeId;
   label: string;
+  blurb: string;
   /**
-   * The swatch shown in the picker: the same stop the accent fills with in
-   * each theme, so the dot is the color you are actually choosing.
+   * The three colours the picker shows per mode — ground, panel and accent.
+   * A theme is more than one colour now, so a single dot could not say what
+   * you are choosing. These are read straight off the generated ramps, so the
+   * chip is the theme rather than an impression of it.
    */
-  swatch: { light: string; dark: string };
-  /** Absent on the brand accent; set on the eleven that were added to it. */
-  note?: string;
+  swatch: {
+    light: { ground: string; panel: string; accent: string };
+    dark: { ground: string; panel: string; accent: string };
+  };
 };
 
 /**
- * The twelve accents, in spectrum order after the brand.
+ * The six themes.
  *
- * Every ramp is defined in `globals.css` as `--color-accent-100…900`; nothing
- * else in the codebase knows an accent exists, because the semantic layer
- * (`--accent-solid`, `--accent-text`, `--accent-tint`, `--color-ring`, the nav
- * bubbles and the wordmark) is written in terms of those nine stops. Adding a
- * thirteenth is a CSS block and a row here — no component changes.
+ * Each is two ramps in `globals.css` — fourteen surface stops and nine accent
+ * stops — and nothing else. Every role in the app (`--ground`, `--panel`,
+ * `--ink`, `--hairline`, the nav bubbles, the focus ring, the wordmark) is
+ * mapped from those stops once per mode, so a theme never has to know a role
+ * exists and a seventh is two ramps and a row here.
  *
- * The stops were checked against the three jobs the token layer gives them:
- * `700` carrying white text on the light panel, `300` read on the dark panel,
- * and the dark-theme fill carrying `--color-brand-text` glyphs. Blue, indigo,
- * violet and graphite are too dark at `500` to hold dark glyphs, so their
- * blocks point `--accent-dark-solid` at `400` instead — see globals.css.
+ * The surface ramps are generated from the VFXnow ramp's own lightness curve
+ * with a hue applied, so all six share a rhythm and differ in colour, and
+ * every stop that carries text was checked at 4.5:1 against the surface it
+ * sits on in both modes. Two stops needed correcting; both are recorded in the
+ * comment above the theme blocks.
  */
-export const ACCENTS: Accent[] = [
+export const THEMES: Theme[] = [
   {
-    id: "cyan",
-    label: "VFXnow cyan",
-    swatch: { light: "#0084a5", dark: "#00d0ff" },
+    id: "vfxnow",
+    label: "VFXnow",
+    blurb: "The house palette — cool greys under the brand cyan.",
+    swatch: {
+      light: { ground: "#f1f4f6", panel: "#ffffff", accent: "#0081a1" },
+      dark: { ground: "#0c1418", panel: "#15222a", accent: "#00d0ff" },
+    },
   },
-  { id: "teal", label: "Teal", swatch: { light: "#036b64", dark: "#0da79c" } },
-  {
-    id: "emerald",
-    label: "Emerald",
-    swatch: { light: "#096b43", dark: "#16a86a" },
-  },
-  { id: "lime", label: "Lime", swatch: { light: "#4a7300", dark: "#7bb81b" } },
-  { id: "amber", label: "Amber", swatch: { light: "#925f00", dark: "#e39708" } },
-  {
-    id: "orange",
-    label: "Orange",
-    swatch: { light: "#9e4c00", dark: "#ee7c15" },
-  },
-  { id: "rose", label: "Rose", swatch: { light: "#a82820", dark: "#f4544a" } },
-  {
-    id: "magenta",
-    label: "Magenta",
-    swatch: { light: "#a2246f", dark: "#ec4fac" },
-  },
-  {
-    id: "violet",
-    label: "Violet",
-    swatch: { light: "#6430a6", dark: "#b481ff" },
-  },
-  {
-    id: "indigo",
-    label: "Indigo",
-    swatch: { light: "#4335a8", dark: "#8d84ff" },
-  },
-  { id: "blue", label: "Blue", swatch: { light: "#1449a8", dark: "#5f9aff" } },
   {
     id: "graphite",
     label: "Graphite",
-    swatch: { light: "#48545d", dark: "#98a5b0" },
-    note: "No hue at all — for screens where color should only ever mean status.",
+    blurb: "No hue anywhere, so colour only ever means status.",
+    swatch: {
+      light: { ground: "#f3f3f3", panel: "#ffffff", accent: "#48545d" },
+      dark: { ground: "#121212", panel: "#202020", accent: "#78868f" },
+    },
+  },
+  {
+    id: "midnight",
+    label: "Midnight",
+    blurb: "Deep blue surfaces and indigo. The darkest of the six.",
+    swatch: {
+      light: { ground: "#f0f1f7", panel: "#ffffff", accent: "#4335a8" },
+      dark: { ground: "#090d1b", panel: "#10162f", accent: "#8d84ff" },
+    },
+  },
+  {
+    id: "forest",
+    label: "Forest",
+    blurb: "Green-shifted greys and emerald.",
+    swatch: {
+      light: { ground: "#f1f6f4", panel: "#ffffff", accent: "#096b43" },
+      dark: { ground: "#0b1912", panel: "#132c20", accent: "#16a86a" },
+    },
+  },
+  {
+    id: "ember",
+    label: "Ember",
+    blurb: "Warm surfaces and orange — easiest of the six in low light.",
+    swatch: {
+      light: { ground: "#f6f3f1", panel: "#ffffff", accent: "#9e4c00" },
+      dark: { ground: "#18110c", panel: "#2a1e15", accent: "#ee7c15" },
+    },
+  },
+  {
+    id: "plum",
+    label: "Plum",
+    blurb: "Purple-shifted greys and violet.",
+    swatch: {
+      light: { ground: "#f5f1f6", panel: "#ffffff", accent: "#6430a6" },
+      dark: { ground: "#150b19", panel: "#25132c", accent: "#9a5cf5" },
+    },
   },
 ];
 
-export type AccentId = string;
+/** The house palette, and what everyone gets before they choose. */
+export const DEFAULT_THEME: ThemeId = "vfxnow";
 
-/** The brand accent, and what everyone gets before they choose. */
-export const DEFAULT_ACCENT: AccentId = "cyan";
+const THEME_IDS = new Set(THEMES.map((theme) => theme.id));
 
-const ACCENT_IDS = new Set(ACCENTS.map((accent) => accent.id));
-
-export function isAccentId(value: unknown): value is AccentId {
-  return typeof value === "string" && ACCENT_IDS.has(value);
+export function isThemeId(value: unknown): value is ThemeId {
+  return typeof value === "string" && THEME_IDS.has(value);
 }
 
-export function accentById(id: AccentId): Accent {
-  return ACCENTS.find((accent) => accent.id === id) ?? ACCENTS[0];
+export function themeById(id: ThemeId): Theme {
+  return THEMES.find((theme) => theme.id === id) ?? THEMES[0];
 }

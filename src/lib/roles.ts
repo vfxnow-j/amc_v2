@@ -1,5 +1,5 @@
 import { auth } from "@/lib/auth";
-import type { ThemePreference } from "@/lib/theme";
+import type { ColorMode } from "@/lib/theme";
 
 export type Role =
   | "SUPER_ADMIN"
@@ -63,15 +63,15 @@ export async function getSessionUser(): Promise<SessionUser | null> {
 }
 
 /**
- * The theme a user gets before they've chosen one: dark for warehouse staff
+ * How bright the app is for a user who has not chosen: dark for warehouse staff
  * (warehouse lighting), light for admin and finance, per design/README.md.
  *
- * A chosen theme now lives on `User.themePreference` alongside `accentTheme`
- * and is read by `lib/queries/appearance`; this is only the answer for a row
- * that has never picked. The accent has no role default — everybody starts on
- * the brand cyan.
+ * A chosen mode lives on `User.colorMode` alongside `themeName` and is read by
+ * `lib/queries/appearance`; this is only the answer for a row that has never
+ * picked. The theme has no role default — everybody starts on the house
+ * palette.
  */
-export function defaultThemeFor(role: Role | undefined): ThemePreference {
+export function defaultModeFor(role: Role | undefined): ColorMode {
   if (role === "STAFF") return "dark";
   if (role === "SUPER_ADMIN" || role === "ADMIN") return "light";
   return "system";

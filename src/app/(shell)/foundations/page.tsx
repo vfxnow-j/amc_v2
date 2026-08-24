@@ -1,5 +1,5 @@
 import { PageHeader } from "@/components/shell/page-header";
-import { ThemeToggle } from "@/components/theme/theme-toggle";
+import { ModeToggle } from "@/components/theme/mode-toggle";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -60,7 +60,7 @@ export default function Foundations() {
         eyebrow="Foundations"
         title="Design tokens"
         blurb="Steps 1–2 of 6 · the Overview screen comes next"
-        actions={<ThemeToggle />}
+        actions={<ModeToggle />}
       />
 
       <div className="grid gap-3 md:grid-cols-2">
@@ -110,8 +110,9 @@ export default function Foundations() {
             <p className="text-detail text-accent-on-tint">$465 in fees</p>
           </div>
           <p className="mt-3 text-detail text-ink-faint">
-            Brand cyan never carries white text — light uses accent-700 for fills
-            and accent body text, dark fills with full cyan and inks it dark.
+            Every role here is the current theme&rsquo;s, not a fixed cyan: light
+            uses accent-700 for fills and accent body text, dark fills with the
+            strongest stop that can still carry the theme&rsquo;s own dark ink.
           </p>
         </Card>
 

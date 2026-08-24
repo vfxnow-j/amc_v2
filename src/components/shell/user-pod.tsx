@@ -13,12 +13,12 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { AccentSwatches } from "@/components/theme/accent-swatches";
-import { useTheme } from "@/components/theme/theme-provider";
+import { ThemePicker } from "@/components/theme/theme-picker";
+import { useAppearance } from "@/components/theme/theme-provider";
 import { saveAppearance } from "@/lib/actions/appearance";
 import { signOutAction } from "@/lib/actions/session";
 import { SETTINGS_PAGE } from "@/lib/nav/clusters";
-import { isThemePreference } from "@/lib/theme";
+import { isColorMode } from "@/lib/theme";
 import type { SessionUser } from "@/lib/roles";
 
 /**
@@ -48,7 +48,7 @@ export function UserPod({
   user: SessionUser;
   bell?: React.ReactNode;
 }) {
-  const { preference, setPreference } = useTheme();
+  const { mode, setMode } = useAppearance();
   const [, startTransition] = useTransition();
 
   /**
@@ -57,12 +57,12 @@ export function UserPod({
    * localStorage, so all that is lost is it following you to another browser —
    * not worth an error state inside a dropdown.
    */
-  function chooseTheme(value: string) {
-    if (!isThemePreference(value)) return;
-    setPreference(value);
+  function chooseMode(value: string) {
+    if (!isColorMode(value)) return;
+    setMode(value);
     startTransition(async () => {
       try {
-        await saveAppearance({ preference: value });
+        await saveAppearance({ mode: value });
       } catch {
         // See above.
       }
@@ -115,8 +115,8 @@ export function UserPod({
               Theme
             </DropdownMenuLabel>
             <DropdownMenuRadioGroup
-              value={preference}
-              onValueChange={chooseTheme}
+              value={mode}
+              onValueChange={chooseMode}
             >
               <DropdownMenuRadioItem value="light">Light</DropdownMenuRadioItem>
               <DropdownMenuRadioItem value="system">
@@ -126,19 +126,19 @@ export function UserPod({
             </DropdownMenuRadioGroup>
 
             <DropdownMenuLabel className="text-micro uppercase text-ink-muted">
-              Accent
+              Theme
             </DropdownMenuLabel>
             {/* Plain buttons, not menu items: a menu item closes the menu on
-                select, and choosing a color is something you do two or three
+                select, and choosing a theme is something you do two or three
                 times in a row while looking at the result. */}
             <div className="px-2 pb-1">
-              <AccentSwatches layout="grid" />
+              <ThemePicker layout="grid" />
             </div>
 
             <DropdownMenuItem asChild>
               <Link href="/dashboard/settings/profile">
                 <SlidersHorizontal className="size-4" aria-hidden />
-                More appearance options
+                Appearance, with names
               </Link>
             </DropdownMenuItem>
 

@@ -49,7 +49,7 @@ export function ClusterBubble({
           aria-hidden
           className={`flex size-[26px] flex-none items-center justify-center rounded-tile text-[10px] font-extrabold transition-colors duration-200 ${
             open
-              ? "bg-accent text-brand-text"
+              ? "bg-accent-fill-solid text-accent-on-fill"
               : "bg-nav-mark-closed text-ink-muted"
           }`}
         >
@@ -107,14 +107,14 @@ export function ClusterBubble({
                 aria-current={active ? "page" : undefined}
                 className={`mt-[2px] flex items-center gap-[9px] rounded-row px-[10px] py-[6px] transition-colors duration-[160ms] ${
                   active
-                    ? "bg-accent font-bold text-brand-text"
+                    ? "bg-accent-fill-solid font-bold text-accent-on-fill"
                     : "text-ink-muted hover:bg-row-hover hover:text-ink"
                 }`}
               >
                 <span
                   aria-hidden
                   className={`size-1 flex-none rounded-full ${
-                    active ? "bg-brand-text" : "bg-current opacity-60"
+                    active ? "bg-accent-on-fill" : "bg-current opacity-60"
                   }`}
                 />
                 <span className="truncate text-nav-page">{page.label}</span>

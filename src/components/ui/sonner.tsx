@@ -8,16 +8,20 @@ import {
   TriangleAlertIcon,
 } from "lucide-react"
 import { Toaster as Sonner, type ToasterProps } from "sonner"
-import { useTheme } from "@/components/theme/theme-provider"
+import { useAppearance } from "@/components/theme/theme-provider"
 
 const Toaster = ({ ...props }: ToasterProps) => {
   // v1 read this from next-themes; v2 has its own store, and it hands over the
-  // already-resolved theme so sonner never has to re-check the OS itself.
-  const { theme } = useTheme()
+  // already-resolved mode so sonner never has to re-check the OS itself.
+  //
+  // `resolved`, not `theme`: since themes took over the whole surface, `theme`
+  // is the palette name — sonner would have been handed "forest" and fallen
+  // back to its own light default, on a dark app.
+  const { resolved } = useAppearance()
 
   return (
     <Sonner
-      theme={theme}
+      theme={resolved}
       className="toaster group"
       icons={{
         success: <CircleCheckIcon className="size-4" />,

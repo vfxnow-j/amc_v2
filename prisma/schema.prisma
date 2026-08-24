@@ -32,13 +32,13 @@ model User {
   mfaDefault        String?   @default("email")
   passwordChangedAt DateTime?
 
-  // Appearance, per user rather than per browser. Null means "not chosen":
-  // themePreference falls back to the role default (dark for STAFF, light for
-  // admin/finance) and accentTheme to the VFXnow cyan. Validated against
-  // lib/theme rather than by an enum, so adding an accent is a CSS change and
-  // not a migration.
-  themePreference   String?
-  accentTheme       String?
+  // Appearance, per user rather than per browser. Two independent choices, and
+  // null means "not chosen": colorMode falls back to the role default (dark for
+  // STAFF, light for admin/finance) and themeName to the house palette.
+  // Validated against lib/theme rather than by an enum, so adding a seventh
+  // theme is two CSS ramps and not a migration.
+  colorMode         String?
+  themeName         String?
 
   createdAt         DateTime  @default(now())
   updatedAt     DateTime  @updatedAt

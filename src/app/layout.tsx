@@ -4,7 +4,7 @@ import { ThemeProvider } from "@/components/theme/theme-provider";
 import { ThemeScript } from "@/components/theme/theme-script";
 import { getAppearance } from "@/lib/queries/appearance";
 import { getSessionUser } from "@/lib/roles";
-import { ACCENTS } from "@/lib/theme";
+import { THEMES } from "@/lib/theme";
 import "./globals.css";
 
 const schibstedGrotesk = Schibsted_Grotesk({
@@ -29,13 +29,13 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  // The user's stored theme and accent, falling back to the role default —
-  // dark for STAFF, light for admin/finance — and the brand cyan. The
+  // The user's stored mode and theme, falling back to the role default —
+  // dark for STAFF, light for admin/finance — and the house palette. The
   // localStorage mirror the pre-paint script reads wins over these, so a choice
   // made on this browser lands before the row does. Both places must be given
   // the same values or the first paint flashes.
   const user = await getSessionUser();
-  const { preference, accent } = await getAppearance(user?.id, user?.role);
+  const { mode, theme } = await getAppearance(user?.id, user?.role);
 
   return (
     <html
@@ -45,13 +45,13 @@ export default async function RootLayout({
     >
       <head>
         <ThemeScript
-          defaultTheme={preference}
-          defaultAccent={accent}
-          accents={ACCENTS.map((option) => option.id)}
+          defaultMode={mode}
+          defaultTheme={theme}
+          themes={THEMES.map((option) => option.id)}
         />
       </head>
       <body className="min-h-full flex flex-col">
-        <ThemeProvider defaultPreference={preference} defaultAccent={accent}>
+        <ThemeProvider defaultMode={mode} defaultTheme={theme}>
           {children}
         </ThemeProvider>
       </body>
