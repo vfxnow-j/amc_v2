@@ -64,7 +64,7 @@ export default async function InvoiceRecordPage({ params }: Params) {
               <>
                 {" · "}
                 <Link
-                  href={`/dashboard/reservations/${invoice.reservation.id}`}
+                  href={`/dashboard/orders/${invoice.reservation.id}`}
                   className="text-accent-text hover:underline"
                 >
                   {invoice.reservation.reservationNumber}

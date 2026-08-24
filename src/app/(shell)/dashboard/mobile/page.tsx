@@ -60,7 +60,7 @@ async function Result({ code }: { code: string }) {
           {unit.holder ? (
             unit.orderId ? (
               <Link
-                href={`/dashboard/reservations/${unit.orderId}`}
+                href={`/dashboard/orders/${unit.orderId}`}
                 className="text-accent-text hover:underline"
               >
                 {unit.holder} · {unit.orderNumber}
@@ -96,7 +96,7 @@ async function Result({ code }: { code: string }) {
         </Link>
         {unit.orderId ? (
           <Link
-            href={`/dashboard/reservations/${unit.orderId}`}
+            href={`/dashboard/orders/${unit.orderId}`}
             className="rounded-pill bg-sunken px-4 py-2 text-pill text-ink transition-colors hover:bg-row-hover"
           >
             Go to its order

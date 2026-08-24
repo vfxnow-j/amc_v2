@@ -126,7 +126,7 @@ export async function getUnitCountDrift(): Promise<Insight[]> {
         attached: tally.attached,
         plural: count !== 1,
       })}`,
-      link: `/dashboard/reservations/${reservationId}`,
+      link: `/dashboard/orders/${reservationId}`,
     } satisfies Insight;
   });
 }
@@ -196,7 +196,7 @@ export async function getInventoryStateDrift(): Promise<Insight[]> {
       title: "Unit is bookable but already out",
       description: `${unit.barcode} (${unit.asset.name}) reads ${unit.status.toLowerCase()}, so the order builder will offer it${order ? `, but it is checked out on ${order.reservationNumber}` : ", but it has an open checkout against it"}. Check it in, or correct its status.`,
       link: order
-        ? `/dashboard/reservations/${order.id}`
+        ? `/dashboard/orders/${order.id}`
         : `/dashboard/units?q=${unit.barcode}`,
     } satisfies Insight;
   });

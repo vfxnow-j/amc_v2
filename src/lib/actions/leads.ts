@@ -639,8 +639,8 @@ export async function convertLeadToReservation(
 
   revalidatePath('/dashboard/leads')
   revalidatePath(`/dashboard/leads/${leadId}`)
-  revalidatePath('/dashboard/reservations')
-  if (isSale) revalidatePath('/dashboard/sales')
+  revalidatePath('/dashboard/orders')
+  if (isSale) revalidatePath('/dashboard/orders')
 
   return serialize({ lead: { id: leadId, status: 'WON' }, reservation })
 }
@@ -727,7 +727,7 @@ export async function bindLeadToOrder(
 
   revalidatePath('/dashboard/leads')
   revalidatePath(`/dashboard/leads/${leadId}`)
-  revalidatePath(`/dashboard/reservations/${reservationId}`)
+  revalidatePath(`/dashboard/orders/${reservationId}`)
 
   return serialize(updated)
 }

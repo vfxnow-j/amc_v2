@@ -168,7 +168,7 @@ export async function runBillingCycle(): Promise<BillingRunResult> {
   }
 
   revalidatePath('/dashboard/invoices')
-  revalidatePath('/dashboard/reservations')
+  revalidatePath('/dashboard/orders')
   revalidatePath('/dashboard')
 
   return result

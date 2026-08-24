@@ -88,7 +88,7 @@ async function Table({ search, page }: { search: string; page: number }) {
         const expiry = expiryLabel(row.expiresAt);
         return {
           id: row.id,
-          href: `/dashboard/reservations/${row.id}`,
+          href: `/dashboard/orders/${row.id}`,
           flagged: expiry?.urgent ?? false,
           cells: {
             number: (

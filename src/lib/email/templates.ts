@@ -564,7 +564,7 @@ export function quoteChangesRequestedEmail(data: {
   const safeName = escapeHtml(data.clientName)
   const safeRes = escapeHtml(data.reservationNumber)
   const safeNotes = escapeHtml(data.changeNotes)
-  const reservationUrl = `${APP_URL}/dashboard/reservations/${encodeURIComponent(data.reservationId)}`
+  const reservationUrl = `${APP_URL}/dashboard/orders/${encodeURIComponent(data.reservationId)}`
 
   return {
     subject: `Action Required: ${safeName} requested changes on ${safeRes}`,
@@ -598,7 +598,7 @@ export function quoteApprovedEmail(data: {
   const safeName = escapeHtml(data.clientName)
   const safeRes = escapeHtml(data.reservationNumber)
   const safeSigner = escapeHtml(data.signerName)
-  const reservationUrl = `${APP_URL}/dashboard/reservations/${encodeURIComponent(data.reservationId)}`
+  const reservationUrl = `${APP_URL}/dashboard/orders/${encodeURIComponent(data.reservationId)}`
 
   const packageHtml = data.selectedPackageName
     ? `<p style="margin: 8px 0 0; color: #3f3f46; font-size: 14px;">
@@ -639,7 +639,7 @@ export function quoteDeniedEmail(data: {
 }) {
   const safeName = escapeHtml(data.clientName)
   const safeRes = escapeHtml(data.reservationNumber)
-  const reservationUrl = `${APP_URL}/dashboard/reservations/${encodeURIComponent(data.reservationId)}`
+  const reservationUrl = `${APP_URL}/dashboard/orders/${encodeURIComponent(data.reservationId)}`
 
   const reasonHtml = data.reason
     ? `<div style="margin: 20px 0; padding: 16px; background: #fef2f2; border-radius: 8px; border-left: 4px solid #ef4444;">
@@ -913,7 +913,7 @@ export function reservationConfirmedStaffEmail(data: ReservationConfirmedEmailDa
   }
 
   const totalItems = data.items.reduce((s, i) => s + i.quantity, 0)
-  const resUrl = `${APP_URL}/dashboard/reservations`
+  const resUrl = `${APP_URL}/dashboard/orders`
 
   let metaHtml = `
     <tr>
@@ -1565,7 +1565,7 @@ export function dailyTrafficReportEmail(data: DailyTrafficReportData) {
             <td style="padding: 6px 10px; font-size: 13px; font-family: 'Courier New', monospace; color: #18181b; white-space: nowrap;">${escapeHtml(u.barcode)}</td>
             <td style="padding: 6px 10px; font-size: 13px; color: #3f3f46;">${escapeHtml(u.assetName)}</td>
             <td style="padding: 6px 10px; font-size: 13px; text-align: right;">
-              <a href="${APP_URL}/dashboard/reservations/${escapeHtml(u.reservationId)}" style="color: #2563eb; text-decoration: none; font-weight: 600;">${escapeHtml(u.reservationNumber)}</a>
+              <a href="${APP_URL}/dashboard/orders/${escapeHtml(u.reservationId)}" style="color: #2563eb; text-decoration: none; font-weight: 600;">${escapeHtml(u.reservationNumber)}</a>
             </td>
           </tr>`
       }

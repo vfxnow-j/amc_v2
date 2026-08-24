@@ -305,8 +305,8 @@ export async function completeSale(reservationId: string) {
     })
   } catch { /* non-critical */ }
 
-  revalidatePath('/dashboard/sales')
-  revalidatePath(`/dashboard/sales/${reservationId}`)
+  revalidatePath('/dashboard/orders')
+  revalidatePath(`/dashboard/orders/${reservationId}`)
   revalidatePath('/dashboard/assets')
   revalidatePath('/dashboard')
 
@@ -449,10 +449,10 @@ export async function convertReservationToSale(reservationId: string) {
     })
   } catch { /* non-critical */ }
 
-  revalidatePath('/dashboard/reservations')
-  revalidatePath(`/dashboard/reservations/${reservationId}`)
-  revalidatePath('/dashboard/sales')
-  revalidatePath(`/dashboard/sales/${reservationId}`)
+  revalidatePath('/dashboard/orders')
+  revalidatePath(`/dashboard/orders/${reservationId}`)
+  revalidatePath('/dashboard/orders')
+  revalidatePath(`/dashboard/orders/${reservationId}`)
   revalidatePath('/dashboard')
 
   return serialize(result.reservation)
@@ -524,8 +524,8 @@ export async function updateBuyoutCredit(reservationId: string, creditPercent: n
     })
   })
 
-  revalidatePath('/dashboard/sales')
-  revalidatePath(`/dashboard/sales/${reservationId}`)
+  revalidatePath('/dashboard/orders')
+  revalidatePath(`/dashboard/orders/${reservationId}`)
 
   return serialize(updated)
 }
@@ -698,10 +698,10 @@ export async function convertPartialReservationToSale(
     })
   } catch { /* non-critical */ }
 
-  revalidatePath('/dashboard/reservations')
-  revalidatePath(`/dashboard/reservations/${reservationId}`)
-  revalidatePath('/dashboard/sales')
-  revalidatePath(`/dashboard/sales/${result.id}`)
+  revalidatePath('/dashboard/orders')
+  revalidatePath(`/dashboard/orders/${reservationId}`)
+  revalidatePath('/dashboard/orders')
+  revalidatePath(`/dashboard/orders/${result.id}`)
   revalidatePath('/dashboard')
 
   return serialize(result)
@@ -811,10 +811,10 @@ export async function convertSaleToRental(reservationId: string) {
     })
   } catch { /* non-critical */ }
 
-  revalidatePath('/dashboard/sales')
-  revalidatePath(`/dashboard/sales/${reservationId}`)
-  revalidatePath('/dashboard/reservations')
-  revalidatePath(`/dashboard/reservations/${reservationId}`)
+  revalidatePath('/dashboard/orders')
+  revalidatePath(`/dashboard/orders/${reservationId}`)
+  revalidatePath('/dashboard/orders')
+  revalidatePath(`/dashboard/orders/${reservationId}`)
   revalidatePath('/dashboard')
 
   return serialize(result.reservation)
@@ -918,7 +918,7 @@ export async function updateSaleItemPrice(reservationId: string, itemId: string,
     },
   })
 
-  revalidatePath(`/dashboard/sales/${reservationId}`)
+  revalidatePath(`/dashboard/orders/${reservationId}`)
   return { success: true }
 }
 
@@ -1010,7 +1010,7 @@ export async function updateSaleItemQuantity(reservationId: string, itemId: stri
     },
   })
 
-  revalidatePath(`/dashboard/sales/${reservationId}`)
+  revalidatePath(`/dashboard/orders/${reservationId}`)
   return { success: true }
 }
 
@@ -1033,7 +1033,7 @@ export async function togglePriceVerified(reservationId: string, verified: boole
     },
   })
 
-  revalidatePath(`/dashboard/sales/${reservationId}`)
+  revalidatePath(`/dashboard/orders/${reservationId}`)
   return { success: true }
 }
 
@@ -1195,7 +1195,7 @@ export async function updateSaleItemMargin(reservationId: string, itemId: string
     },
   })
 
-  revalidatePath(`/dashboard/sales/${reservationId}`)
+  revalidatePath(`/dashboard/orders/${reservationId}`)
   return { success: true }
 }
 
@@ -1233,7 +1233,7 @@ export async function updateSaleItemCost(reservationId: string, itemId: string, 
 
   await recalculateSaleMarginTotals(reservationId)
 
-  revalidatePath(`/dashboard/sales/${reservationId}`)
+  revalidatePath(`/dashboard/orders/${reservationId}`)
   return { success: true }
 }
 
@@ -1324,7 +1324,7 @@ export async function applyMarginToAll(reservationId: string, marginPercent: num
     },
   })
 
-  revalidatePath(`/dashboard/sales/${reservationId}`)
+  revalidatePath(`/dashboard/orders/${reservationId}`)
   return { success: true }
 }
 
@@ -1489,9 +1489,9 @@ export async function allocateUnitToItem(
 
     return { success: true }
   }).then((res) => {
-    revalidatePath(`/dashboard/sales/${reservationId}`)
+    revalidatePath(`/dashboard/orders/${reservationId}`)
     revalidatePath(`/dashboard/cloud`)
-    revalidatePath(`/dashboard/reservations/${reservationId}`)
+    revalidatePath(`/dashboard/orders/${reservationId}`)
     revalidatePath('/dashboard/assets')
     return res
   })
@@ -1550,9 +1550,9 @@ export async function deallocateUnitFromItem(
 
     return { success: true }
   }).then((res) => {
-    revalidatePath(`/dashboard/sales/${reservationId}`)
+    revalidatePath(`/dashboard/orders/${reservationId}`)
     revalidatePath(`/dashboard/cloud`)
-    revalidatePath(`/dashboard/reservations/${reservationId}`)
+    revalidatePath(`/dashboard/orders/${reservationId}`)
     revalidatePath('/dashboard/assets')
     return res
   })
@@ -1620,9 +1620,9 @@ export async function autoAllocateUnitsForItem(
 
     return { allocated: candidates.length, needed }
   }).then((res) => {
-    revalidatePath(`/dashboard/sales/${reservationId}`)
+    revalidatePath(`/dashboard/orders/${reservationId}`)
     revalidatePath(`/dashboard/cloud`)
-    revalidatePath(`/dashboard/reservations/${reservationId}`)
+    revalidatePath(`/dashboard/orders/${reservationId}`)
     revalidatePath('/dashboard/assets')
     return res
   })
@@ -1649,7 +1649,6 @@ export async function updateInternalCosts(
 
   await recalculateSaleMarginTotals(reservationId)
 
-  revalidatePath(`/dashboard/reservations/${reservationId}`)
-  revalidatePath(`/dashboard/sales/${reservationId}`)
+  revalidatePath(`/dashboard/orders/${reservationId}`)
   return { success: true }
 }

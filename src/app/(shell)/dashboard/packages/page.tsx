@@ -45,7 +45,7 @@ async function Table({ page }: { page: number }) {
       }
       rows={rows.map((row) => ({
         id: row.id,
-        href: `/dashboard/reservations/${row.orderId}`,
+        href: `/dashboard/orders/${row.orderId}`,
         cells: {
           name: (
             <span className="font-bold">

@@ -680,8 +680,8 @@ export async function sendQuoteLinkEmail(
     } catch { /* non-critical */ }
 
     const { revalidatePath } = await import('next/cache')
-    revalidatePath(`/dashboard/reservations/${reservationId}`)
-    revalidatePath('/dashboard/reservations')
+    revalidatePath(`/dashboard/orders/${reservationId}`)
+    revalidatePath('/dashboard/orders')
   }
 
   return { success: true, url }

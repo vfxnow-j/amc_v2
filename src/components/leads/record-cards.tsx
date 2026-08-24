@@ -303,7 +303,7 @@ export async function OutcomeCard({ lead }: { lead: LeadHeader }) {
           {lead.order ? (
             <OutcomeRow
               label={lead.status === "BOUND" ? "Bound to order" : "Order"}
-              href={`/dashboard/reservations/${lead.order.id}`}
+              href={`/dashboard/orders/${lead.order.id}`}
               value={lead.order.reservationNumber}
               at={lead.boundAt ?? lead.convertedAt}
             />

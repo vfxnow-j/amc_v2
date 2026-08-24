@@ -138,7 +138,7 @@ async function overdueReturns(now: Date): Promise<Draft[]> {
     // client record is the only place that can show it in context.
     const key = row.reservationId ?? `client:${row.client.id}`;
     const link = row.reservationId
-      ? `/dashboard/reservations/${row.reservationId}`
+      ? `/dashboard/orders/${row.reservationId}`
       : `/dashboard/clients/${row.client.id}`;
     const what = row.reservation
       ? `order ${row.reservation.reservationNumber}`
@@ -235,8 +235,8 @@ async function approvalRequests(): Promise<Draft[]> {
     title: `Approval waiting · ${approval.checkout.client.companyName || approval.checkout.client.name}`,
     message: `A checkout of ${approval.checkout.assetUnit.asset.name} needs your sign-off before it can leave.`,
     link: approval.checkout.reservationId
-      ? `/dashboard/reservations/${approval.checkout.reservationId}`
-      : "/dashboard/reservations",
+      ? `/dashboard/orders/${approval.checkout.reservationId}`
+      : "/dashboard/orders",
   }));
 }
 

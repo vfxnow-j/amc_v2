@@ -71,7 +71,7 @@ export async function getCalendarEvents(startDate: Date, endDate: Date): Promise
       clientName: res.client.name,
       assetNames,
       color: statusColors[res.status] || '#3b82f6',
-      url: `/dashboard/reservations/${res.id}`,
+      url: `/dashboard/orders/${res.id}`,
     })
   })
 

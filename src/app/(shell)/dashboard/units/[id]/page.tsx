@@ -73,7 +73,7 @@ export default async function UnitRecordPage({ params }: Params) {
             </span>
             {unit.holder?.orderId ? (
               <Link
-                href={`/dashboard/reservations/${unit.holder.orderId}`}
+                href={`/dashboard/orders/${unit.holder.orderId}`}
                 className="rounded-pill bg-accent-solid px-4 py-[6px] text-pill text-accent-on-solid transition-colors hover:bg-accent-800"
               >
                 Its order
@@ -200,7 +200,7 @@ function Whereabouts({ unit }: { unit: Unit }) {
               {" "}
               on{" "}
               <Link
-                href={`/dashboard/reservations/${unit.holder.orderId}`}
+                href={`/dashboard/orders/${unit.holder.orderId}`}
                 className="text-accent-text hover:underline"
               >
                 {unit.holder.orderNumber}

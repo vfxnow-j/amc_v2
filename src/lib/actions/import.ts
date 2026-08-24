@@ -721,7 +721,7 @@ export async function executeImport(
   }
 
   revalidatePath('/dashboard/assets')
-  revalidatePath('/dashboard/reservations')
+  revalidatePath('/dashboard/orders')
   revalidatePath('/dashboard/clients')
   revalidatePath('/dashboard')
 

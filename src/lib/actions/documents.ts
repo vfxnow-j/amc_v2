@@ -134,7 +134,7 @@ export async function saveDocument(data: {
   }
 
   const entityPath = data.entityType === 'RESERVATION'
-    ? `/dashboard/reservations/${data.entityId}`
+    ? `/dashboard/orders/${data.entityId}`
     : data.entityType === 'ASSET'
     ? `/dashboard/assets/${data.entityId}`
     : `/dashboard/purchase-orders/${data.entityId}`
@@ -182,7 +182,7 @@ export async function signDocument(
   })
 
   const entityPath = existing.entityType === 'RESERVATION'
-    ? `/dashboard/reservations/${existing.entityId}`
+    ? `/dashboard/orders/${existing.entityId}`
     : existing.entityType === 'ASSET'
     ? `/dashboard/assets/${existing.entityId}`
     : `/dashboard/purchase-orders/${existing.entityId}`
@@ -543,7 +543,7 @@ export async function generateSignedQuoteDocument(
       })
     }
 
-    revalidatePath(`/dashboard/reservations/${reservationId}`)
+    revalidatePath(`/dashboard/orders/${reservationId}`)
   } catch (error) {
     console.error('Auto-generate signed quote document failed:', error)
   }
@@ -1017,7 +1017,7 @@ export async function deleteDocument(id: string, reason?: string) {
   })
 
   const entityPath = document.entityType === 'RESERVATION'
-    ? `/dashboard/reservations/${document.entityId}`
+    ? `/dashboard/orders/${document.entityId}`
     : document.entityType === 'ASSET'
     ? `/dashboard/assets/${document.entityId}`
     : `/dashboard/purchase-orders/${document.entityId}`
@@ -1091,7 +1091,7 @@ export async function restoreDocument(id: string) {
   } catch { /* non-critical */ }
 
   const entityPath = document.entityType === 'RESERVATION'
-    ? `/dashboard/reservations/${document.entityId}`
+    ? `/dashboard/orders/${document.entityId}`
     : document.entityType === 'ASSET'
     ? `/dashboard/assets/${document.entityId}`
     : `/dashboard/purchase-orders/${document.entityId}`

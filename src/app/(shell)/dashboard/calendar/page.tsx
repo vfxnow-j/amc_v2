@@ -44,7 +44,7 @@ function DayCell({ day, today }: { day: CalendarDay; today: Date }) {
           {day.going.slice(0, 2).map((order) => (
             <li key={`out-${order.id}`}>
               <Link
-                href={`/dashboard/reservations/${order.id}`}
+                href={`/dashboard/orders/${order.id}`}
                 title={`Out: ${order.reservationNumber} · ${order.clientName}`}
                 className="block truncate rounded-[4px] bg-accent-tint px-1 text-micro text-accent-on-tint hover:underline"
               >
@@ -55,7 +55,7 @@ function DayCell({ day, today }: { day: CalendarDay; today: Date }) {
           {day.coming.slice(0, 2).map((order) => (
             <li key={`in-${order.id}`}>
               <Link
-                href={`/dashboard/reservations/${order.id}`}
+                href={`/dashboard/orders/${order.id}`}
                 title={`Back: ${order.reservationNumber} · ${order.clientName}`}
                 className="block truncate rounded-[4px] bg-sunken px-1 text-micro text-ink-muted hover:underline"
               >

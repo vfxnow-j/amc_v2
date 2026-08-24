@@ -135,7 +135,7 @@ export default async function AuditRecordPage({ params }: Params) {
                     <span key={order.id}>
                       {index > 0 ? ", " : ""}
                       <Link
-                        href={`/dashboard/reservations/${order.id}`}
+                        href={`/dashboard/orders/${order.id}`}
                         className="text-accent-text hover:underline"
                       >
                         {order.reservationNumber}

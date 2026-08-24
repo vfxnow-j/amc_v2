@@ -53,7 +53,7 @@ export async function scanUnitOut(
   });
 
   if (result.success) {
-    revalidatePath(`/dashboard/reservations/${reservationId}`);
+    revalidatePath(`/dashboard/orders/${reservationId}`);
     return { status: "ok", message: `${trimmed} checked out.` };
   }
 
@@ -147,7 +147,7 @@ async function splitOntoNewLine(
     return { status: "error", message: result.error };
   }
 
-  revalidatePath(`/dashboard/reservations/${reservationId}`);
+  revalidatePath(`/dashboard/orders/${reservationId}`);
   return {
     status: "ok",
     message: `${barcode} checked out on a new line of its own.`,
@@ -199,7 +199,7 @@ export async function scanUnitIn(
   });
 
   if (result.success) {
-    revalidatePath(`/dashboard/reservations/${reservationId}`);
+    revalidatePath(`/dashboard/orders/${reservationId}`);
 
     // Damaged on return raises the work order here, in the same breath as the
     // check-in. Asking someone to go and do it afterwards is asking for a

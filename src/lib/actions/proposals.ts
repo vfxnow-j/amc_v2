@@ -96,7 +96,7 @@ export async function saveProposal(
     })
   }
 
-  revalidatePath(`/dashboard/reservations/${reservationId}`)
+  revalidatePath(`/dashboard/orders/${reservationId}`)
   return serialize(document)
 }
 
@@ -144,7 +144,7 @@ export async function saveProposalDraft(
     })
   }
 
-  revalidatePath(`/dashboard/reservations/${reservationId}`)
+  revalidatePath(`/dashboard/orders/${reservationId}`)
   return serialize(document)
 }
 

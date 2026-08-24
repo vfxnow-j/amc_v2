@@ -719,7 +719,7 @@ async function generateInsights(
           priority: 'high',
           title: `${negativeMarginOrders.length} order${negativeMarginOrders.length !== 1 ? 's' : ''} ha${negativeMarginOrders.length !== 1 ? 've' : 's'} negative margins`,
           description: `${negativeMarginOrders.length} active order${negativeMarginOrders.length !== 1 ? 's are' : ' is'} losing money. Review pricing and internal costs.`,
-          link: '/dashboard/reservations',
+          link: '/dashboard/orders',
         })
       }
     }
@@ -740,7 +740,7 @@ async function generateInsights(
           priority: 'medium',
           title: `${lowMarginOrders.length} order${lowMarginOrders.length !== 1 ? 's' : ''} ha${lowMarginOrders.length !== 1 ? 've' : 's'} margins below 10%`,
           description: `${lowMarginOrders.length} active order${lowMarginOrders.length !== 1 ? 's have' : ' has'} thin profit margins under 10%. Consider adjusting rates.`,
-          link: '/dashboard/reservations',
+          link: '/dashboard/orders',
         })
       }
     }

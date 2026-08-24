@@ -574,7 +574,7 @@ export async function createInvoiceForAddOns(reservationId: string, dueDate: Dat
     data: { lastBilledDate: new Date() },
   })
 
-  revalidatePath(`/dashboard/reservations/${reservationId}`)
+  revalidatePath(`/dashboard/orders/${reservationId}`)
 
   return invoice
 }

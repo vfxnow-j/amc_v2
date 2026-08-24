@@ -51,7 +51,7 @@ export default async function WorkOrderPage({ params }: Params) {
                 {" "}
                 ·{" "}
                 <Link
-                  href={`/dashboard/reservations/${workOrder.openedFromReservation.id}`}
+                  href={`/dashboard/orders/${workOrder.openedFromReservation.id}`}
                   className="text-accent-text hover:underline"
                 >
                   from {workOrder.openedFromReservation.reservationNumber}

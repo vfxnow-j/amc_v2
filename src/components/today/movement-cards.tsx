@@ -140,7 +140,7 @@ export async function OutgoingCard() {
                 : `${upcoming} orders start later`}{" "}
               — open{" "}
               <Link
-                href="/dashboard/reservations"
+                href="/dashboard/orders"
                 className="text-accent-text hover:underline"
               >
                 Reservations
@@ -158,7 +158,7 @@ export async function OutgoingCard() {
             {rows.map((row, index) => (
               <Row
                 key={row.reservationId}
-                href={`/dashboard/reservations/${row.reservationId}`}
+                href={`/dashboard/orders/${row.reservationId}`}
                 order={row.reservationNumber}
                 client={row.clientName}
                 project={row.projectName}
@@ -211,7 +211,7 @@ export async function IncomingCard() {
             {rows.map((row, index) => (
               <Row
                 key={row.reservationId}
-                href={`/dashboard/reservations/${row.reservationId}`}
+                href={`/dashboard/orders/${row.reservationId}`}
                 order={row.reservationNumber}
                 client={row.clientName}
                 project={row.projectName}

@@ -57,7 +57,7 @@ export async function DueBackCard() {
             {rows.map((row, index) => (
               <li key={row.id}>
                 <Link
-                  href={`/dashboard/reservations/${row.reservationId}`}
+                  href={`/dashboard/orders/${row.reservationId}`}
                   className={`grid ${COLUMNS} items-center gap-2 rounded-row p-2 transition-colors duration-[160ms] ${
                     row.isLate
                       ? "bg-accent-tint"

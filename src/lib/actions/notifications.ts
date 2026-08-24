@@ -517,7 +517,7 @@ export async function notifyDailyDigest(): Promise<{ sent: number }> {
       projectName: r.projectName ?? undefined,
       total: `$${Number(r.total).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`,
       itemCount: r._count.items,
-      link: `/dashboard/reservations/${r.id}`,
+      link: `/dashboard/orders/${r.id}`,
     })
 
     // De-duplicate shipping that also appears in starting (same reservation)
@@ -539,8 +539,8 @@ export async function notifyDailyDigest(): Promise<{ sent: number }> {
       shipping: dedupedShipping.map(toOrderRow),
       returnsDue: returnsDueToday.map(toOrderRow),
       actionItems: [
-        { label: 'Overdue checkouts', count: overdueCheckouts, urgent: true, link: '/dashboard/reservations' },
-        { label: 'Orders to prep (next 3 days)', count: needsPrep, link: '/dashboard/reservations' },
+        { label: 'Overdue checkouts', count: overdueCheckouts, urgent: true, link: '/dashboard/orders' },
+        { label: 'Orders to prep (next 3 days)', count: needsPrep, link: '/dashboard/orders' },
         { label: 'Overdue invoices', count: overdueInvoiceCount, urgent: overdueInvoiceCount > 0, link: '/dashboard/settings/audit-log' },
         { label: 'Draft invoices to send', count: draftInvoiceCount, link: '/dashboard/settings/audit-log' },
       ],
@@ -926,9 +926,9 @@ export async function notifyWeeklyReport(): Promise<{ sent: number; insights: nu
     ]
 
     const upcomingItems = [
-      { label: 'Reservations starting', count: upcomingReservations, link: '/dashboard/reservations' },
-      { label: 'Returns due', count: returnsDue, link: '/dashboard/reservations' },
-      { label: 'Currently overdue', count: overdueItems, link: '/dashboard/reservations' },
+      { label: 'Reservations starting', count: upcomingReservations, link: '/dashboard/orders' },
+      { label: 'Returns due', count: returnsDue, link: '/dashboard/orders' },
+      { label: 'Currently overdue', count: overdueItems, link: '/dashboard/orders' },
     ]
 
     // Build snapshot

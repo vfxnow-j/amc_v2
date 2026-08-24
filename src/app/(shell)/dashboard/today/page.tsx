@@ -49,7 +49,7 @@ export default function TodayPage() {
         }
         actions={
           <Link
-            href="/dashboard/reservations"
+            href="/dashboard/orders"
             className="rounded-pill bg-sunken px-[14px] py-2 text-pill text-ink transition-colors hover:bg-row-hover"
           >
             All reservations

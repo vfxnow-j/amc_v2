@@ -513,7 +513,7 @@ export async function addAuditItemToOrder(
     })
 
     revalidatePath(`/dashboard/audits/${item.auditId}`)
-    revalidatePath(`/dashboard/reservations/${reservationId}`)
+    revalidatePath(`/dashboard/orders/${reservationId}`)
     return { success: true }
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : 'Failed to add to order' }

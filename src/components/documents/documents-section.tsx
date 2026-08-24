@@ -152,7 +152,7 @@ export function DocumentsSection({ entityType, entityId, showEmpty = false }: Pr
                   <div className="flex items-center justify-end gap-1">
                     {doc.documentType === 'PROPOSAL' && entityType === 'RESERVATION' && (
                       <Button variant="ghost" size="icon" asChild>
-                        <Link href={`/dashboard/reservations/${entityId}/proposal`}>
+                        <Link href={`/dashboard/orders/${entityId}/proposal`}>
                           <Pencil className="h-4 w-4" />
                         </Link>
                       </Button>

@@ -176,7 +176,7 @@ export function CheckinPanel({ reservationId }: { reservationId: string }) {
                 <>
                   {" "}
                   <Link
-                    href={`/dashboard/reservations/${entry.order.id}`}
+                    href={`/dashboard/orders/${entry.order.id}`}
                     className="text-accent-text underline-offset-2 hover:underline"
                   >
                     Open {entry.order.reservationNumber} →

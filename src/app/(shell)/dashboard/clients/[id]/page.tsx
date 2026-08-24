@@ -65,7 +65,7 @@ export default async function ClientRecordPage({ params }: Params) {
               </span>
             ) : null}
             <Link
-              href={`/dashboard/reservations/new?client=${client.id}`}
+              href={`/dashboard/orders/new?client=${client.id}`}
               className="rounded-pill bg-accent-solid px-4 py-[6px] text-pill text-accent-on-solid transition-colors hover:bg-accent-800"
             >
               New order

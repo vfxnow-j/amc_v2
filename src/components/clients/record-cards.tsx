@@ -202,7 +202,7 @@ export async function OrdersCard({ id }: { id: string }) {
         {[...open, ...recent].map((order) => (
           <li key={order.id}>
             <Link
-              href={`/dashboard/reservations/${order.id}`}
+              href={`/dashboard/orders/${order.id}`}
               className="grid grid-cols-[132px_1fr_110px_92px] items-center gap-2 rounded-row px-2 py-[6px] text-detail hover:bg-row-hover"
             >
               <span className="truncate font-bold tabular-nums">
@@ -300,7 +300,7 @@ export async function DocumentsCard({ id }: { id: string }) {
           {rows.map((document) => (
             <li key={document.id}>
               <Link
-                href={`/dashboard/reservations/${document.orderId}`}
+                href={`/dashboard/orders/${document.orderId}`}
                 className="grid grid-cols-[1fr_120px_96px] items-center gap-2 rounded-row px-2 py-[6px] text-detail hover:bg-row-hover"
               >
                 <span className="truncate">

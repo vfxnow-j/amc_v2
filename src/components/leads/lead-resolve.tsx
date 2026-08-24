@@ -70,7 +70,7 @@ export function LeadResolve({
         });
         // Straight into the order it just made: the next thing anybody does is
         // put lines on it, and leaving them on the lead hides that it exists.
-        router.push(`/dashboard/reservations/${outcome.reservation.id}`);
+        router.push(`/dashboard/orders/${outcome.reservation.id}`);
       } catch (cause) {
         setError(cause instanceof Error ? cause.message : "That didn't save.");
       }

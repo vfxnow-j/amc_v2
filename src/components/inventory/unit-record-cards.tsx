@@ -140,7 +140,7 @@ export async function MovementsCard({ id }: { id: string }) {
             <li key={row.id}>
               {row.orderId ? (
                 <Link
-                  href={`/dashboard/reservations/${row.orderId}`}
+                  href={`/dashboard/orders/${row.orderId}`}
                   className={`${className} hover:bg-row-hover`}
                 >
                   {cells}

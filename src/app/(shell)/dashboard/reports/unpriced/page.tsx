@@ -67,7 +67,7 @@ async function Tables() {
     return {
       id: group.reservationId ?? group.items[0].checkoutId,
       href: group.reservationId
-        ? `/dashboard/reservations/${group.reservationId}`
+        ? `/dashboard/orders/${group.reservationId}`
         : undefined,
       cells: {
         order: (
