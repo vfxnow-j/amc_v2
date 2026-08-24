@@ -7,14 +7,23 @@ import {
   QUOTE_STATUSES,
 } from "@/lib/reservations/status";
 import { VIEWS, type View } from "@/lib/reservations/views";
+import { typeForFilter, type TypeFilter } from "@/lib/orders/types";
 
 /**
- * Queries behind Operate → Reservations, the hub the whole app orbits.
+ * Queries behind Operate → Orders, the hub the whole app orbits.
  *
  * Purpose-built rather than reusing `actions/reservations.getReservations`,
  * which loads every line and every line's asset and category for every order,
- * has no pagination, and silently excludes sales. The hub needs six columns and
- * a page of rows.
+ * has no pagination, and silently excludes sales. The hub needs seven columns
+ * and a page of rows.
+ *
+ * Two independent axes, and they compose: `view` is where the order is in its
+ * life (open, out now, quotes, archive) and `type` is what kind of order it is
+ * (rental, sale, rent-to-own, cloud). Every count, page and total below honours
+ * both, so "quotes" and "sales" never disagree about the same order.
+ *
+ * The model is still called `Reservation` — renaming it is a database migration
+ * across 47 files, not a rename — but nothing the user reads says so.
  */
 
 /** Units checked out on this order and not yet back. */
@@ -43,6 +52,11 @@ function viewWhere(view: View): Prisma.ReservationWhereInput {
   }
 }
 
+function typeWhere(type: TypeFilter): Prisma.ReservationWhereInput {
+  const member = typeForFilter(type);
+  return member ? { reservationType: member } : {};
+}
+
 function searchWhere(search: string): Prisma.ReservationWhereInput {
   const contains = { contains: search, mode: "insensitive" } as const;
   return {
@@ -54,6 +68,22 @@ function searchWhere(search: string): Prisma.ReservationWhereInput {
       { client: { companyName: contains } },
     ],
   };
+}
+
+/**
+ * The whole filter, assembled once. The counts, the page of rows and the
+ * totals all come through here — a tab that counted on a different clause from
+ * the table underneath it is exactly the drift the app's "a record and its list
+ * must never disagree" rule exists to prevent.
+ */
+function listWhere(
+  view: View,
+  type: TypeFilter,
+  search: string,
+): Prisma.ReservationWhereInput {
+  const clauses = [viewWhere(view), typeWhere(type)];
+  if (search) clauses.push(searchWhere(search));
+  return { AND: clauses };
 }
 
 export type ReservationRow = {
@@ -92,14 +122,13 @@ export const PAGE_SIZE = 40;
  * the header card while the table is still streaming — they answer "where is
  * there work", which shouldn't wait on a page of rows.
  */
-export async function getViewCounts(search = ""): Promise<Record<View, number>> {
+export async function getViewCounts(
+  search = "",
+  type: TypeFilter = "all",
+): Promise<Record<View, number>> {
   const counts = await Promise.all(
     VIEWS.map((view) =>
-      prisma.reservation.count({
-        where: search
-          ? { AND: [viewWhere(view), searchWhere(search)] }
-          : viewWhere(view),
-      }),
+      prisma.reservation.count({ where: listWhere(view, type, search) }),
     ),
   );
   return Object.fromEntries(
@@ -109,18 +138,18 @@ export async function getViewCounts(search = ""): Promise<Record<View, number>> 
 
 export async function getReservationList({
   view = "open",
+  type = "all",
   search = "",
   page = 1,
   now = new Date(),
 }: {
   view?: View;
+  type?: TypeFilter;
   search?: string;
   page?: number;
   now?: Date;
 } = {}): Promise<ReservationList> {
-  const where: Prisma.ReservationWhereInput = search
-    ? { AND: [viewWhere(view), searchWhere(search)] }
-    : viewWhere(view);
+  const where = listWhere(view, type, search);
 
   const [records, total] = await Promise.all([
     prisma.reservation.findMany({

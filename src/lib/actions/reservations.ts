@@ -68,6 +68,10 @@ export type ReservationFormData = {
   // Billing override
   notBilled?: boolean
   paymentTerms?: number
+  // Rent-to-own: the agreed term. The monthly payment and buyout are derived
+  // from it and the order total rather than typed, so they cannot disagree with
+  // what the order actually costs. Ignored on every other type.
+  rtoTermMonths?: number
   // Action tracking (e.g. from builder)
   actionRequired?: boolean
   actionRequiredNote?: string
@@ -751,8 +755,8 @@ export async function createReservation(data: ReservationFormData) {
         paymentTerms: data.paymentTerms ?? null,
         // Rent-to-Own fields — monthly payment based on total (incl. tax/fees)
         ...(data.reservationType === 'RENT_TO_OWN' ? {
-          rtoTermMonths: (data as any).rtoTermMonths || null,
-          rtoMonthlyPayment: (data as any).rtoTermMonths ? total / (data as any).rtoTermMonths : null,
+          rtoTermMonths: data.rtoTermMonths || null,
+          rtoMonthlyPayment: data.rtoTermMonths ? total / data.rtoTermMonths : null,
           rtoBuyoutPrice: total,
           rtoInstallmentsPaid: 0,
           rtoDefaultCount: 0,
@@ -932,7 +936,7 @@ export async function createReservation(data: ReservationFormData) {
     })
   } catch { /* non-critical */ }
 
-  revalidatePath('/dashboard/reservations')
+  revalidatePath('/dashboard/orders')
   revalidatePath('/dashboard')
 
   return serialize(reservation)
@@ -1307,8 +1311,8 @@ export async function updateReservation(id: string, data: Partial<ReservationFor
     return updated
   })
 
-  revalidatePath('/dashboard/reservations')
-  revalidatePath(`/dashboard/reservations/${id}`)
+  revalidatePath('/dashboard/orders')
+  revalidatePath(`/dashboard/orders/${id}`)
 
   return serialize(reservation)
 }
@@ -1374,8 +1378,8 @@ export async function updateReservationItemRate(
     await maybeRecalcRto(tx, reservationId, newTotal)
   })
 
-  revalidatePath('/dashboard/reservations')
-  revalidatePath(`/dashboard/reservations/${reservationId}`)
+  revalidatePath('/dashboard/orders')
+  revalidatePath(`/dashboard/orders/${reservationId}`)
 }
 
 // ---------------------------------------------------------------------------
@@ -1446,8 +1450,8 @@ export async function updateReservationItemQuantity(
     await maybeRecalcRto(tx, reservationId, newTotal)
   })
 
-  revalidatePath('/dashboard/reservations')
-  revalidatePath(`/dashboard/reservations/${reservationId}`)
+  revalidatePath('/dashboard/orders')
+  revalidatePath(`/dashboard/orders/${reservationId}`)
 }
 
 // ---------------------------------------------------------------------------
@@ -1482,8 +1486,8 @@ export async function updateReservationItemCategory(
     })
   })
 
-  revalidatePath('/dashboard/reservations')
-  revalidatePath(`/dashboard/reservations/${reservationId}`)
+  revalidatePath('/dashboard/orders')
+  revalidatePath(`/dashboard/orders/${reservationId}`)
 }
 
 // ---------------------------------------------------------------------------
@@ -1518,10 +1522,10 @@ export async function updateReservationItemDescription(
     })
   })
 
-  revalidatePath('/dashboard/reservations')
-  revalidatePath(`/dashboard/reservations/${reservationId}`)
-  revalidatePath('/dashboard/sales')
-  revalidatePath(`/dashboard/sales/${reservationId}`)
+  revalidatePath('/dashboard/orders')
+  revalidatePath(`/dashboard/orders/${reservationId}`)
+  revalidatePath('/dashboard/orders')
+  revalidatePath(`/dashboard/orders/${reservationId}`)
 }
 
 // ---------------------------------------------------------------------------
@@ -1582,10 +1586,10 @@ export async function updateReservationItemOneTime(
     await maybeRecalcRto(tx, reservationId, newTotal)
   })
 
-  revalidatePath('/dashboard/reservations')
-  revalidatePath(`/dashboard/reservations/${reservationId}`)
-  revalidatePath('/dashboard/sales')
-  revalidatePath(`/dashboard/sales/${reservationId}`)
+  revalidatePath('/dashboard/orders')
+  revalidatePath(`/dashboard/orders/${reservationId}`)
+  revalidatePath('/dashboard/orders')
+  revalidatePath(`/dashboard/orders/${reservationId}`)
 }
 
 // ---------------------------------------------------------------------------
@@ -1685,8 +1689,8 @@ export async function addItemToReservation(
     return item
   })
 
-  revalidatePath('/dashboard/reservations')
-  revalidatePath(`/dashboard/reservations/${reservationId}`)
+  revalidatePath('/dashboard/orders')
+  revalidatePath(`/dashboard/orders/${reservationId}`)
   return serialize(result)
 }
 
@@ -2023,9 +2027,8 @@ export async function addCloudHostToReservation(
     return parent
   })
 
-  revalidatePath('/dashboard/reservations')
-  revalidatePath(`/dashboard/reservations/${reservationId}`)
-  revalidatePath(`/dashboard/sales/${reservationId}`)
+  revalidatePath('/dashboard/orders')
+  revalidatePath(`/dashboard/orders/${reservationId}`)
   revalidatePath(`/dashboard/cloud`)
   return serialize(result)
 }
@@ -2154,9 +2157,8 @@ export async function updateCloudHostInReservation(
     return parent
   })
 
-  revalidatePath('/dashboard/reservations')
-  revalidatePath(`/dashboard/reservations/${reservationId}`)
-  revalidatePath(`/dashboard/sales/${reservationId}`)
+  revalidatePath('/dashboard/orders')
+  revalidatePath(`/dashboard/orders/${reservationId}`)
   revalidatePath(`/dashboard/cloud`)
   return serialize(result)
 }
@@ -2241,8 +2243,8 @@ export async function addServiceItemToReservation(
     return item
   })
 
-  revalidatePath('/dashboard/reservations')
-  revalidatePath(`/dashboard/reservations/${reservationId}`)
+  revalidatePath('/dashboard/orders')
+  revalidatePath(`/dashboard/orders/${reservationId}`)
   return serialize(result)
 }
 
@@ -2268,8 +2270,8 @@ export async function reorderReservationItems(
     }
   })
 
-  revalidatePath('/dashboard/reservations')
-  revalidatePath(`/dashboard/reservations/${reservationId}`)
+  revalidatePath('/dashboard/orders')
+  revalidatePath(`/dashboard/orders/${reservationId}`)
 }
 
 // Attach a component asset to an existing reservation item (must be configurable).
@@ -2367,8 +2369,8 @@ export async function addReservationComponent(
     return created
   })
 
-  revalidatePath('/dashboard/reservations')
-  revalidatePath(`/dashboard/reservations/${reservationId}`)
+  revalidatePath('/dashboard/orders')
+  revalidatePath(`/dashboard/orders/${reservationId}`)
 
   return serialize(result)
 }
@@ -2447,8 +2449,8 @@ export async function removeReservationItem(
     await maybeRecalcRto(tx, reservationId, newTotal)
   })
 
-  revalidatePath('/dashboard/reservations')
-  revalidatePath(`/dashboard/reservations/${reservationId}`)
+  revalidatePath('/dashboard/orders')
+  revalidatePath(`/dashboard/orders/${reservationId}`)
 }
 
 // ---------------------------------------------------------------------------
@@ -2496,8 +2498,8 @@ export async function markQuoteSent(id: string) {
     clientId: updated.clientId,
   }).catch(() => {})
 
-  revalidatePath('/dashboard/reservations')
-  revalidatePath(`/dashboard/reservations/${id}`)
+  revalidatePath('/dashboard/orders')
+  revalidatePath(`/dashboard/orders/${id}`)
   return serialize(updated)
 }
 
@@ -2537,10 +2539,10 @@ export async function requestRevision(id: string, notes?: string) {
     })
   } catch { /* non-critical */ }
 
-  revalidatePath('/dashboard/reservations')
-  revalidatePath(`/dashboard/reservations/${id}`)
-  revalidatePath('/dashboard/sales')
-  revalidatePath(`/dashboard/sales/${id}`)
+  revalidatePath('/dashboard/orders')
+  revalidatePath(`/dashboard/orders/${id}`)
+  revalidatePath('/dashboard/orders')
+  revalidatePath(`/dashboard/orders/${id}`)
   return serialize(updated)
 }
 
@@ -2596,8 +2598,8 @@ export async function markLost(id: string, reason?: string) {
     })
   } catch { /* non-critical */ }
 
-  revalidatePath('/dashboard/reservations')
-  revalidatePath(`/dashboard/reservations/${id}`)
+  revalidatePath('/dashboard/orders')
+  revalidatePath(`/dashboard/orders/${id}`)
   return serialize(updated)
 }
 
@@ -2661,8 +2663,8 @@ export async function startPreparing(id: string, preparedById?: string, notifyCl
     }
   }
 
-  revalidatePath('/dashboard/reservations')
-  revalidatePath(`/dashboard/reservations/${id}`)
+  revalidatePath('/dashboard/orders')
+  revalidatePath(`/dashboard/orders/${id}`)
   return serialize(updated)
 }
 
@@ -2733,8 +2735,8 @@ export async function markShipped(id: string, notifyClient?: { email: string }) 
     }
   }
 
-  revalidatePath('/dashboard/reservations')
-  revalidatePath(`/dashboard/reservations/${id}`)
+  revalidatePath('/dashboard/orders')
+  revalidatePath(`/dashboard/orders/${id}`)
   revalidatePath('/dashboard/invoices')
   return serialize(updated)
 }
@@ -2952,8 +2954,8 @@ export async function approveReservation(id: string, force?: boolean) {
     clientId: reservation.updated.clientId,
   }).catch(() => {})
 
-  revalidatePath('/dashboard/reservations')
-  revalidatePath(`/dashboard/reservations/${id}`)
+  revalidatePath('/dashboard/orders')
+  revalidatePath(`/dashboard/orders/${id}`)
   revalidatePath('/dashboard/assets')
   revalidatePath('/dashboard')
 
@@ -3073,8 +3075,8 @@ export async function cancelReservation(id: string, reason?: string) {
     clientId: reservation.clientId,
   }).catch(() => {})
 
-  revalidatePath('/dashboard/reservations')
-  revalidatePath(`/dashboard/reservations/${id}`)
+  revalidatePath('/dashboard/orders')
+  revalidatePath(`/dashboard/orders/${id}`)
   revalidatePath('/dashboard/assets')
 
   return serialize(reservation)
@@ -3158,8 +3160,8 @@ export async function activateReservation(id: string) {
     clientId: reservation.clientId,
   }).catch(() => {})
 
-  revalidatePath('/dashboard/reservations')
-  revalidatePath(`/dashboard/reservations/${id}`)
+  revalidatePath('/dashboard/orders')
+  revalidatePath(`/dashboard/orders/${id}`)
 
   return serialize(reservation)
 }
@@ -3241,8 +3243,8 @@ export async function completeReservation(id: string) {
     })
   } catch { /* non-critical */ }
 
-  revalidatePath('/dashboard/reservations')
-  revalidatePath(`/dashboard/reservations/${id}`)
+  revalidatePath('/dashboard/orders')
+  revalidatePath(`/dashboard/orders/${id}`)
 
   return serialize(reservation)
 }
@@ -3269,7 +3271,7 @@ export async function deleteReservation(id: string) {
     userId: authResult.userId,
   })
 
-  revalidatePath('/dashboard/reservations')
+  revalidatePath('/dashboard/orders')
   return { success: true }
 }
 
@@ -3709,7 +3711,7 @@ export async function assignUnit(
       data: { status: 'RESERVED' },
     })
 
-    revalidatePath(`/dashboard/reservations/${reservationId}`)
+    revalidatePath(`/dashboard/orders/${reservationId}`)
     return { success: true }
   })
 }
@@ -3765,7 +3767,7 @@ export async function unassignUnit(
       data: { status: 'AVAILABLE' },
     })
 
-    revalidatePath(`/dashboard/reservations/${reservationId}`)
+    revalidatePath(`/dashboard/orders/${reservationId}`)
     return { success: true }
   })
 }
@@ -3997,8 +3999,8 @@ export async function checkoutReservationItem(
     return checkout
   })
 
-  revalidatePath('/dashboard/reservations')
-  revalidatePath(`/dashboard/reservations/${reservationId}`)
+  revalidatePath('/dashboard/orders')
+  revalidatePath(`/dashboard/orders/${reservationId}`)
   revalidatePath('/dashboard/checkouts')
   revalidatePath('/dashboard/assets')
   revalidatePath('/dashboard/invoices')
@@ -4176,8 +4178,8 @@ export async function checkinReservationItem(
 
   if ('error' in result) return result
 
-  revalidatePath('/dashboard/reservations')
-  revalidatePath(`/dashboard/reservations/${reservationId}`)
+  revalidatePath('/dashboard/orders')
+  revalidatePath(`/dashboard/orders/${reservationId}`)
   revalidatePath('/dashboard/checkouts')
   revalidatePath('/dashboard/assets')
   revalidatePath('/dashboard/calendar')
@@ -4367,8 +4369,8 @@ export async function bulkCheckoutReservation(
 
   if ('error' in result) return result
 
-  revalidatePath('/dashboard/reservations')
-  revalidatePath(`/dashboard/reservations/${reservationId}`)
+  revalidatePath('/dashboard/orders')
+  revalidatePath(`/dashboard/orders/${reservationId}`)
   revalidatePath('/dashboard/checkouts')
   revalidatePath('/dashboard/assets')
   revalidatePath('/dashboard/invoices')
@@ -4517,8 +4519,8 @@ export async function bulkCheckinReservation(
     return { count: returnedCount, completed: allReturned }
   })
 
-  revalidatePath('/dashboard/reservations')
-  revalidatePath(`/dashboard/reservations/${reservationId}`)
+  revalidatePath('/dashboard/orders')
+  revalidatePath(`/dashboard/orders/${reservationId}`)
   revalidatePath('/dashboard/checkouts')
   revalidatePath('/dashboard/assets')
   revalidatePath('/dashboard/calendar')
@@ -4850,7 +4852,7 @@ export async function quickCheckout(data: QuickCheckoutData) {
     return reservation
   })
 
-  revalidatePath('/dashboard/reservations')
+  revalidatePath('/dashboard/orders')
   revalidatePath('/dashboard/checkouts')
   revalidatePath('/dashboard/assets')
   revalidatePath('/dashboard')
@@ -5078,8 +5080,7 @@ export async function duplicateReservation(
     return res
   })
 
-  revalidatePath('/dashboard/reservations')
-  revalidatePath('/dashboard/sales')
+  revalidatePath('/dashboard/orders')
   revalidatePath('/dashboard/rent-to-own')
 
   return serialize(newReservation)
@@ -5187,8 +5188,8 @@ export async function createPackage(
     },
   })
 
-  revalidatePath('/dashboard/reservations')
-  revalidatePath(`/dashboard/reservations/${reservationId}`)
+  revalidatePath('/dashboard/orders')
+  revalidatePath(`/dashboard/orders/${reservationId}`)
   return serialize(pkg)
 }
 
@@ -5243,8 +5244,8 @@ export async function updatePackage(
     })
   }
 
-  revalidatePath('/dashboard/reservations')
-  revalidatePath(`/dashboard/reservations/${pkg.reservationId}`)
+  revalidatePath('/dashboard/orders')
+  revalidatePath(`/dashboard/orders/${pkg.reservationId}`)
   return serialize(updated)
 }
 
@@ -5265,8 +5266,8 @@ export async function deletePackage(packageId: string) {
 
   await prisma.package.delete({ where: { id: packageId } })
 
-  revalidatePath('/dashboard/reservations')
-  revalidatePath(`/dashboard/reservations/${pkg.reservationId}`)
+  revalidatePath('/dashboard/orders')
+  revalidatePath(`/dashboard/orders/${pkg.reservationId}`)
 }
 
 export async function setActivePackage(
@@ -5324,8 +5325,8 @@ export async function setActivePackage(
     })
   })
 
-  revalidatePath('/dashboard/reservations')
-  revalidatePath(`/dashboard/reservations/${reservationId}`)
+  revalidatePath('/dashboard/orders')
+  revalidatePath(`/dashboard/orders/${reservationId}`)
 }
 
 export async function duplicatePackage(
@@ -5386,8 +5387,8 @@ export async function duplicatePackage(
     return pkg
   })
 
-  revalidatePath('/dashboard/reservations')
-  revalidatePath(`/dashboard/reservations/${sourcePackage.reservationId}`)
+  revalidatePath('/dashboard/orders')
+  revalidatePath(`/dashboard/orders/${sourcePackage.reservationId}`)
   return serialize(newPkg)
 }
 
@@ -5573,8 +5574,8 @@ export async function swapReservationItemUnit(
     return { success: true, newCheckoutId: newCheckout.id }
   })
 
-  revalidatePath('/dashboard/reservations')
-  revalidatePath(`/dashboard/reservations/${reservationId}`)
+  revalidatePath('/dashboard/orders')
+  revalidatePath(`/dashboard/orders/${reservationId}`)
   revalidatePath('/dashboard/checkouts')
   revalidatePath('/dashboard/assets')
   revalidatePath('/dashboard/calendar')
@@ -5660,7 +5661,7 @@ export async function resetItemUnitCheckout(
       newValues: { action: 'reset_item_checkout', unitBarcode: unit?.barcode || assetUnitId, reservationNumber: reservation.reservationNumber },
     })
 
-    revalidatePath(`/dashboard/reservations/${reservationId}`)
+    revalidatePath(`/dashboard/orders/${reservationId}`)
     return { success: true }
   })
 }

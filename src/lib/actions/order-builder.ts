@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requireEditor } from "@/lib/auth-utils";
 import { createReservation } from "@/lib/actions/reservations";
+import type { ReservationType } from "@/generated/prisma/client";
 import type { PricingType } from "@/lib/types";
 import {
   findSubstitutes,
@@ -57,9 +58,18 @@ export type DraftLine = {
 
 export type CreateOrderInput = {
   clientId: string;
+  /**
+   * Which kind of order this is. The builder makes one of four things, and the
+   * type decides the billing cycle, whether it recurs and what the order number
+   * is prefixed with — all of which `createReservation` already knew how to do.
+   * It was simply never reachable, so every order built here came out a rental.
+   */
+  type: ReservationType;
   start: string;
   end: string;
   projectName?: string;
+  /** Rent-to-own only; the monthly payment and buyout are derived from it. */
+  rtoTermMonths?: number;
   lines: DraftLine[];
 };
 
@@ -111,9 +121,13 @@ export async function createOrder(
 
   const created = await createReservation({
     clientId: input.clientId,
+    reservationType: input.type,
     startDate: start,
     endDate: end,
     projectName: input.projectName || undefined,
+    ...(input.type === "RENT_TO_OWN" && input.rtoTermMonths
+      ? { rtoTermMonths: input.rtoTermMonths }
+      : {}),
     // Lines waved through as unavailable raise the flag v1 already has for
     // "somebody needs to look at this", and the note names them — ops should
     // see what was promised, not only that something was.
@@ -141,7 +155,7 @@ export async function createOrder(
     };
   }
 
-  revalidatePath("/dashboard/reservations");
+  revalidatePath("/dashboard/orders");
   return { status: "ok", reservationId };
 }
 
@@ -149,5 +163,5 @@ export async function createOrder(
 export async function createOrderAndOpen(input: CreateOrderInput) {
   const result = await createOrder(input);
   if (result.status === "error") return result;
-  redirect(`/dashboard/reservations/${result.reservationId}`);
+  redirect(`/dashboard/orders/${result.reservationId}`);
 }

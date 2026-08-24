@@ -11,7 +11,10 @@ import {
   type DraftLine,
 } from "@/lib/actions/order-builder";
 import type { AssetAvailability } from "@/lib/queries/order-builder";
+import type { ReservationType } from "@/generated/prisma/client";
 import { Notice } from "@/components/feedback/notice";
+import { ORDER_TYPES } from "@/lib/orders/types";
+import { TYPE_LABEL } from "@/lib/reservations/status";
 
 const MONEY = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -23,6 +26,35 @@ const DAY = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" })
 const FIELD =
   "h-9 w-full rounded-well border-0 bg-sunken px-3 text-body text-ink outline-none placeholder:text-ink-faint";
 const LABEL = "mb-[6px] block text-micro uppercase text-ink-muted";
+
+/**
+ * What the two dates mean, per type.
+ *
+ * They are the same two columns on every order — `startDate` and `endDate` —
+ * but they do not mean the same thing, and the stored data says so plainly: the
+ * median rental spans 22 days, a sale 7, a cloud order 29 (a billing month) and
+ * a rent-to-own 731 — which is the agreement term, not a return date. Labelling
+ * all four "Starts / Ends" made three of them look like rentals that forgot to
+ * come back.
+ */
+const DATE_LABELS: Record<ReservationType, { legend: string; start: string; end: string }> = {
+  RENTAL: { legend: "Rental window", start: "Out", end: "Back" },
+  SALE: { legend: "Fulfilment", start: "Ordered", end: "Deliver by" },
+  RENT_TO_OWN: { legend: "Agreement term", start: "Starts", end: "Ends" },
+  CLOUD: { legend: "Billing period", start: "Starts", end: "Renews" },
+};
+
+/** What each type does once it is saved, said before it is saved. */
+const TYPE_NOTE: Record<ReservationType, string> = {
+  RENTAL: "Billed per period across the window; units are expected back.",
+  SALE: "Billed once for the whole order. Nothing is expected back.",
+  RENT_TO_OWN:
+    "Recurring monthly. The payment and buyout are worked out from the term and the order total, so they can't disagree with what it costs.",
+  CLOUD: "Recurring per billing period. No physical units unless you add some.",
+};
+
+/** Terms offered on a rent-to-own, matching what the existing agreements use. */
+const RTO_TERMS = [3, 6, 12, 24, 36];
 
 type Client = { id: string; name: string; companyName: string | null };
 
@@ -68,6 +100,8 @@ export function OrderBuilder({
     iso(new Date(today.getTime() + 7 * 86_400_000)),
   );
   const [projectName, setProjectName] = useState("");
+  const [type, setType] = useState<ReservationType>("RENTAL");
+  const [rtoTerm, setRtoTerm] = useState(24);
 
   const [client, setClient] = useState<Client | null>(initialClient);
   const [clientQuery, setClientQuery] = useState("");
@@ -142,9 +176,11 @@ export function OrderBuilder({
     startTransition(async () => {
       const result = await createOrder({
         clientId: client?.id ?? "",
+        type,
         start,
         end,
         projectName,
+        ...(type === "RENT_TO_OWN" ? { rtoTermMonths: rtoTerm } : {}),
         lines: lines.map(({ free, freeFrom, ...line }) => {
           void free;
           void freeFrom;
@@ -152,7 +188,7 @@ export function OrderBuilder({
         }),
       });
       if (result.status === "error") setError(result.message);
-      else router.push(`/dashboard/reservations/${result.reservationId}`);
+      else router.push(`/dashboard/orders/${result.reservationId}`);
     });
   }
 
@@ -368,6 +404,34 @@ export function OrderBuilder({
         <section className="rounded-card bg-panel px-4 py-[14px] shadow-sm">
           <h2 className="mb-3 text-card-title">Order</h2>
 
+          <span className={LABEL}>Type</span>
+          <div
+            role="radiogroup"
+            aria-label="Order type"
+            className="mb-2 grid grid-cols-2 gap-1"
+          >
+            {ORDER_TYPES.map((option) => {
+              const selected = option === type;
+              return (
+                <button
+                  key={option}
+                  type="button"
+                  role="radio"
+                  aria-checked={selected}
+                  onClick={() => setType(option)}
+                  className={`rounded-well px-3 py-2 text-pill transition-colors ${
+                    selected
+                      ? "bg-accent-tint text-accent-on-tint"
+                      : "bg-sunken text-ink-muted hover:bg-row-hover hover:text-ink"
+                  }`}
+                >
+                  {TYPE_LABEL[option]}
+                </button>
+              );
+            })}
+          </div>
+          <p className="mb-3 text-detail text-ink-muted">{TYPE_NOTE[type]}</p>
+
           <label className={LABEL} htmlFor="client">
             Client
           </label>
@@ -420,10 +484,14 @@ export function OrderBuilder({
             </div>
           )}
 
+          <span className={LABEL}>{DATE_LABELS[type].legend}</span>
           <div className="mb-3 grid grid-cols-2 gap-2">
             <div>
-              <label className={LABEL} htmlFor="start">
-                Starts
+              <label
+                className="mb-[6px] block text-detail text-ink-muted"
+                htmlFor="start"
+              >
+                {DATE_LABELS[type].start}
               </label>
               <input
                 id="start"
@@ -434,8 +502,11 @@ export function OrderBuilder({
               />
             </div>
             <div>
-              <label className={LABEL} htmlFor="end">
-                Ends
+              <label
+                className="mb-[6px] block text-detail text-ink-muted"
+                htmlFor="end"
+              >
+                {DATE_LABELS[type].end}
               </label>
               <input
                 id="end"
@@ -446,6 +517,35 @@ export function OrderBuilder({
               />
             </div>
           </div>
+
+          {/* The one field that only exists on one type. The payment and buyout
+              are not asked for: createReservation derives both from this and the
+              order total, so a typed monthly that contradicted the lines is not
+              a state this form can reach. */}
+          {type === "RENT_TO_OWN" ? (
+            <div className="mb-3">
+              <label className={LABEL} htmlFor="rto-term">
+                Term
+              </label>
+              <select
+                id="rto-term"
+                value={rtoTerm}
+                onChange={(event) => setRtoTerm(Number(event.target.value))}
+                className={FIELD}
+              >
+                {RTO_TERMS.map((months) => (
+                  <option key={months} value={months}>
+                    {months} months
+                  </option>
+                ))}
+              </select>
+              <p className="mt-[6px] text-detail text-ink-muted">
+                {total > 0
+                  ? `About ${MONEY.format(total / rtoTerm)} a month before tax, from the lines added so far.`
+                  : "Add lines and the monthly payment follows from the total."}
+              </p>
+            </div>
+          ) : null}
 
           <label className={LABEL} htmlFor="project">
             Project
@@ -461,7 +561,12 @@ export function OrderBuilder({
 
         <section className="rounded-card bg-panel px-4 py-[14px] shadow-sm">
           <div className="flex items-baseline justify-between">
-            <span className="text-card-title">Per period</span>
+            {/* A sale bills once; the other three bill per period. Calling the
+                same number "Per period" on a sale overstated it by the length
+                of the window. */}
+            <span className="text-card-title">
+              {type === "SALE" ? "Order total" : "Per period"}
+            </span>
             <span className="text-page-title text-[22px] tabular-nums">
               {MONEY.format(total)}
             </span>
@@ -469,7 +574,11 @@ export function OrderBuilder({
           <p className="mt-1 text-detail text-ink-muted">
             {lines.length === 0
               ? "Nothing added yet"
-              : `${lines.length} ${lines.length === 1 ? "line" : "lines"} · the record prices the full term`}
+              : `${lines.length} ${lines.length === 1 ? "line" : "lines"} · ${
+                  type === "SALE"
+                    ? "billed once when the order is approved"
+                    : "the record prices the full term"
+                }`}
           </p>
 
           {error ? (
@@ -492,7 +601,7 @@ export function OrderBuilder({
             disabled={busy || !client || lines.length === 0 || unresolved.length > 0}
             className="mt-3 h-10 w-full rounded-pill bg-accent-solid px-4 text-pill text-accent-on-solid transition-colors hover:bg-accent-800 disabled:opacity-50"
           >
-            {busy ? "Creating…" : "Create draft order"}
+            {busy ? "Creating…" : `Create draft ${TYPE_LABEL[type].toLowerCase()}`}
           </button>
           <p className="mt-2 text-detail text-ink-muted">
             Saved as a draft, which holds no stock. Approving it is what commits
