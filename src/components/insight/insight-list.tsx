@@ -6,7 +6,7 @@ import type { Insight, InsightPriority } from "@/lib/analytics/insights";
  *
  * One row per finding: a title somebody can act on, the sentence that says why,
  * and the row itself as the link to wherever the acting happens. Priority is a
- * grouping, not a colour — tinting thirty rows red says nothing, and the tint
+ * grouping, not a color — tinting thirty rows red says nothing, and the tint
  * in this design means "somebody must act", which is exactly what the *high*
  * group already says by being first.
  */

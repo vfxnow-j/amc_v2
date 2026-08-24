@@ -45,7 +45,7 @@ export async function getClientHeader(id: string) {
  * What this client owes, and how late.
  *
  * Billed and paid come from every invoice ever raised; owed counts only the
- * states that represent live debt — a cancelled or voided invoice has a total
+ * states that represent live debt — a canceled or voided invoice has a total
  * but is not money anybody is waiting for, and summing it would overstate the
  * position on a screen someone might chase a payment from.
  *

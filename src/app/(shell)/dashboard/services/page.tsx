@@ -61,7 +61,7 @@ async function Table() {
 }
 
 /**
- * Operate → Services: the professional-services catalogue.
+ * Operate → Services: the professional-services catalog.
  *
  * Sits in Operate rather than Revenue for the same reason cloud does — these
  * are things the team performs, and the money reaches the books through

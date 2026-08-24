@@ -42,7 +42,7 @@ const HEAVY = new Set(["DELETE", "REJECT"]);
  * after something turns out wrong, which is why the timestamp carries the time
  * of day and why the default order is newest first.
  *
- * v1 painted every action a different colour — eleven badges, one per verb.
+ * v1 painted every action a different color — eleven badges, one per verb.
  * That reads as decoration at a glance and hides the thing worth spotting, so
  * this tints only DELETE and REJECT: the two that took something away.
  *

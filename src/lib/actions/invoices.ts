@@ -374,7 +374,7 @@ export async function recordPayment(invoiceId: string, payment: PaymentData) {
     }
 
     if (existingInvoice.status === 'VOID' || existingInvoice.status === 'CANCELLED') {
-      throw new Error('Cannot record payment on voided or cancelled invoice')
+      throw new Error('Cannot record payment on voided or canceled invoice')
     }
 
     // Create payment record

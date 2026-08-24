@@ -685,7 +685,7 @@ enum ReservationStatus {
   SHIPPED // Items shipped / out for delivery
   ACTIVE // Items checked out, in use by client
   COMPLETED // All items returned / sale fulfilled
-  CANCELLED // Order cancelled
+  CANCELLED // Order canceled
   LOST // Quote rejected by client
 }
 
@@ -736,7 +736,7 @@ model Reservation {
   status      ReservationStatus @default(DRAFT)
   confirmedAt DateTime?
   quoteSentAt DateTime?
-  // Date the quoted pricing stops being honoured. Drives the quote-link expiry,
+  // Date the quoted pricing stops being honored. Drives the quote-link expiry,
   // the "Valid until" line on the quote PDF, and the online quote header.
   // Stamped to +30 days when a quote link is first generated if left unset.
   quoteExpiresAt DateTime?

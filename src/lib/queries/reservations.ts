@@ -19,7 +19,7 @@ import { typeForFilter, type TypeFilter } from "@/lib/orders/types";
  *
  * Two independent axes, and they compose: `view` is where the order is in its
  * life (open, out now, quotes, archive) and `type` is what kind of order it is
- * (rental, sale, rent-to-own, cloud). Every count, page and total below honours
+ * (rental, sale, rent-to-own, cloud). Every count, page and total below honors
  * both, so "quotes" and "sales" never disagree about the same order.
  *
  * The model is still called `Reservation` — renaming it is a database migration

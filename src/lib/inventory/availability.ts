@@ -3,7 +3,7 @@ import type { AssetStatus, CheckoutStatus } from "@/generated/prisma/client";
 /**
  * What a unit's status means for booking. One definition, because "is this
  * bookable" gets asked by the order builder, the availability check, the
- * utilisation figure and the rail counts — and they have to agree, or the
+ * utilization figure and the rail counts — and they have to agree, or the
  * platform will cheerfully promise a client something that is already gone.
  *
  * The rule the owner stated, 2026-07-30: **if it's out, it's not available.**
@@ -40,7 +40,7 @@ export const MUST_NOT_BE_OUT: AssetStatus[] = ["AVAILABLE", "RESERVED"];
 /**
  * What "still out" means on a `Checkout` row, as a reusable `where` fragment.
  *
- * A returned row is stamped with `actualReturn`, but a cancelled one never is —
+ * A returned row is stamped with `actualReturn`, but a canceled one never is —
  * so the date alone would count cancellations as custody forever. Both halves
  * are required. Named here rather than retyped per query because this is the
  * same "if it's out, it's not available" rule, asked of the movement log

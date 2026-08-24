@@ -16,7 +16,7 @@ import {
 /**
  * Server actions behind the new-order builder. The queries are re-exported as
  * actions so the client component can call them as the person types, rather
- * than the page shipping the whole catalogue to the browser.
+ * than the page shipping the whole catalog to the browser.
  */
 
 export async function lookupClients(query: string) {

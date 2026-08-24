@@ -16,7 +16,7 @@ export const STATUS_LABEL: Record<ReservationStatus, string> = {
   SHIPPED: "Shipped",
   ACTIVE: "Out with client",
   COMPLETED: "Completed",
-  CANCELLED: "Cancelled",
+  CANCELLED: "Canceled",
   LOST: "Lost",
 };
 

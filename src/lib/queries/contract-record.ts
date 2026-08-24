@@ -211,7 +211,7 @@ export async function getContractInvoices(id: string) {
       total: Number(invoice.total),
       paid: Number(invoice.amountPaid),
     })),
-    // Void and cancelled invoices carry a total nobody is waiting for, so they
+    // Void and canceled invoices carry a total nobody is waiting for, so they
     // are listed but not counted — the same rule the Accounts record uses.
     invoiced: live.reduce((sum, invoice) => sum + Number(invoice.total), 0),
     paid: live.reduce((sum, invoice) => sum + Number(invoice.amountPaid), 0),

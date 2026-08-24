@@ -90,7 +90,7 @@ async function Queue({ includeClosed }: { includeClosed: boolean }) {
 }
 
 /**
- * Service centre → Work orders.
+ * Service center → Work orders.
  *
  * The queue is what the bench works from. A row with a failed test run takes
  * the accent tint, because that is the one that needs a decision rather than
@@ -107,7 +107,7 @@ export default async function WorkOrdersPage({
   return (
     <>
       <PageHeader
-        eyebrow="Service centre"
+        eyebrow="Service center"
         title="Work orders"
         blurb="Raised when a unit fails on return. A unit with one open isn’t bookable."
         actions={

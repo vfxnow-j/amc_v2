@@ -16,7 +16,7 @@ const FILTERS: (QcResult | "ALL")[] = ["ALL", "FAIL", "RUNNING", "QUEUED", "PASS
 const COLUMNS = "grid-cols-[108px_92px_1fr_72px_120px]";
 
 /**
- * Service centre → QC test runs: every run across every work order, so the
+ * Service center → QC test runs: every run across every work order, so the
  * bench can see what's failing without opening each one.
  */
 export default async function QcRunsPage({
@@ -31,7 +31,7 @@ export default async function QcRunsPage({
   return (
     <>
       <PageHeader
-        eyebrow="Service centre"
+        eyebrow="Service center"
         title="QC test runs"
         blurb="Bench results across every work order."
         actions={

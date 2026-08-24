@@ -14,7 +14,7 @@ export const metadata = { title: "New order" };
  * made somewhere else. The type picker is the whole fix.
  *
  * Availability is answered per keystroke by server actions rather than by
- * shipping the catalogue to the browser: 224 assets and 2,616 units is not a
+ * shipping the catalog to the browser: 224 assets and 2,616 units is not a
  * payload, and the answer has to be current at the moment of asking.
  *
  * `?client=<id>` preselects the account, which is how the builder is reached

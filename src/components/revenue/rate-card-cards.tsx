@@ -14,12 +14,12 @@ import { RATE_TIER_LABEL } from "@/lib/revenue/labels";
  * This screen has one awkward truth to carry: nothing in the app prices off a
  * rate card. Order lines are priced from each asset's own rates, and v1's rate
  * card importer writes those asset columns too — it never touches `Rate`. So a
- * rate card states an intention, and the catalogue is what is actually charged.
+ * rate card states an intention, and the catalog is what is actually charged.
  * These cards are built around the gap between the two, because a card that
  * only showed its own three figures would look correct and mean nothing.
  */
 
-/** Where the catalogue disagrees with the card — and the way to close it. */
+/** Where the catalog disagrees with the card — and the way to close it. */
 export async function RateGapCard({ id }: { id: string }) {
   const { rows, matched, uncomparable, assetsCovered } =
     await getRateCardGap(id);
@@ -27,7 +27,7 @@ export async function RateGapCard({ id }: { id: string }) {
 
   if (assetsCovered === 0) {
     return (
-      <Card title="Against the catalogue">
+      <Card title="Against the catalog">
         <CardEmpty>
           This card prices no category that has any asset in it, so there is
           nothing to compare it against. Add a rate for a category that holds
@@ -39,7 +39,7 @@ export async function RateGapCard({ id }: { id: string }) {
 
   if (rows.length === 0) {
     return (
-      <Card title="Against the catalogue" meta={`${matched} rates agree`}>
+      <Card title="Against the catalog" meta={`${matched} rates agree`}>
         <CardEmpty>
           Every asset in the categories this card prices already carries the
           card&rsquo;s figure. Nothing to change.
@@ -50,7 +50,7 @@ export async function RateGapCard({ id }: { id: string }) {
 
   return (
     <Card
-      title="Against the catalogue"
+      title="Against the catalog"
       meta={`${rows.length} differ · ${matched} agree`}
     >
       <div className="grid grid-cols-[1fr_84px_100px_100px] gap-2 px-4 pb-[6px] text-colhead uppercase text-ink-muted">
@@ -156,7 +156,7 @@ export async function CoverageCard({ id }: { id: string }) {
             {empty > 0
               ? `, and ${empty} more are unpriced but empty.`
               : "."}{" "}
-            Those assets keep whatever rates they were catalogued with.
+            Those assets keep whatever rates they were catalogd with.
           </p>
         </>
       )}

@@ -28,7 +28,7 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
  * rate from the asset's own `dailyRate`/`weeklyRate`/`monthlyRate` through
  * `lib/pricing/rates`, and v1's rate-card importer under settings writes those
  * same asset columns — it has never touched a `Rate` row. A rate card is a
- * stated intention; the catalogue is what is charged.
+ * stated intention; the catalog is what is charged.
  *
  * So the record leads with the card's figures and then, at width, with the gap
  * between them and what the assets actually carry. A screen that showed three
@@ -39,7 +39,7 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
  * it has just listed, one by one, and it is armed in two steps: `Asset` keeps
  * no rate history, so there is nothing to undo from. It cannot reach an order
  * that already exists — `ReservationItem.rate` is stored per line — which is
- * the difference between repricing the catalogue and repricing a contract.
+ * the difference between repricing the catalog and repricing a contract.
  */
 export default async function RateCardRecordPage({ params }: Params) {
   const { id } = await params;
@@ -88,7 +88,7 @@ export default async function RateCardRecordPage({ params }: Params) {
 
       <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[1.5fr_1fr]">
         <Suspense
-          fallback={<CardSkeleton title="Against the catalogue" rows={10} />}
+          fallback={<CardSkeleton title="Against the catalog" rows={10} />}
         >
           <RateGapCard id={id} />
         </Suspense>
@@ -98,7 +98,7 @@ export default async function RateCardRecordPage({ params }: Params) {
             {byCategory.size === 0 ? (
               <CardEmpty>
                 This card sets no rates. Add one per category and tier, and the
-                catalogue can be measured against it below.
+                catalog can be measured against it below.
               </CardEmpty>
             ) : (
               <>
@@ -151,7 +151,7 @@ export default async function RateCardRecordPage({ params }: Params) {
               <CardEmpty>
                 This card carries hourly, project or custom rates. An order line
                 can be priced that way, but an asset has no column for it, so
-                those rates can be neither compared against the catalogue nor
+                those rates can be neither compared against the catalog nor
                 applied to it.
               </CardEmpty>
             </Card>

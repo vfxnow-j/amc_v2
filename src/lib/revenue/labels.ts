@@ -13,7 +13,7 @@ export const INVOICE_STATUS_LABEL: Record<InvoiceStatus, string> = {
   PAID: "Paid",
   PARTIAL: "Part paid",
   OVERDUE: "Overdue",
-  CANCELLED: "Cancelled",
+  CANCELLED: "Canceled",
   VOID: "Void",
 };
 
@@ -90,7 +90,7 @@ export const PO_STATUS_LABEL: Record<POStatus, string> = {
   SUBMITTED: "Submitted",
   PARTIAL: "Part received",
   RECEIVED: "Received",
-  CANCELLED: "Cancelled",
+  CANCELLED: "Canceled",
 };
 
 export const PO_VIEWS = ["open", "received", "draft", "all"] as const;
@@ -109,7 +109,7 @@ export const isPOView = oneOf(PO_VIEWS);
  * Which column on `Asset` a rate card's tier corresponds to.
  *
  * Only three of the six `PricingType` members have one. HOURLY, PROJECT and
- * CUSTOM exist on an order line but have no catalogue column behind them, so a
+ * CUSTOM exist on an order line but have no catalog column behind them, so a
  * rate card carrying one has nothing to be compared against or applied to — the
  * record says so rather than dropping it silently.
  */
@@ -150,9 +150,9 @@ export const RATE_TIER_LABEL: Record<PricedRateType, string> = {
  * component and importing the query module would drag the pg driver into the
  * browser.
  *
- * - `units` — serialised: one `AssetUnit` per item received.
+ * - `units` — serialized: one `AssetUnit` per item received.
  * - `serials` — held for resale: serial numbers recorded on the line, no units.
- * - `consumable` — cable, fan, licence: no serials, never touches the fleet.
- * - `unlinked` — marked serialised but with no product type to hang units off.
+ * - `consumable` — cable, fan, license: no serials, never touches the fleet.
+ * - `unlinked` — marked serialized but with no product type to hang units off.
  */
 export type ReceiveMode = "units" | "serials" | "consumable" | "unlinked";

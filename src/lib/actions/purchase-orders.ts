@@ -586,7 +586,7 @@ export async function deletePurchaseOrder(id: string) {
   }
 
   if (existing.status !== 'CANCELLED') {
-    throw new Error('Only cancelled purchase orders can be deleted')
+    throw new Error('Only canceled purchase orders can be deleted')
   }
 
   await prisma.$transaction(async (tx) => {

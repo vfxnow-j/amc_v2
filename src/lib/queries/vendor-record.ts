@@ -37,7 +37,7 @@ export async function getVendorHeader(id: string) {
  * Spend is the sum of `AssetUnit.purchasePrice` over units attributed to the
  * vendor, which is not the same as the total of their purchase orders: a PO
  * carries freight, fees and tax, and units imported from v1 predate any PO at
- * all. Both are shown, labelled as what they are, rather than one figure that
+ * all. Both are shown, labeled as what they are, rather than one figure that
  * silently means whichever the query happened to reach.
  */
 export async function getVendorSupply(id: string) {

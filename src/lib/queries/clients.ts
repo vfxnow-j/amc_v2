@@ -228,7 +228,7 @@ export async function getLeadHeaderStats() {
  * Quotes are Reservations at quote stage, not a model of their own.
  *
  * The countdown reads `quoteExpiresAt`, the date the quoted pricing stops being
- * honoured — the same field that drives the quote link's expiry and the "Valid
+ * honored — the same field that drives the quote link's expiry and the "Valid
  * until" line on the PDF. Quotes without one have simply never had a link
  * generated, and are shown as such rather than assigned an invented deadline.
  */

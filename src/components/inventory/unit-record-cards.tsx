@@ -23,7 +23,7 @@ const CHECKOUT_STATUS_LABEL: Record<string, string> = {
   ACTIVE: "Out",
   RETURNED: "Returned",
   OVERDUE: "Overdue",
-  CANCELLED: "Cancelled",
+  CANCELLED: "Canceled",
 };
 
 const CONDITION_LABEL: Record<string, string> = {
@@ -34,7 +34,7 @@ const CONDITION_LABEL: Record<string, string> = {
 };
 
 const COVERAGE_LABEL: Record<string, string> = {
-  LICENSE: "Licence",
+  LICENSE: "License",
   SUPPORT_CONTRACT: "Support contract",
   EXTENDED_WARRANTY: "Extended warranty",
   SERVICE_PLAN: "Service plan",
@@ -53,7 +53,7 @@ const MAINTENANCE_STATUS_LABEL: Record<string, string> = {
   SCHEDULED: "Scheduled",
   IN_PROGRESS: "In progress",
   COMPLETED: "Done",
-  CANCELLED: "Cancelled",
+  CANCELLED: "Canceled",
 };
 
 /**
@@ -61,7 +61,7 @@ const MAINTENANCE_STATUS_LABEL: Record<string, string> = {
  *
  * The row shows out and back as two dates rather than a duration, because the
  * gap between "due" and "back" is the fact worth reading and a duration would
- * hide it. A cancelled booking is shown greyed rather than dropped — it is a
+ * hide it. A canceled booking is shown grayed rather than dropped — it is a
  * thing that happened to this unit, and hiding it would make this log disagree
  * with the order that still holds the row.
  */
@@ -221,9 +221,9 @@ export async function ServiceHistoryCard({ id }: { id: string }) {
       </ul>
       {maintenance.length > 0 && workOrders.length === 0 ? (
         <p className="px-4 pb-3 text-detail text-ink-muted">
-          {/* Worth saying, because the Service centre queue will look empty for
+          {/* Worth saying, because the Service center queue will look empty for
               this unit while this card is full. */}
-          All from the maintenance log, which pre-dates the Service centre — no
+          All from the maintenance log, which pre-dates the Service center — no
           work order has been raised against this unit.
         </p>
       ) : null}
@@ -317,7 +317,7 @@ export async function CoverageCard({ id }: { id: string }) {
  * Where it sits, and every move that put it there.
  *
  * `AssetTransfer` has no status column — a row is a move that already happened,
- * not one waiting for approval — so this is a log and is labelled one, the same
+ * not one waiting for approval — so this is a log and is labeled one, the same
  * as the Locations screen.
  */
 export async function TransfersCard({
@@ -372,7 +372,7 @@ export async function TransfersCard({
  *
  * The lease block only appears when the unit is actually on one. `loanAmount`
  * is the whole facility, not this unit's share — 765 units sit under 20 leases
- * — so it is labelled as the lease's amount rather than as this unit's debt,
+ * — so it is labeled as the lease's amount rather than as this unit's debt,
  * which is a number nothing in the schema holds.
  */
 export async function OwnershipCard({ id }: { id: string }) {

@@ -21,16 +21,16 @@ import { windowFor, type Range } from "@/lib/queries/range";
  *   quiet this month and still be carrying the pipeline.
  *
  * The caveat worth knowing before quoting these: `byType` attributes a rental
- * checkout to its order's type and recognises sales at completion, so
+ * checkout to its order's type and recognizes sales at completion, so
  * RENT_TO_OWN and CLOUD only show earnings where the order is recurring or was
  * checked out. A type reading zero earned with orders open means the money
- * hasn't been recognised yet, not that the type is idle — which is exactly why
+ * hasn't been recognized yet, not that the type is idle — which is exactly why
  * both figures are shown.
  */
 
 export type TypeRevenue = {
   type: ReservationType;
-  /** Accrual-basis revenue recognised inside the window. */
+  /** Accrual-basis revenue recognized inside the window. */
   earned: number;
   /** Value of orders of this type that are open now. */
   booked: number;

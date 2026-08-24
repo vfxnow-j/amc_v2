@@ -275,8 +275,8 @@ async function main() {
 
   const targets: { path: string; label: string }[] = [];
 
-  // The rail first, labelled by cluster, so the report reads in the order the
-  // app is actually organised.
+  // The rail first, labeled by cluster, so the report reads in the order the
+  // app is actually organized.
   const railLabel = new Map<string, string>();
   for (const cluster of NAV_CLUSTERS) {
     for (const page of cluster.pages) {

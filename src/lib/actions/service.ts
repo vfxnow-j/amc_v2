@@ -7,7 +7,7 @@ import { requireEditor } from "@/lib/auth-utils";
 import { OPEN_WORK_ORDER_STATUSES } from "@/lib/service/statuses";
 
 /**
- * Service centre write path.
+ * Service center write path.
  *
  * This module owns the one rule that makes the feature worth having: a unit
  * with an open work order is not bookable. Opening one moves the unit to

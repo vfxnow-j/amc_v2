@@ -22,7 +22,7 @@ export type Appearance = {
  * on a row already in the connection's cache, on a layout that renders for
  * every authenticated request.
  *
- * Anything unrecognised — a hand-edited row, an accent renamed out of
+ * Anything unrecognized — a hand-edited row, an accent renamed out of
  * `lib/theme` — falls back to the role default rather than being trusted onto
  * the attribute, where it would select a ramp that no longer exists.
  */

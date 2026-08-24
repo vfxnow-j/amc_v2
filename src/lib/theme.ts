@@ -49,7 +49,7 @@ export type Accent = {
   label: string;
   /**
    * The swatch shown in the picker: the same stop the accent fills with in
-   * each theme, so the dot is the colour you are actually choosing.
+   * each theme, so the dot is the color you are actually choosing.
    */
   swatch: { light: string; dark: string };
   /** Absent on the brand accent; set on the eleven that were added to it. */
@@ -111,7 +111,7 @@ export const ACCENTS: Accent[] = [
     id: "graphite",
     label: "Graphite",
     swatch: { light: "#48545d", dark: "#98a5b0" },
-    note: "No hue at all — for screens where colour should only ever mean status.",
+    note: "No hue at all — for screens where color should only ever mean status.",
   },
 ];
 

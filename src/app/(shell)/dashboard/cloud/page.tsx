@@ -37,7 +37,7 @@ async function Table() {
   const derived = products.filter((product) => product.derived).length;
 
   // The "·d" marker is two characters and means nothing on its own, so the
-  // footer says what it is. Most of this catalogue carries no override, which
+  // footer says what it is. Most of this catalog carries no override, which
   // makes the legend the difference between a priced list and a cryptic one.
   const notes = [
     inactive > 0 ? `${inactive} not offered` : null,
@@ -121,7 +121,7 @@ export default async function CloudPage() {
       <PageHeader
         eyebrow="Operate"
         title="Cloud services"
-        blurb="The catalogue a cloud workstation is configured from"
+        blurb="The catalog a cloud workstation is configured from"
       />
 
       <Suspense fallback={<ListTableSkeleton />}>

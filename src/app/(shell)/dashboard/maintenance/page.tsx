@@ -34,7 +34,7 @@ const STATUS_LABEL: Record<string, string> = {
   SCHEDULED: "Scheduled",
   IN_PROGRESS: "In progress",
   COMPLETED: "Done",
-  CANCELLED: "Cancelled",
+  CANCELLED: "Canceled",
 };
 
 const COLUMNS: Column[] = [
@@ -138,9 +138,9 @@ async function Table({ view, page }: { view: View; page: number }) {
 }
 
 /**
- * Service centre → Maintenance log: the last placeholder in this cluster.
+ * Service center → Maintenance log: the last placeholder in this cluster.
  *
- * `MaintenanceRecord` predates the v2 Service centre and outlives each work
+ * `MaintenanceRecord` predates the v2 Service center and outlives each work
  * order — closing one with CLOSED_SCRAP or a repair writes a record here, so a
  * unit keeps its history even after the work order is gone. That makes this the
  * long view: work orders are what's happening, this is what happened.
@@ -163,7 +163,7 @@ export default async function MaintenancePage({
   return (
     <>
       <PageHeader
-        eyebrow="Service centre"
+        eyebrow="Service center"
         title="Maintenance log"
         blurb="What has been repaired, and what is still on the bench"
       />

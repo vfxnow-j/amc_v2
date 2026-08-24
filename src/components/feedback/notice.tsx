@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
  * The strip of text a panel shows after it tried something.
  *
  * **This existed already.** `components/auth/auth-shell` had it, with this same
- * `tone` API and the same two colourways — and in the rest of the app the same
+ * `tone` API and the same two colorways — and in the rest of the app the same
  * strip was hand-rolled twenty-five times across fifteen files: settings,
  * leads, reservations, service, inventory. Nobody looking to show an error in a
  * settings panel goes reading the auth shell, which is the whole argument for a

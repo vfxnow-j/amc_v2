@@ -28,7 +28,7 @@ function Kpi({
   );
 }
 
-/** The alert state: the one card that changes colour when it needs hands. */
+/** The alert state: the one card that changes color when it needs hands. */
 function OverdueKpi({ units }: { units: number }) {
   if (units === 0) {
     return (
@@ -55,9 +55,9 @@ export async function KpiRow({ range }: { range: Range }) {
   return (
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
       <Kpi
-        label="Utilisation"
-        value={`${kpis.utilisation.percent.toFixed(1)}%`}
-        // No delta pill: nothing snapshots utilisation over time yet.
+        label="Utilization"
+        value={`${kpis.utilization.percent.toFixed(1)}%`}
+        // No delta pill: nothing snapshots utilization over time yet.
         meta={`${NUMBER.format(kpis.units.onRent)} of ${NUMBER.format(kpis.units.total)} rentable`}
       />
       <Kpi

@@ -25,7 +25,7 @@ export type SettingsAccess = "everyone" | "admin";
 
 export type SettingsGroup =
   | "People and access"
-  | "The catalogue"
+  | "The catalog"
   | "Records"
   | "Connections";
 
@@ -70,7 +70,7 @@ export const SETTINGS_PAGES: SettingsPage[] = [
     href: "/dashboard/settings/categories",
     blurb: "How assets are grouped, and which groups build workstations.",
     access: "everyone",
-    group: "The catalogue",
+    group: "The catalog",
   },
   {
     id: "cloud-products",
@@ -78,7 +78,7 @@ export const SETTINGS_PAGES: SettingsPage[] = [
     href: "/dashboard/settings/cloud-products",
     blurb: "Cost and margin behind every line on a cloud order.",
     access: "everyone",
-    group: "The catalogue",
+    group: "The catalog",
   },
   {
     id: "documents",
@@ -136,7 +136,7 @@ export const SETTINGS_PAGES: SettingsPage[] = [
 
 export const SETTINGS_GROUPS: SettingsGroup[] = [
   "People and access",
-  "The catalogue",
+  "The catalog",
   "Records",
   "Connections",
 ];

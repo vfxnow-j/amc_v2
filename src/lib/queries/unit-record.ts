@@ -111,7 +111,7 @@ export async function getUnitHeader(id: string) {
  * The status timeline the build plan asks for, read off `Checkout` rather than
  * off `AssetUnit.status`: the status column holds one value and this holds the
  * history, and only one of them can answer "how often has this been out". A
- * cancelled checkout is kept and labelled, because a booking that was pulled is
+ * canceled checkout is kept and labeled, because a booking that was pulled is
  * a thing that happened to this unit — dropping it would make the log quietly
  * disagree with the order it belongs to.
  */

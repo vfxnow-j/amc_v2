@@ -132,7 +132,7 @@ export type ApplyRatesOutcome =
  * already been agreed.
  *
  * Retired assets are left alone. They are not going out again, and rewriting
- * their rates would only make the retired catalogue disagree with the orders
+ * their rates would only make the retired catalog disagree with the orders
  * that used it.
  */
 export async function applyRateCard(
@@ -154,7 +154,7 @@ export async function applyRateCard(
   if (rows.length !== expectedChanges) {
     return {
       status: "error",
-      message: `${rows.length} assets differ now, not ${expectedChanges} — the catalogue has changed since this list was drawn. Reload and check it again.`,
+      message: `${rows.length} assets differ now, not ${expectedChanges} — the catalog has changed since this list was drawn. Reload and check it again.`,
     };
   }
 
@@ -256,7 +256,7 @@ export async function receivePOLines(
     payload.push({
       poItemId: item.id,
       receivedQuantity: line.quantity,
-      // Serialised stock: one AssetUnit per item received. Barcodes are left to
+      // Serialized stock: one AssetUnit per item received. Barcodes are left to
       // the ported action to generate — v1 owns that sequence, and a second
       // generator in v2 would be a second way to collide.
       units:

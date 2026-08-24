@@ -152,7 +152,7 @@ async function Table({
  * `assets/register` becomes the action in the header. "Free" counts units whose
  * status is AVAILABLE, the one bookable definition
  * (`lib/inventory/availability.ts`); "Fleet" excludes retired and sold, so it
- * does not agree with the denormalised `totalQuantity` column and shouldn't.
+ * does not agree with the denormalized `totalQuantity` column and shouldn't.
  */
 export default async function AssetsPage({
   searchParams,

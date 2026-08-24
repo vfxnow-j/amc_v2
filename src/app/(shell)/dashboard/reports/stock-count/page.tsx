@@ -59,7 +59,7 @@ async function Table() {
       total={items.length}
       empty={
         <>
-          No asset in the catalogue has a unit in the fleet. Register hardware
+          No asset in the catalog has a unit in the fleet. Register hardware
           from Inventory → Assets and it appears here.
         </>
       }

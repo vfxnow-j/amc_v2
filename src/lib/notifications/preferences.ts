@@ -72,7 +72,7 @@ export async function saveNotificationPreferences(
   userId: string,
   preferences: NotificationPreferences,
 ): Promise<void> {
-  // Normalised on the way in as well as the way out, so a hand-edited row can
+  // Normalized on the way in as well as the way out, so a hand-edited row can
   // never leave a type missing.
   const value = mergePreferences(preferences);
 

@@ -76,7 +76,7 @@ export const AUDIT_ITEM_STATUSES: AuditItemStatus[] = [
 /**
  * Progress counted from the items, with the stored counters beside it.
  *
- * `InventoryAudit.verifiedCount` and friends are denormalised — every scan
+ * `InventoryAudit.verifiedCount` and friends are denormalized — every scan
  * increments them in the same transaction that updates the item — so they can
  * drift if any write ever lands outside that path. The items are the physical
  * record and the counters are the derived value, so the screen counts the items

@@ -16,7 +16,7 @@ function daysUntil(date: Date, now: Date) {
 }
 
 /**
- * Service centre → Coverage & RMA.
+ * Service center → Coverage & RMA.
  *
  * Two things that both mean "someone else is on the hook for this unit":
  * warranty about to lapse, and hardware physically away at a vendor. The window
@@ -28,7 +28,7 @@ export default async function CoveragePage() {
   return (
     <>
       <PageHeader
-        eyebrow="Service centre"
+        eyebrow="Service center"
         title="Coverage & RMA"
         blurb={`${expiring.length} coverage ${expiring.length === 1 ? "window" : "windows"} closing within 90 days · ${rma.length} ${rma.length === 1 ? "unit" : "units"} away at a vendor`}
       />

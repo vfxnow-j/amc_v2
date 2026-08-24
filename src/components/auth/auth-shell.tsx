@@ -1,7 +1,7 @@
 import Image from "next/image";
 
 /**
- * The frame every signed-out screen shares: the ground colour, a centred panel
+ * The frame every signed-out screen shares: the ground color, a centerd panel
  * card, the brand lockup above it.
  *
  * Same vocabulary as the shell — panel surface, 16px card radius, shadow-sm,

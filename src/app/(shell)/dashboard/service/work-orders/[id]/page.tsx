@@ -38,7 +38,7 @@ export default async function WorkOrderPage({ params }: Params) {
   return (
     <>
       <PageHeader
-        eyebrow="Service centre"
+        eyebrow="Service center"
         title={`${workOrder.number} — ${workOrder.fault}`}
         blurb={
           <>

@@ -63,7 +63,7 @@ export const checkoutStatusConfig: Record<CheckoutStatus, { label: string; varia
   ACTIVE: { label: 'Active', variant: 'default' },
   RETURNED: { label: 'Returned', variant: 'secondary' },
   OVERDUE: { label: 'Overdue', variant: 'destructive' },
-  CANCELLED: { label: 'Cancelled', variant: 'outline' },
+  CANCELLED: { label: 'Canceled', variant: 'outline' },
 }
 
 export const invoiceStatusConfig: Record<InvoiceStatus, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
@@ -72,7 +72,7 @@ export const invoiceStatusConfig: Record<InvoiceStatus, { label: string; variant
   PAID: { label: 'Paid', variant: 'default' },
   PARTIAL: { label: 'Partial', variant: 'secondary' },
   OVERDUE: { label: 'Overdue', variant: 'destructive' },
-  CANCELLED: { label: 'Cancelled', variant: 'outline' },
+  CANCELLED: { label: 'Canceled', variant: 'outline' },
   VOID: { label: 'Void', variant: 'outline' },
 }
 
@@ -85,7 +85,7 @@ export const reservationStatusConfig: Record<string, { label: string; variant: '
   SHIPPED: { label: 'Shipped', variant: 'secondary' },
   ACTIVE: { label: 'Active', variant: 'default' },
   COMPLETED: { label: 'Completed', variant: 'default' },
-  CANCELLED: { label: 'Cancelled', variant: 'destructive' },
+  CANCELLED: { label: 'Canceled', variant: 'destructive' },
   LOST: { label: 'Lost', variant: 'destructive' },
 }
 
@@ -101,14 +101,14 @@ export const poStatusConfig: Record<POStatus, { label: string; variant: 'default
   SUBMITTED: { label: 'Submitted', variant: 'secondary' },
   PARTIAL: { label: 'Partially Received', variant: 'secondary' },
   RECEIVED: { label: 'Received', variant: 'default' },
-  CANCELLED: { label: 'Cancelled', variant: 'destructive' },
+  CANCELLED: { label: 'Canceled', variant: 'destructive' },
 }
 
 export const maintenanceStatusConfig: Record<MaintenanceStatus, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
   SCHEDULED: { label: 'Scheduled', variant: 'outline' },
   IN_PROGRESS: { label: 'In Progress', variant: 'secondary' },
   COMPLETED: { label: 'Completed', variant: 'default' },
-  CANCELLED: { label: 'Cancelled', variant: 'destructive' },
+  CANCELLED: { label: 'Canceled', variant: 'destructive' },
 }
 
 export const maintenanceTypeConfig: Record<MaintenanceType, { label: string; description: string }> = {
@@ -329,7 +329,7 @@ export const reservationStatusTimelineConfig: Record<string, {
   SHIPPED: { label: 'Shipped', description: 'Items shipped', step: 5 },
   ACTIVE: { label: 'Active', description: 'Items checked out', step: 6 },
   COMPLETED: { label: 'Completed', description: 'All items returned', step: 7 },
-  CANCELLED: { label: 'Cancelled', description: 'Order cancelled', step: -1 },
+  CANCELLED: { label: 'Canceled', description: 'Order canceled', step: -1 },
   LOST: { label: 'Lost', description: 'Quote rejected', step: -1 },
 }
 
@@ -378,7 +378,7 @@ export const saleStatusTimelineConfig: Record<string, {
   SHIPPED: { label: 'Shipped', description: 'Items shipped', step: 5 },
   ACTIVE: { label: 'Processing', description: 'Preparing items', step: 6 },
   COMPLETED: { label: 'Sold', description: 'Items transferred to buyer', step: 6 },
-  CANCELLED: { label: 'Cancelled', description: 'Sale cancelled', step: -1 },
+  CANCELLED: { label: 'Canceled', description: 'Sale canceled', step: -1 },
   LOST: { label: 'Lost', description: 'Quote rejected', step: -1 },
 }
 
@@ -393,7 +393,7 @@ export const rtoStatusTimelineConfig: Record<string, {
   SHIPPED: { label: 'Shipped', description: 'Items shipped', step: 5 },
   ACTIVE: { label: 'Active', description: 'RTO payments in progress', step: 6 },
   COMPLETED: { label: 'Owned', description: 'All installments paid — ownership transferred', step: 7 },
-  CANCELLED: { label: 'Cancelled', description: 'RTO agreement cancelled', step: -1 },
+  CANCELLED: { label: 'Canceled', description: 'RTO agreement canceled', step: -1 },
   LOST: { label: 'Lost', description: 'Quote rejected', step: -1 },
 }
 

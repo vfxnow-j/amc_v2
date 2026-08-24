@@ -3,7 +3,7 @@ import { auth } from "@/lib/auth";
 import type { Role } from "@/lib/roles";
 
 /**
- * The optimistic auth check in front of every route.
+ * The optimiztic auth check in front of every route.
  *
  * Next 16 renamed `middleware` to `proxy` and runs it on the Node runtime by
  * default — a `runtime` export here throws, so v1's `export const runtime =

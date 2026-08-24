@@ -29,7 +29,7 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
  * Inventory → Vendors → the record.
  *
  * A vendor is where hardware came from and where a warranty claim goes back to,
- * so the screen is organised around that: what was bought, what of it still
+ * so the screen is organized around that: what was bought, what of it still
  * earns, and who to call. It is not a purchasing screen — raising an order
  * happens on the PO, which owns the lines and the receipt.
  *

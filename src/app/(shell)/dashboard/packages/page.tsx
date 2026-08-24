@@ -86,7 +86,7 @@ async function Table({ page }: { page: number }) {
 /**
  * Operate → Packages, promoted out of the reservation record.
  *
- * These are **per-order shipping groups, not a bundle catalogue.** The rail
+ * These are **per-order shipping groups, not a bundle catalog.** The rail
  * label invites the other reading, so it's worth being plain: `Package` hangs
  * off one `Reservation` and groups that order's lines into a consignment with
  * its own delivery and return cost. There is no reusable kit template in the

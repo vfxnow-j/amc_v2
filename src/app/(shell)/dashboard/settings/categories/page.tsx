@@ -82,7 +82,7 @@ async function FormCard({
     return (
       <Card title="Read-only">
         <CardEmpty>
-          Your access lets you read the catalogue but not change it. Ask an
+          Your access lets you read the catalog but not change it. Ask an
           administrator to add or rename a category.
         </CardEmpty>
       </Card>

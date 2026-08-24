@@ -766,7 +766,7 @@ export async function getSalesReport(range?: DateRange) {
       totalSales: sales.length,
       completedSales: completedSales.length,
       pendingSales: sales.filter((s) => ['DRAFT', 'QUOTE_SENT', 'APPROVED', 'PREPARING', 'SHIPPED'].includes(s.status)).length,
-      cancelledSales: sales.filter((s) => s.status === 'CANCELLED').length,
+      canceledSales: sales.filter((s) => s.status === 'CANCELLED').length,
       totalRevenue,
       totalUnitsSold,
       avgSaleValue: completedSales.length > 0 ? totalRevenue / completedSales.length : 0,

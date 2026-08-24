@@ -41,7 +41,7 @@ const EMPTY: Record<View, React.ReactNode> = {
     </>
   ),
   quotes: <>No quotes are in play. {NEW_ORDER} and send it for approval.</>,
-  archive: <>Nothing has been completed, cancelled or lost yet.</>,
+  archive: <>Nothing has been completed, canceled or lost yet.</>,
   all: <>There are no orders at all yet. {NEW_ORDER}.</>,
 };
 

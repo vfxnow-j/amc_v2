@@ -41,7 +41,7 @@ reports built / placeholder / broken. Trust it over this table.
 | X1 | Auth gate: proxy, session, signed-out screens | `64b8d32` |
 | 1 | Operate → Today's movements | `5bd1cdb` |
 | 2 | Reservations hub, record, check-in/out, order builder | `1844502`…`f16a39f` |
-| 4 | Service Centre | `eacc010` |
+| 4 | Service Center | `eacc010` |
 | 3 | Inventory | `bac454c` |
 | 5 | Revenue | `e72e0da` |
 | 6 | Clients | `7db30a8` |
@@ -172,7 +172,7 @@ testName, result `PASS|FAIL|RUNNING|QUEUED`, ranAt, durationSec, logUrl, output)
 | Maintenance log | Existing `MaintenanceRecord`; a closed work order writes one |
 | Coverage & RMA | `ServiceCoverage` expiry tracking, RMA state |
 
-**Behaviour:** opening a work order takes the unit out of bookable stock;
+**Behavior:** opening a work order takes the unit out of bookable stock;
 `CLOSED_PASS` returns it, `CLOSED_SCRAP` retires it. A key-authenticated
 `POST /api/v1/service/qc-runs` lets the bench rig file results — reuse
 `lib/api-auth.ts` + `utils/rate-limit.ts`. Manual entry and log attachment must
@@ -230,7 +230,7 @@ Run alongside the stages; each is a prerequisite for something above.
 |---|---|---|---|
 | X1 | **Auth gate** — port `(auth)` screens, gate the shell layout, real session in the user pod | Everything, before real customer data is exposed on :3001 | Also switches `getDecisions()` to the auth-checked `getInsights()`, and feeds the per-user theme + role default the shell already has seams for |
 | X2 | **Redirects** for the three merges | Stages 1, 3, 5 | Old URLs are in `NavPage.from` |
-| X3 | **`MetricSnapshot` + nightly rollup** | Utilisation delta, revenue vs target | See "Data gaps" |
+| X3 | **`MetricSnapshot` + nightly rollup** | Utilization delta, revenue vs target | See "Data gaps" |
 | X4 | **API handlers** — `/api/v1/*`, integrations, cron | HubSpot / Zapier / JustCall inbound already flowing in v1 | Drop `cron/knowledge` and `cron/market-prices` (owner, 2026-08-12 — prices are maintained by hand); `cron/insights` needs its `refreshKnowledge` import removed |
 | X5 | **Lint burn-down** | — | 116 inherited `any`s, scoped per ported path; clear a module as its screen is rebuilt |
 | X6 | **Design asks** | — | SVG mark, light-ground logo, and sign-off on the invented `--danger`/`--success`/`--warning` tokens |
@@ -239,7 +239,7 @@ Run alongside the stages; each is a prerequisite for something above.
 
 These need a product decision, not more code.
 
-1. **Utilisation delta ("+2.1 pts").** Nothing snapshots utilisation over time.
+1. **Utilization delta ("+2.1 pts").** Nothing snapshots utilization over time.
    Needs X3, a nightly `MetricSnapshot` row. Until then the card shows the ratio.
 2. ~~**Revenue target ("64% of target").** No target exists in the schema.~~
    **Narrowed 2026-08-03.** The mechanism was already ported and nobody had
@@ -311,7 +311,7 @@ These need a product decision, not more code.
    overstatement in a ported export, sitting behind a plausible label.
 
    **Why it isn't just a bad number.** Any roll-up of `loanAmount` across units
-   is meaningless while the column is a denormalised copy. Per-unit financing
+   is meaningless while the column is a denormalized copy. Per-unit financing
    cannot be recovered from what is stored: nothing records how the lease was
    apportioned, and dividing by unit count would be a guess dressed as a figure.
 
@@ -336,7 +336,7 @@ What remains is not screens. It is verification, wiring, and decisions.
 **Built but never exercised.** Not bugs — unfinished proof, and recording them
 as shipped would bury that.
 - `service/work-orders/[id]` — the `WorkOrder` table is empty, so it has never
-  rendered against a real row. The Service Centre's mutating lifecycle
+  rendered against a real row. The Service Center's mutating lifecycle
   (open → file runs → close → unit status) is still unproven end to end.
 - **Every write path built during the Stage 3–8 push.** Record payment, receive
   a PO, assign a lead, convert a lead, log activity, run an import. They render,
@@ -385,7 +385,7 @@ as shipped would bury that.
   point, not the rate. The pricing report's separate 30-day rule was folded into
   the same definition rather than left to drift.
 - **The default rate card would reprice laptops ~4×**, and prices 1 of 30
-  categories. Decide whether the card or the catalogue is right before anyone
+  categories. Decide whether the card or the catalog is right before anyone
   uses the bulk apply.
 - **Four units are retired and bookable at once** — the fleet is offering
   hardware the record says has left.

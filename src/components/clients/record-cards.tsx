@@ -26,14 +26,14 @@ const INVOICE_LABEL: Record<string, string> = {
   PAID: "Paid",
   PARTIAL: "Part paid",
   OVERDUE: "Overdue",
-  CANCELLED: "Cancelled",
+  CANCELLED: "Canceled",
   VOID: "Void",
 };
 
 /**
  * What this account owes.
  *
- * Owed excludes draft, cancelled and voided invoices — they carry a total but
+ * Owed excludes draft, canceled and voided invoices — they carry a total but
  * nobody is waiting on the money, and someone might chase a payment from this
  * card. Overdue is counted by invoice state rather than by comparing due dates,
  * so an invoice nobody has moved to OVERDUE shows up as a process gap instead

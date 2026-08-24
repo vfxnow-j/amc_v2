@@ -6,7 +6,7 @@ type DbClient = Prisma.TransactionClient
 
 // Checkout statuses that represent realized revenue for a unit. Revenue is
 // credited the moment an item is checked out (ACTIVE), stays credited while
-// out (OVERDUE) and after return (RETURNED). Pending/approval and cancelled
+// out (OVERDUE) and after return (RETURNED). Pending/approval and canceled
 // checkouts are excluded.
 const REVENUE_CHECKOUT_STATUSES = ['ACTIVE', 'OVERDUE', 'RETURNED'] as const
 

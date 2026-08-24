@@ -75,12 +75,12 @@ function comparableChange(previous: number, current: number): number | null {
 
 export type Kpis = {
   /**
-   * No delta: utilisation is derived from current unit state, and nothing in
+   * No delta: utilization is derived from current unit state, and nothing in
    * the schema snapshots it over time, so "+2.1 pts" from the reference can't
    * be computed honestly. It needs a daily rollup before that pill means
    * anything.
    */
-  utilisation: { percent: number };
+  utilization: { percent: number };
   /** Earned in the selected window, against the same slice of the previous one. */
   revenue: {
     earned: number;
@@ -114,7 +114,7 @@ export async function getKpis(
   const excludesRecurring = range !== "month";
 
   const [rentableUnits, onRent, overdue, earned] = await Promise.all([
-    // Retired and sold units aren't capacity, so they can't dilute utilisation.
+    // Retired and sold units aren't capacity, so they can't dilute utilization.
     prisma.assetUnit.count({
       where: { status: { notIn: ["RETIRED", "SOLD"] } },
     }),
@@ -133,7 +133,7 @@ export async function getKpis(
   );
 
   return {
-    utilisation: {
+    utilization: {
       percent: rentableUnits === 0 ? 0 : (onRent / rentableUnits) * 100,
     },
     revenue: {

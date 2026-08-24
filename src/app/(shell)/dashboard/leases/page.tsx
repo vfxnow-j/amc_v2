@@ -89,7 +89,7 @@ async function Leases() {
  * its own screen (owner's call, 2026-07-28).
  *
  * "Left to pay" is derived from elapsed term × monthly payment, because `Lease`
- * holds no running balance. It is labelled scheduled rather than reconciled:
+ * holds no running balance. It is labeled scheduled rather than reconciled:
  * the true figure lives on the lender's statements, which v2 does not have.
  */
 export default async function LeasesPage() {

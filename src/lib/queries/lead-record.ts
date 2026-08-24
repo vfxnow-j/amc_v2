@@ -162,7 +162,7 @@ export async function getLeadOwners() {
  * Orders a lead can be bound to.
  *
  * Binding says "this enquiry is a second contact on business we already have",
- * so only live orders are offered — binding to a completed or cancelled one
+ * so only live orders are offered — binding to a completed or canceled one
  * would file the enquiry against something nobody is working. Quote-stage
  * orders count as live: a second person ringing about a quote that is still
  * out is exactly the case this exists for.

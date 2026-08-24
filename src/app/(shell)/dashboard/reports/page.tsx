@@ -13,7 +13,7 @@ export const metadata = { title: "Reports" };
  * Insight → Reports.
  *
  * A directory and two panels, not a second Overview. v1's index was a full
- * dashboard — utilisation, revenue trend, overdue counts, top clients — and
+ * dashboard — utilization, revenue trend, overdue counts, top clients — and
  * every one of those figures now has a home on the Overview, which is one
  * click away in the same cluster. Two screens computing the same number two
  * ways is how they come to disagree.
@@ -55,7 +55,7 @@ export default function ReportsPage() {
 
       <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-2">
         <Suspense fallback={<CardSkeleton title="Where the time went" rows={8} />}>
-          <UtilisationCard />
+          <UtilizationCard />
         </Suspense>
         <Suspense fallback={<CardSkeleton title="Earned against billed" rows={5} />}>
           <RevenueCard />
@@ -78,13 +78,13 @@ async function HeaderBlurb() {
 /**
  * Checkout activity by category over the last three months.
  *
- * Counts and days out, not a percentage of anything. A utilisation *rate*
+ * Counts and days out, not a percentage of anything. A utilization *rate*
  * needs a denominator — hours available in the window — and nothing in the
  * schema records when a unit was withdrawn from service, so any rate would be
  * a guess dressed as a measurement. v1 drew a progress bar against an
  * arbitrary doubled fraction of total checkouts, which is a picture of nothing.
  */
-async function UtilisationCard() {
+async function UtilizationCard() {
   const report = await getAssetUtilizationReport();
   const rows = [...report.utilizationByCategory].sort(
     (a, b) => b.checkoutCount - a.checkoutCount,

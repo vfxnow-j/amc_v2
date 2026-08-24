@@ -16,7 +16,7 @@ const PO_STATUS_LABEL: Record<string, string> = {
   SUBMITTED: "Submitted",
   PARTIAL: "Part received",
   RECEIVED: "Received",
-  CANCELLED: "Cancelled",
+  CANCELLED: "Canceled",
 };
 
 /**

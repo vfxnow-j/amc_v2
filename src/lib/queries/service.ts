@@ -2,7 +2,7 @@ import type { QcResult, WorkOrderStatus } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { OPEN_WORK_ORDER_STATUSES } from "@/lib/service/statuses";
 
-/** Read side of the service centre. */
+/** Read side of the service center. */
 
 export const WORK_ORDER_LABEL: Record<WorkOrderStatus, string> = {
   OPEN: "Open",

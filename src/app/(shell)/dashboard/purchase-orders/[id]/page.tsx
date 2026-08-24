@@ -125,7 +125,7 @@ export default async function PurchaseOrderRecordPage({ params }: Params) {
                 ? `${po.outstanding} of ${po.ordered} still with the vendor.`
                 : po.status === "DRAFT"
                   ? `${po.ordered} on order across ${po.lineCount} ${po.lineCount === 1 ? "line" : "lines"}, not yet sent to the vendor.`
-                  : `${po.outstanding} of ${po.ordered} never arrived — this PO was cancelled.`}
+                  : `${po.outstanding} of ${po.ordered} never arrived — this PO was canceled.`}
         </p>
       </section>
 
@@ -146,7 +146,7 @@ export default async function PurchaseOrderRecordPage({ params }: Params) {
                   ? "This PO is still a draft. Submit it to the vendor and hardware can be booked in against it."
                   : po.status === "RECEIVED"
                     ? `Everything on this PO has been received${po.receivedDate ? ` — ${dayYear(po.receivedDate)}` : ""}.`
-                    : "This PO is cancelled. Nothing further can be received against it."}
+                    : "This PO is canceled. Nothing further can be received against it."}
               </p>
             </Card>
           )}

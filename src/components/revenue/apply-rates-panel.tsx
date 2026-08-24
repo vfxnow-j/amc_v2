@@ -12,7 +12,7 @@ import { applyRateCard, type ApplyRatesOutcome } from "@/lib/revenue/actions";
  *
  * The count is sent back to the action, which recomputes the gap and refuses if
  * it has moved. That is the useful guard here: this screen can sit open for an
- * hour while somebody thinks about it, and the catalogue does not hold still.
+ * hour while somebody thinks about it, and the catalog does not hold still.
  */
 export function ApplyRatesPanel({
   rateCardId,
@@ -65,7 +65,7 @@ export function ApplyRatesPanel({
               onClick={() => setArmed(false)}
               className="text-detail text-ink-muted underline-offset-2 hover:underline"
             >
-              Leave the catalogue alone
+              Leave the catalog alone
             </button>
           </div>
         </>
@@ -75,7 +75,7 @@ export function ApplyRatesPanel({
           onClick={() => setArmed(true)}
           className="rounded-pill bg-sunken px-4 py-[6px] text-pill text-ink transition-colors hover:bg-row-hover"
         >
-          Apply this card to the catalogue
+          Apply this card to the catalog
         </button>
       )}
 

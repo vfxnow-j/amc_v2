@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { OPEN_CHECKOUT } from "@/lib/inventory/availability";
 import { ARCHIVE_STATUSES } from "@/lib/reservations/status";
 
-/** Queries behind the Operate cluster and the Service centre's maintenance log. */
+/** Queries behind the Operate cluster and the Service center's maintenance log. */
 
 export const PAGE_SIZE = 40;
 
@@ -178,7 +178,7 @@ export async function getCalendarMonth(year: number, month: number) {
  *
  * Worth stating because the rail label invites the other reading: `Package`
  * hangs off a single `Reservation` and groups that order's lines for delivery,
- * with its own delivery and return cost. There is no bundle catalogue in the
+ * with its own delivery and return cost. There is no bundle catalog in the
  * schema, and this screen does not imply one.
  */
 export async function getPackages({ page = 1 }: { page?: number } = {}) {

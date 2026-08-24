@@ -108,7 +108,7 @@ async function Summary() {
       <Kpi
         label="Earned to date"
         value={moneyCompact(summary.totalRevenue)}
-        // AssetUnit.maintenanceCost is a denormalised total that nothing in the
+        // AssetUnit.maintenanceCost is a denormalized total that nothing in the
         // restored data ever wrote to, so a "$0.00 spent" reads as a fault
         // rather than as an empty column. Say which it is.
         meta={

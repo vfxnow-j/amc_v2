@@ -183,7 +183,7 @@ export type MaintenanceSummary = {
 };
 
 /**
- * Reuses the service centre's own definition rather than re-listing the states.
+ * Reuses the service center's own definition rather than re-listing the states.
  * The first draft of this file listed them by hand and invented `IN_PROGRESS`,
  * which is not a member — the enum is `IN_TEST`. One definition per concept.
  */

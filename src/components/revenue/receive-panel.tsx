@@ -15,7 +15,7 @@ export type ReceiveLine = {
  * Booking hardware in against a purchase order.
  *
  * Receiving is the moment bought hardware becomes bookable stock, so it is a
- * physical event with a commercial consequence: a serialised line writes one
+ * physical event with a commercial consequence: a serialized line writes one
  * `AssetUnit` per item, at the PO's purchase method, in the location chosen
  * here. That is why the location is required and why quantities start at zero —
  * the receiver counts what is on the pallet, rather than confirming a number the

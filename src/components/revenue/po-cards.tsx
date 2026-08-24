@@ -19,7 +19,7 @@ import type { ReceiveMode } from "@/lib/revenue/labels";
  */
 
 const MODE_NOTE: Record<ReceiveMode, string> = {
-  units: "serialised — receiving creates units",
+  units: "serialized — receiving creates units",
   serials: "for resale — serials captured, no units",
   consumable: "consumable — no units, no serials",
   unlinked: "no product type linked",
@@ -95,7 +95,7 @@ export async function POLinesCard({ id }: { id: string }) {
  * What the PO costs, in the order the total is built.
  *
  * Fees are their own model rather than a column, so they are listed rather than
- * summed into a single line: `feesTotal` is a denormalised sum and the lines are
+ * summed into a single line: `feesTotal` is a denormalized sum and the lines are
  * the reason it is what it is.
  */
 export async function POCostsCard({
@@ -176,7 +176,7 @@ function Row({
 }
 
 /**
- * The product types this PO brought into the catalogue.
+ * The product types this PO brought into the catalog.
  *
  * Deliberately not called "units received": nothing links an `AssetUnit` back to
  * the PO it arrived on, only `Asset.purchaseOrderId` at product-type level. The
@@ -193,7 +193,7 @@ export async function POAssetsCard({ id }: { id: string }) {
     >
       {assets.length === 0 ? (
         <CardEmpty>
-          No product type was created from this PO. Serialised lines create one
+          No product type was created from this PO. Serialized lines create one
           when they are received; resale and consumable lines never do.
         </CardEmpty>
       ) : (

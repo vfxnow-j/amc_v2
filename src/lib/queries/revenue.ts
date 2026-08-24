@@ -286,7 +286,7 @@ export async function getContractOrders({
  *
  * `Lease` carries no running balance, so "paid down" is derived from elapsed
  * term × monthly payment, capped at the total — an estimate from the schedule,
- * not a ledger. It is labelled as scheduled on screen for that reason: the real
+ * not a ledger. It is labeled as scheduled on screen for that reason: the real
  * figure would need the lender's statements, which v2 does not hold.
  */
 export async function getLeases(now = new Date()) {

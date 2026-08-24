@@ -37,7 +37,7 @@ const COLUMNS: Column[] = [
 const EMPTY: Record<InvoiceView, React.ReactNode> = {
   outstanding: (
     <>
-      Nothing is owed. Every invoice raised has been settled or cancelled.
+      Nothing is owed. Every invoice raised has been settled or canceled.
     </>
   ),
   overdue: <>Nothing is late. Every unpaid invoice is still inside its terms.</>,

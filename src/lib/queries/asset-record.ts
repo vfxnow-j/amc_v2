@@ -74,7 +74,7 @@ export async function getAssetHeader(id: string) {
 /**
  * The fleet, counted the way the rest of Inventory counts it.
  *
- * `Asset.totalQuantity` is denormalised and includes retired and sold units, so
+ * `Asset.totalQuantity` is denormalized and includes retired and sold units, so
  * it is deliberately not used for "in fleet" — it is returned by the header and
  * shown on the Detail card as the stored figure, where a disagreement with the
  * real count is information rather than a contradiction.

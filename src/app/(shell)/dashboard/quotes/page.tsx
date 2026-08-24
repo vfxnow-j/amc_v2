@@ -152,7 +152,7 @@ async function Table({ search, page }: { search: string; page: number }) {
  * of this rail — it is what the client sees, this is what the desk sees.
  *
  * The countdown reads `quoteExpiresAt`, the date quoted pricing stops being
- * honoured. Quotes without one have never had a link generated; they read "No
+ * honored. Quotes without one have never had a link generated; they read "No
  * link sent" rather than being given an invented deadline. Resend and approve
  * are deferred with the other actions in this breadth pass — rows open the
  * order, where both already work.

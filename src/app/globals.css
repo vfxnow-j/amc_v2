@@ -331,7 +331,7 @@
   --ink-faint: var(--color-neutral-600);
 
   /* accent roles that differ by theme */
-  --accent-text: var(--color-accent-700); /* accent-coloured body text, links */
+  --accent-text: var(--color-accent-700); /* accent-colored body text, links */
   --accent-solid: var(--color-accent-700); /* primary button fill */
   --accent-on-solid: #ffffff; /* text on --accent-solid */
   --accent-tint: var(--color-accent-100); /* alert cards, late rows */
@@ -414,7 +414,7 @@
   --shadow-lg: none;
 }
 
-/* No-JS fallback: honour the OS preference when no theme has been resolved. */
+/* No-JS fallback: honor the OS preference when no theme has been resolved. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme]) {
     --ground: #0c1418;

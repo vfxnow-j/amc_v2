@@ -65,7 +65,7 @@ export async function getPOHeader(id: string) {
  * The ordered lines, and how each one will land.
  *
  * `isInventoried`, `isResale` and neither are three different receiving modes,
- * not three flags — a line creates serialised `AssetUnit`s, or captures serials
+ * not three flags — a line creates serialized `AssetUnit`s, or captures serials
  * against the line alone, or is a consumable that never touches the fleet. The
  * mode is resolved here so the record and the receive panel can't disagree
  * about what a line is.

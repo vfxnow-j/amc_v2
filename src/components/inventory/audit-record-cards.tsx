@@ -19,7 +19,7 @@ export const AUDIT_ITEM_LABEL: Record<AuditItemStatus, string> = {
  * Where the count has got to.
  *
  * Counted off the `AuditItem` rows rather than read from the audit's stored
- * counters: those are denormalised, incremented by each scan, and the items are
+ * counters: those are denormalized, incremented by each scan, and the items are
  * the physical record. When the two disagree the strip says so — a derived
  * counter must never quietly overrule what was actually scanned.
  */

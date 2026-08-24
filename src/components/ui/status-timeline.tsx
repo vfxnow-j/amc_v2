@@ -10,7 +10,7 @@ export type TimelineStep = {
   timestamp?: string | null
   isActive?: boolean
   isCompleted?: boolean
-  isCancelled?: boolean
+  isCanceled?: boolean
   annotation?: string | null
 }
 
@@ -20,8 +20,8 @@ interface StatusTimelineProps {
 }
 
 export function StatusTimeline({ steps, className }: StatusTimelineProps) {
-  const mainSteps = steps.filter((s) => !s.isCancelled)
-  const cancelledSteps = steps.filter((s) => s.isCancelled && s.isActive)
+  const mainSteps = steps.filter((s) => !s.isCanceled)
+  const canceledSteps = steps.filter((s) => s.isCanceled && s.isActive)
   const isCompact = mainSteps.length > 5
 
   return (
@@ -117,8 +117,8 @@ export function StatusTimeline({ steps, className }: StatusTimelineProps) {
         })}
       </div>
 
-      {/* Cancelled / Lost indicators */}
-      {cancelledSteps.map((step) => (
+      {/* Canceled / Lost indicators */}
+      {canceledSteps.map((step) => (
         <div key={step.status} className="flex items-center gap-2 mt-3 px-2 py-1.5 bg-destructive/10 rounded-md">
           <div className="flex items-center justify-center w-5 h-5 rounded-full bg-destructive text-destructive-foreground">
             <X className="h-3 w-3" />

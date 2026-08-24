@@ -169,7 +169,7 @@ export async function getRateCardGap(id: string) {
   });
 
   // Bucketed once rather than re-scanned per rate: a card with three tiers
-  // across ten categories would otherwise walk the whole catalogue thirty times
+  // across ten categories would otherwise walk the whole catalog thirty times
   // to reach the handful of assets in each.
   const byCategory = new Map<string, typeof assets>();
   for (const asset of assets) {

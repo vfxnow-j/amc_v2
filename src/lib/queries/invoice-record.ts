@@ -55,7 +55,7 @@ export async function getInvoiceHeader(id: string, now = new Date()) {
     taxAmount: Number(invoice.taxAmount),
     total,
     paid,
-    // What is actually still owed. Draft, cancelled and void invoices carry a
+    // What is actually still owed. Draft, canceled and void invoices carry a
     // total nobody is waiting for, so the balance is only money when the status
     // says the client has been asked for it.
     balance: total - paid,

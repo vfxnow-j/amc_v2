@@ -296,7 +296,7 @@ export async function cancelCheckout(id: string) {
       where: { id: existingCheckout.assetUnitId },
       data: { status: 'AVAILABLE' },
     })
-    // Cancelled checkouts no longer count — re-derive the unit's revenue
+    // Canceled checkouts no longer count — re-derive the unit's revenue
     await recomputeUnitRevenue(tx, existingCheckout.assetUnitId)
 
     return updatedCheckout

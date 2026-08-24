@@ -356,7 +356,7 @@ export function clustersForRole(role: Role): NavCluster[] {
 
 /**
  * A pinned row belongs to no cluster, so `cluster` is null for Dashboard and
- * Settings. Callers that colour by cluster fall back rather than inventing one.
+ * Settings. Callers that color by cluster fall back rather than inventing one.
  */
 export type NavMatch = { cluster: NavCluster | null; page: NavPage };
 

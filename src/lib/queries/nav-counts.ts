@@ -12,7 +12,7 @@ import { OPEN_WORK_ORDER_STATUSES } from "@/lib/service/statuses";
  * Each number is the cluster's *live workload*, not a grand total — the rail is
  * a "where is there work" signal, and a count that never moves teaches people to
  * stop reading it. The one exception is Inventory, where the fleet size is the
- * useful number and matches the denominator Overview divides utilisation by.
+ * useful number and matches the denominator Overview divides utilization by.
  *
  * Four indexed counts on every shell render. If that ever shows up in a trace,
  * the fix is to stream the rail's counts behind their own boundary rather than

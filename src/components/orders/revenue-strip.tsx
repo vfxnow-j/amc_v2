@@ -18,7 +18,7 @@ const FILTER_FOR: Record<string, string> = {
  * list is split by.
  *
  * Two figures per card, kept apart on purpose. **Earned** is accrual-basis
- * revenue recognised inside the window — the real "revenue stream" figure, and
+ * revenue recognized inside the window — the real "revenue stream" figure, and
  * not the same as invoiced, because recurring billing stalls and invoices sit
  * in DRAFT. **Open** is the value of orders of that type running right now:
  * future money, and the reason a type can earn nothing this month and still
@@ -29,9 +29,9 @@ const FILTER_FOR: Record<string, string> = {
  * not a dashboard.
  *
  * A card showing earned zero with orders open is stating a real limit of the
- * data, not a bug: earnings are recognised from checkouts, completed sales and
+ * data, not a bug: earnings are recognized from checkouts, completed sales and
  * elapsed recurring cycles, so a rent-to-own or cloud order that has done none
- * of those yet has genuinely recognised nothing.
+ * of those yet has genuinely recognized nothing.
  */
 export async function RevenueStrip({ range }: { range: Range }) {
   const { types, earnedTotal, window } = await getRevenueByType(range);

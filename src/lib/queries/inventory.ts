@@ -125,7 +125,7 @@ export async function getAssetList({
     categoryName: record.category.name,
     maker:
       [record.manufacturer, record.model].filter(Boolean).join(" ") || null,
-    // Fleet count, not `totalQuantity` — that column is denormalised and counts
+    // Fleet count, not `totalQuantity` — that column is denormalized and counts
     // retired and sold units alongside the ones that can still earn.
     units: record._count.units,
     available: record.units.length,
@@ -257,7 +257,7 @@ export async function getUnitList({
  * The locations, counted the way the rest of Inventory counts.
  *
  * `_count.assetUnits` counts everything ever put at a location, retired and sold
- * included — the same denormalised trap as `Asset.totalQuantity`. A warehouse
+ * included — the same denormalized trap as `Asset.totalQuantity`. A warehouse
  * holding 395 available units read "961" under that count, which is not a number
  * anybody can act on. One `groupBy` over status gives the breakdown for every
  * location at once, so this stays two queries however many locations exist.
