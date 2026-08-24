@@ -7,7 +7,7 @@ import { findNavPage, SETTINGS_PAGE, type NavPage } from "@/lib/nav/clusters";
  * Placeholder for every destination in the rail that hasn't been built yet.
  *
  * This is scaffolding, not architecture: a static route always wins over a
- * catch-all, so adding `app/(shell)/dashboard/reservations/page.tsx` takes that
+ * catch-all, so adding `app/(shell)/dashboard/orders/page.tsx` takes that
  * path over and this keeps serving the rest. It exists so the rail is fully
  * navigable — accordion, active states, ⌘K — before the screens land, and so
  * each one says where its v1 equivalent is. Unknown paths still 404.
@@ -30,7 +30,9 @@ function resolve(path: string[]): Resolved | null {
   // different thing from a path that does not exist, and only the first one has
   // anything to say.
   return match && match.page.href === href
-    ? { eyebrow: match.cluster.label, page: match.page }
+    // Dashboard and Settings are pinned rather than in a cluster, so there is
+    // no cluster name to put in the eyebrow.
+    ? { eyebrow: match.cluster?.label ?? match.page.label, page: match.page }
     : null;
 }
 

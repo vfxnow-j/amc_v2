@@ -59,10 +59,19 @@ export const NAV_CLUSTERS: NavCluster[] = [
     roles: [...ALL_ADMIN, "STAFF", "VIEWER"],
     pages: [
       {
-        id: "reservations",
-        label: "Reservations",
-        href: "/dashboard/reservations",
-        from: ["/dashboard/reservations"],
+        // Absorbs Revenue's sales and rent-to-own tabs. All four kinds of order
+        // are `Reservation` rows carrying a `reservationType`; splitting them
+        // across screens meant one client's rental and their sale lived in
+        // different places and the same order had two records. One list, a type
+        // column and a type filter.
+        id: "orders",
+        label: "Orders",
+        href: "/dashboard/orders",
+        from: [
+          "/dashboard/reservations",
+          "/dashboard/sales",
+          "/dashboard/rent-to-own",
+        ],
       },
       {
         // Not a second scanner. The owner's call, 2026-07-30: a standalone
@@ -213,15 +222,15 @@ export const NAV_CLUSTERS: NavCluster[] = [
         from: ["/dashboard/settings/quickbooks"],
       },
       {
-        // TODO(step 4): one screen filtered by contract type.
-        id: "contracts",
-        label: "Contracts — sale · RTO · lease",
-        href: "/dashboard/sales",
-        from: [
-          "/dashboard/sales",
-          "/dashboard/rent-to-own",
-          "/dashboard/leases",
-        ],
+        // What is left of Contracts once sales and rent-to-own go to Orders,
+        // where they belong. A lease is money owed to a *lender* for hardware
+        // the business bought — no client, no lines, no window — so it was
+        // never the same kind of thing, and folding it into Orders would have
+        // meant a row with four empty columns.
+        id: "leases",
+        label: "Leases",
+        href: "/dashboard/leases",
+        from: ["/dashboard/leases"],
       },
       {
         // v1 only has the rate-card importer; the list itself is new. Bulk rate
@@ -261,7 +270,7 @@ export const NAV_CLUSTERS: NavCluster[] = [
         from: ["/dashboard/leads"],
       },
       {
-        // Reservations filtered to QUOTE_SENT. The public portal stays at
+        // Orders filtered to QUOTE_SENT. The public portal stays at
         // /quote/[token] and is not part of this rail.
         id: "quotes",
         label: "Quotes",
@@ -276,13 +285,9 @@ export const NAV_CLUSTERS: NavCluster[] = [
     label: "Insight",
     roles: [...ALL_ADMIN, "VIEWER"],
     pages: [
-      {
-        id: "overview",
-        label: "Overview",
-        href: "/dashboard",
-        exact: true,
-        from: ["/dashboard"],
-      },
+      // Overview is not here any more: it is pinned at the top of the rail as
+      // Dashboard (see DASHBOARD_PAGE below), because the whole-business read
+      // is the thing you want from anywhere, not a page inside one cluster.
       {
         id: "reports",
         label: "Reports",
@@ -300,6 +305,26 @@ export const NAV_CLUSTERS: NavCluster[] = [
     ],
   },
 ];
+
+/**
+ * Pinned at the *top* of the rail, above the six clusters.
+ *
+ * It used to be Insight → Overview, four clicks deep inside a cluster that also
+ * holds Reports and Insights. That is the wrong shape for the one screen whose
+ * job is the whole business at once: you want it from wherever you are, not
+ * after opening the cluster you happen not to be in. It keeps the `/dashboard`
+ * URL it always had, so nothing that links to it has to change.
+ *
+ * `exact` matters here more than anywhere: every screen in the app lives under
+ * /dashboard, so without it this row would claim to be active on all of them.
+ */
+export const DASHBOARD_PAGE: NavPage = {
+  id: "dashboard",
+  label: "Dashboard",
+  href: "/dashboard",
+  exact: true,
+  from: ["/dashboard"],
+};
 
 /**
  * Pinned at the bottom of the rail rather than living in a cluster. Its 14
@@ -329,33 +354,58 @@ export function clustersForRole(role: Role): NavCluster[] {
   return NAV_CLUSTERS.filter((cluster) => cluster.roles.includes(role));
 }
 
-export type NavMatch = { cluster: NavCluster; page: NavPage };
+/**
+ * A pinned row belongs to no cluster, so `cluster` is null for Dashboard and
+ * Settings. Callers that colour by cluster fall back rather than inventing one.
+ */
+export type NavMatch = { cluster: NavCluster | null; page: NavPage };
+
+function owns(page: NavPage, pathname: string): boolean {
+  return page.exact
+    ? pathname === page.href
+    : pathname === page.href || pathname.startsWith(`${page.href}/`);
+}
 
 /**
- * The cluster and page owning a pathname. Record routes (`/dashboard/assets/42`)
+ * The cluster and page owning a pathname. Record routes (`/dashboard/orders/42`)
  * match their list screen, and the longest href wins so a nested route isn't
  * swallowed by a shorter sibling.
+ *
+ * The pinned rows are checked alongside the clusters. Dashboard is `exact`, so
+ * it only ever claims `/dashboard` itself; Settings is not, so it claims its
+ * fourteen children — and the longest-href rule keeps a cluster page that
+ * happens to sit deeper from being stolen by either.
  */
 export function findNavPage(pathname: string): NavMatch | null {
   let match: NavMatch | null = null;
 
-  for (const cluster of NAV_CLUSTERS) {
-    for (const page of cluster.pages) {
-      const owns = page.exact
-        ? pathname === page.href
-        : pathname === page.href || pathname.startsWith(`${page.href}/`);
-      if (owns && (!match || page.href.length > match.page.href.length)) {
-        match = { cluster, page };
-      }
+  const consider = (page: NavPage, cluster: NavCluster | null) => {
+    if (owns(page, pathname) && (!match || page.href.length > match.page.href.length)) {
+      match = { cluster, page };
     }
+  };
+
+  for (const cluster of NAV_CLUSTERS) {
+    for (const page of cluster.pages) consider(page, cluster);
   }
+  consider(DASHBOARD_PAGE, null);
+  consider(SETTINGS_PAGE, null);
 
   return match;
 }
 
-/** Every destination the rail can reach, for the command palette. */
+/**
+ * Every destination the rail can reach, for the command palette.
+ *
+ * Dashboard leads, because it is the one destination that is not part of any
+ * cluster and is the most likely thing somebody opening the palette wants.
+ */
 export function navDestinations(role: Role): NavMatch[] {
-  return clustersForRole(role).flatMap((cluster) =>
-    cluster.pages.map((page) => ({ cluster, page })),
-  );
+  return [
+    { cluster: null, page: DASHBOARD_PAGE },
+    ...clustersForRole(role).flatMap((cluster) =>
+      cluster.pages.map((page) => ({ cluster, page })),
+    ),
+    { cluster: null, page: SETTINGS_PAGE },
+  ];
 }

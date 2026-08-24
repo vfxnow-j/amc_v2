@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { navDestinations } from "@/lib/nav/clusters";
+import { navDestinations, type NavMatch } from "@/lib/nav/clusters";
 import type { Role } from "@/lib/roles";
 
 /**
@@ -13,6 +13,19 @@ import type { Role } from "@/lib/roles";
  * serials and clients in here; that needs the data layer, so it joins once the
  * screens are wired to real queries.
  */
+/**
+ * Dashboard and Settings are pinned rows outside the six clusters, so they have
+ * no cluster code for the mark tile and no cluster name for the right-hand
+ * label. They are shown as "Pinned" rather than being given a fake cluster —
+ * the rail treats them as a category of their own, and the palette should read
+ * the same way.
+ */
+const PINNED_CODE = "★";
+
+function groupOf(destination: NavMatch): string {
+  return destination.cluster?.label ?? "Pinned";
+}
+
 export function CommandPalette({
   role,
   onClose,
@@ -29,7 +42,7 @@ export function CommandPalette({
     const needle = query.trim().toLowerCase();
     if (!needle) return destinations;
     return destinations.filter((destination) =>
-      `${destination.cluster.label} ${destination.page.label}`
+      `${groupOf(destination)} ${destination.page.label}`
         .toLowerCase()
         .includes(needle),
     );
@@ -113,7 +126,7 @@ export function CommandPalette({
             className="max-h-80 overflow-y-auto p-2"
           >
             {results.map((destination, index) => (
-              <li key={`${destination.cluster.id}-${destination.page.id}`}>
+              <li key={`${destination.cluster?.id ?? "pinned"}-${destination.page.id}`}>
                 <button
                   type="button"
                   id={`command-palette-option-${index}`}
@@ -129,13 +142,13 @@ export function CommandPalette({
                     aria-hidden
                     className="flex size-[26px] flex-none items-center justify-center rounded-tile bg-nav-mark-closed text-[10px] font-extrabold text-ink-muted"
                   >
-                    {destination.cluster.code}
+                    {destination.cluster?.code ?? PINNED_CODE}
                   </span>
                   <span className="truncate text-body">
                     {destination.page.label}
                   </span>
                   <span className="ml-auto text-detail text-ink-faint">
-                    {destination.cluster.label}
+                    {groupOf(destination)}
                   </span>
                 </button>
               </li>

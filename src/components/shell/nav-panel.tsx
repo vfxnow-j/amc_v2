@@ -1,13 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { LayoutDashboard } from "lucide-react";
 import { BrandLockup } from "@/components/shell/brand-lockup";
 import { ClusterBubble } from "@/components/shell/cluster-bubble";
 import { CommandPalette } from "@/components/shell/command-palette";
 import { NavSearch } from "@/components/shell/nav-search";
 import { UserPod } from "@/components/shell/user-pod";
 import {
+  DASHBOARD_PAGE,
   clustersForRole,
   findNavPage,
   type ClusterId,
@@ -26,12 +29,21 @@ function isTypingTarget(target: EventTarget | null) {
 }
 
 /**
- * The rail: brand, search, the six cluster bubbles, user pod.
+ * The rail: brand, search, the pinned Dashboard, the six cluster bubbles, user
+ * pod.
+ *
+ * Dashboard sits above the clusters rather than inside one. It was Insight →
+ * Overview, which meant the whole-business read was two clicks deep in a
+ * cluster you were usually not in — the wrong shape for the one screen you want
+ * from anywhere. It is a plain link, not a bubble: it has no children to
+ * expand, and dressing it as a collapsed cluster would promise some.
  *
  * One cluster is open at a time, so the rail never outgrows its own height and
  * rows don't slide out from under the cursor. Keyboard is the fast path for
  * warehouse staff: 1–6 jump to a cluster, ↑/↓ walk its pages, Enter navigates
  * (the rows are links, so that comes for free), ⌘K bypasses the rail entirely.
+ * The digits stay on the clusters — Dashboard is one click from everywhere and
+ * doesn't need one.
  */
 export function NavPanel({
   user,
@@ -50,7 +62,9 @@ export function NavPanel({
   const pathname = usePathname();
   const clusters = useMemo(() => clustersForRole(user.role), [user.role]);
   const active = useMemo(() => findNavPage(pathname), [pathname]);
-  const activeClusterId = active?.cluster.id ?? null;
+  // Null on the pinned rows: Dashboard and Settings belong to no cluster, so
+  // landing on either leaves every bubble closed, which is correct.
+  const activeClusterId = active?.cluster?.id ?? null;
 
   // "On navigation, force it to the cluster owning the active route": rather
   // than resetting state from an effect, a manual toggle is recorded against
@@ -61,6 +75,8 @@ export function NavPanel({
   } | null>(null);
   const openCluster =
     override?.pathname === pathname ? override.cluster : activeClusterId;
+  // Exact, so the row doesn't light up on all 65 screens beneath /dashboard.
+  const dashboardActive = pathname === DASHBOARD_PAGE.href;
 
   const [paletteOpen, setPaletteOpen] = useState(false);
   const railRef = useRef<HTMLDivElement>(null);
@@ -146,6 +162,28 @@ export function NavPanel({
     >
       <BrandLockup />
       <NavSearch ref={searchRef} onOpen={() => setPaletteOpen(true)} />
+
+      <Link
+        href={DASHBOARD_PAGE.href}
+        aria-current={dashboardActive ? "page" : undefined}
+        className={`mt-[10px] flex items-center gap-[9px] rounded-bubble px-[10px] py-2 transition-colors duration-200 ${
+          dashboardActive
+            ? "bg-nav-bubble-open text-accent-on-tint"
+            : "bg-nav-bubble-quiet text-ink hover:bg-row-hover"
+        }`}
+      >
+        <span
+          aria-hidden
+          className={`flex size-[26px] flex-none items-center justify-center rounded-tile ${
+            dashboardActive
+              ? "bg-accent-solid text-accent-on-solid"
+              : "bg-nav-mark-closed text-ink-muted"
+          }`}
+        >
+          <LayoutDashboard className="size-[14px]" />
+        </span>
+        <span className="truncate text-nav-cluster">{DASHBOARD_PAGE.label}</span>
+      </Link>
 
       <nav
         aria-label="Clusters"
