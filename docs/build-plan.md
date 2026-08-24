@@ -214,7 +214,7 @@ Fourteen children carried across unchanged: ai*, api-keys, audit-log, categories
 cloud-products, documents, import (assets / ratecard / retired), integrations,
 locations*, notifications, profile, quickbooks, users, vendors*.
 
-*`ai` is dropped with Nowbot; `locations` is promoted into Inventory; `vendors`
+*`ai` is dropped with the AI assistant; `locations` is promoted into Inventory; `vendors`
 is the duplicate that isn't rebuilt.*
 
 **QuickBooks is demo-tested against the QB sandbox** — treat `settings/quickbooks`

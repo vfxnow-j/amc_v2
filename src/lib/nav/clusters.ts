@@ -300,8 +300,8 @@ export const NAV_CLUSTERS: NavCluster[] = [
         href: "/dashboard/insights",
         from: ["/dashboard/insights"],
       },
-      // Nowbot is not here: the AI assistant is dropped in v2 along with
-      // lib/llm and the chat models. /dashboard/nowbot 404s by design.
+      // v1's AI assistant is not here. It is dropped in v2 along with
+      // lib/llm and the chat models, and its route 404s by design.
     ],
   },
 ];
@@ -332,7 +332,7 @@ export const DASHBOARD_PAGE: NavPage = {
  * settings/quickbooks is demoed against the QB sandbox, so that area stays put.
  *
  * Dropped from v2 by product decision, not oversight:
- * - `/dashboard/nowbot` — the AI assistant, dropped with lib/llm.
+ * - v1's AI assistant route — dropped along with lib/llm.
  * - `/dashboard/builder` — the workstation quote builder.
  * - `/dashboard/flow` — the FLOW_USER task area; a separate app area that must
  *   never appear in this rail.

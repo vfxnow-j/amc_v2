@@ -570,9 +570,10 @@ async function generateInsights(
           category: 'asset',
           priority: 'medium',
           title: 'Missing Market Data',
-          // v1 read "Enable NowBot Market Insights" here. NowBot is dropped in
-          // v2, so that sentence pointed at a feature that no longer exists —
-          // and a flag whose next action doesn't exist is worse than no flag.
+          // v1 pointed this at a setting on its AI assistant. That assistant
+          // is dropped in v2, so the sentence named a feature that no longer
+          // exists — and a flag whose next action doesn't exist is worse than
+          // no flag.
           description: `${missingMarketData} revenue-generating assets have no market reference price, so neither their ROI position nor a suggested rate can be worked out. Set one on the asset, or from the pricing report.`,
           link: '/dashboard/reports/pricing',
         })

@@ -31,7 +31,7 @@ v1's ~28 sibling dashboard routes collapse into six clusters:
 | Service center | `SC` | Work orders, QC test runs, Maintenance log, Coverage & RMA — **new** |
 | Revenue        | `RV` | Invoices, Payments, Contracts, Rate cards, Purchase orders          |
 | Clients        | `CL` | Accounts, Leads, Quotes, Marketing                                  |
-| Insight        | `IQ` | Overview, Reports, Insights, Nowbot                                 |
+| Insight        | `IQ` | Overview, Reports, Insights                                         |
 
 ## Getting started
 

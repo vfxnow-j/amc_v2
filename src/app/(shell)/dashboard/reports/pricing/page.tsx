@@ -41,9 +41,9 @@ const COLUMNS: Column[] = [
 /**
  * Reports → Pricing.
  *
- * v1 called this "NowBot Market Insights". NowBot is dropped in v2 and the
- * report never needed it: every figure on this screen comes from the purchase
- * prices, the rates and the revenue already in the database.
+ * v1 filed this under its AI assistant. That assistant is dropped in v2 and
+ * the report never needed it: every figure on this screen comes from the
+ * purchase prices, the rates and the revenue already in the database.
  *
  * Payback is read against what the units actually cost, not against the market
  * reference — the question is when this hardware pays for itself, and the money

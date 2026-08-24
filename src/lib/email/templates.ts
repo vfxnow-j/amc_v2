@@ -990,11 +990,11 @@ export function reservationConfirmedStaffEmail(data: ReservationConfirmedEmailDa
 // INSIGHTS DIGEST EMAIL
 // ============================================
 //
-// v1 sent this as the "NowBot Insights Digest" over a robot avatar, billed as
+// v1 sent this under its AI assistant's name, over a robot avatar, billed as
 // an AI-powered report. Nothing in it was ever AI: every line is computed from
-// the database by the rules in lib/analytics/insights. NowBot is dropped in v2,
-// so the digest keeps the work and loses the costume — claiming an assistant
-// that does not exist is the kind of thing somebody replies to.
+// the database by the rules in lib/analytics/insights. That assistant is
+// dropped in v2, so the digest keeps the work and loses the costume — claiming
+// an assistant that does not exist is the kind of thing somebody replies to.
 
 export type InsightEmailData = {
   title: string

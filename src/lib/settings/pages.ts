@@ -15,9 +15,9 @@ import type { Role } from "@/lib/roles";
  * async functions — exporting this array from one typechecks, lints and runs in
  * dev, then fails the production build.
  *
- * Three v1 children are deliberately absent. `ai` went with Nowbot; `locations`
- * was promoted into Inventory and is built there; `vendors` was a byte-for-byte
- * copy of `/dashboard/vendors` and v2 has the one screen.
+ * Three v1 children are deliberately absent. `ai` went with the AI assistant;
+ * `locations` was promoted into Inventory and is built there; `vendors` was a
+ * byte-for-byte copy of `/dashboard/vendors` and v2 has the one screen.
  */
 
 /** Who can open a screen. Editing inside one may still be narrower. */

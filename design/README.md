@@ -101,7 +101,6 @@ that back it.
 | Overview | `dashboard` (root) |
 | Reports | `reports` |
 | Insights | `insights` |
-| Nowbot | `nowbot` |
 
 **Routes intentionally left out of the six clusters:** `settings` (pinned separately at
 the bottom of the rail), `flow` (separate app area for the `FLOW_USER` role — do not put
