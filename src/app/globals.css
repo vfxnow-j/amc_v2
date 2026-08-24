@@ -364,9 +364,6 @@
   --nav-bubble-quiet: var(--color-surface-3); /* closed, contains active page */
   --nav-mark-closed: var(--color-surface-4);
 
-  /* "now" in the brand lockup — the full accent is too light on a white panel */
-  --brand-wordmark: var(--color-accent-600);
-
   /* Modal backdrop. The theme's darkest surface, so it reads as the app
      dimming rather than as a black sheet dropped over it. */
   --scrim: var(--color-surface-13);
@@ -417,8 +414,6 @@
   --nav-bubble-quiet: var(--color-surface-11);
   --nav-mark-closed: var(--color-surface-9);
 
-  --brand-wordmark: var(--color-accent-500);
-
   /* lifted for legibility on the dark grounds */
   --danger: #f97066;
   --danger-on: var(--color-surface-13);
@@ -468,8 +463,6 @@
     --nav-bubble-quiet: var(--color-surface-11);
     --nav-mark-closed: var(--color-surface-9);
 
-    --brand-wordmark: var(--color-accent-500);
-
     --danger: #f97066;
     --danger-on: var(--color-surface-13);
     --success: #47c67f;
@@ -508,7 +501,6 @@
   --color-nav-bubble-open: var(--nav-bubble-open);
   --color-nav-bubble-quiet: var(--nav-bubble-quiet);
   --color-nav-mark-closed: var(--nav-mark-closed);
-  --color-brand-wordmark: var(--brand-wordmark);
   --color-accent-fill-solid: var(--accent-fill);
   --color-accent-on-fill: var(--accent-on-fill);
   --color-scrim: var(--scrim);
