@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import Link from "next/link";
 import { FilterTabs, FilterTabsSkeleton } from "@/components/list/filter-tabs";
 import { ListSearch } from "@/components/list/list-search";
 import {
@@ -7,49 +8,56 @@ import {
   type Column,
 } from "@/components/list/list-table";
 import { PageHeader } from "@/components/shell/page-header";
-import {
-  ASSET_VIEWS,
-  ASSET_VIEW_LABEL,
-  isAssetView,
-  type AssetView,
-} from "@/lib/inventory/labels";
-import {
-  getAssetHeaderStats,
-  getAssetList,
-  getAssetViewCounts,
-} from "@/lib/queries/inventory";
-import { getFamilyList, getUngroupedCount } from "@/lib/queries/families";
 import { money } from "@/lib/format";
-import Link from "next/link";
+import {
+  getFleetCounts,
+  getFleetList,
+  getSuggestions,
+  type FleetRow,
+  type FleetView,
+} from "@/lib/queries/families";
+import { getAssetHeaderStats } from "@/lib/queries/inventory";
 
 export const metadata = { title: "Assets" };
 
-const MONEY = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-  maximumFractionDigits: 0,
-});
+const VIEWS: FleetView[] = ["active", "retired", "all"];
+const VIEW_LABEL: Record<FleetView, string> = {
+  active: "Active",
+  retired: "Retired",
+  all: "All",
+};
 
-/** Asset · Category · Make & model · Fleet · Available · Day rate */
+function isView(value: unknown): value is FleetView {
+  return value === "active" || value === "retired" || value === "all";
+}
+
+/** Asset · Models · Category · Fleet · Free · Out · Rates */
 const COLUMNS: Column[] = [
-  { key: "name", label: "Asset", width: "minmax(0,1.4fr)" },
-  { key: "category", label: "Category", width: "150px" },
-  { key: "maker", label: "Make & model", width: "minmax(0,1fr)" },
-  { key: "units", label: "Fleet", width: "60px", align: "right" },
+  { key: "name", label: "Asset", width: "minmax(0,1.5fr)" },
+  { key: "models", label: "Models", width: "72px", align: "right" },
+  { key: "category", label: "Category", width: "148px" },
+  { key: "fleet", label: "Fleet", width: "60px", align: "right" },
   { key: "available", label: "Free", width: "60px", align: "right" },
-  { key: "rate", label: "Day rate", width: "88px", align: "right" },
+  { key: "out", label: "Out", width: "56px", align: "right" },
+  { key: "rate", label: "Rate", width: "128px", align: "right" },
 ];
 
-const EMPTY: Record<AssetView, React.ReactNode> = {
-  active: <>No assets are in service. Register one to start a fleet.</>,
-  retired: (
-    <>
-      Nothing has been retired. Assets land here when they&rsquo;re sold,
-      recycled or written off — the units stay on the record either way.
-    </>
-  ),
-  all: <>There are no assets at all yet. Register the first one.</>,
-};
+function rateCell(row: FleetRow) {
+  const pick = row.daily
+    ? { range: row.daily, unit: "/d" }
+    : row.monthly
+      ? { range: row.monthly, unit: "/mo" }
+      : null;
+  if (!pick) return <span className="text-ink-faint">—</span>;
+  const { range, unit } = pick;
+  return (
+    <span className="text-ink-muted">
+      {range.min === range.max
+        ? `${money(range.min)}${unit}`
+        : `${money(range.min)}–${money(range.max)}${unit}`}
+    </span>
+  );
+}
 
 async function HeaderBlurb() {
   const { active, fleet } = await getAssetHeaderStats();
@@ -61,151 +69,42 @@ async function HeaderBlurb() {
   );
 }
 
-async function Tabs({ view, search }: { view: AssetView; search: string }) {
-  const counts = await getAssetViewCounts(search);
+async function Tabs({ view, search }: { view: FleetView; search: string }) {
+  const counts = await getFleetCounts(search);
   return (
     <FilterTabs
       param="view"
       value={view}
       fallback="active"
       label="Asset views"
-      options={ASSET_VIEWS.map((option) => ({
+      options={VIEWS.map((option) => ({
         value: option,
-        label: ASSET_VIEW_LABEL[option],
+        label: VIEW_LABEL[option],
         count: counts[option],
       }))}
     />
   );
 }
 
-/** Asset · Models · Category · Fleet · Free · Out · Rates */
-const FAMILY_COLUMNS: Column[] = [
-  { key: "name", label: "Asset", width: "minmax(0,1.5fr)" },
-  { key: "models", label: "Models", width: "70px", align: "right" },
-  { key: "category", label: "Category", width: "150px" },
-  { key: "fleet", label: "Fleet", width: "60px", align: "right" },
-  { key: "available", label: "Free", width: "60px", align: "right" },
-  { key: "out", label: "Out", width: "56px", align: "right" },
-  { key: "rate", label: "Rates", width: "132px", align: "right" },
-];
-
 /**
- * The whole point of the family tier: one row per thing you shop for, with the
- * stock already added up. "How many Mac Studios are free" is a number here
- * rather than four rows and some arithmetic.
+ * Offered only while there is something to offer, and phrased as an
+ * opportunity rather than a backlog.
+ *
+ * The first version counted ungrouped models and reported it as an outstanding
+ * number, which was the wrong idea twice over: most of the fleet has no
+ * variants and never will, so "218 not grouped" described a normal resting
+ * state as debt.
  */
-async function FamilyTable({
-  search,
-  page,
-}: {
-  search: string;
-  page: number;
-}) {
-  const { rows, total, pageSize } = await getFamilyList({ search, page });
-  const pages = Math.max(1, Math.ceil(total / pageSize));
-
-  function hrefFor(next: number) {
-    const params = new URLSearchParams();
-    if (search) params.set("q", search);
-    if (next > 1) params.set("page", String(next));
-    const query = params.toString();
-    return query ? `/dashboard/assets?${query}` : "/dashboard/assets";
-  }
-
-  return (
-    <ListTable
-      columns={FAMILY_COLUMNS}
-      total={total}
-      page={page}
-      pageSize={pageSize}
-      pagination={{ page, pages, hrefFor }}
-      empty={
-        search ? (
-          <>
-            No asset matches &ldquo;{search}&rdquo; by name, manufacturer or any
-            model inside one. Every model is still on the Models tab, grouped or
-            not.
-          </>
-        ) : (
-          <>
-            Nothing is grouped yet. Models stand on their own until you put them
-            together —{" "}
-            <Link
-              href="/dashboard/assets/grouping"
-              className="text-accent-text hover:underline"
-            >
-              review the suggested groupings
-            </Link>{" "}
-            to start.
-          </>
-        )
-      }
-      rows={rows.map((row) => ({
-        id: row.id,
-        href: `/dashboard/assets/family/${row.id}`,
-        cells: {
-          name: (
-            <span className="truncate">
-              <span className="font-bold">{row.name}</span>
-              {row.manufacturer ? (
-                <span className="text-ink-faint"> · {row.manufacturer}</span>
-              ) : null}
-            </span>
-          ),
-          models: (
-            <span className="text-ink-muted">
-              {row.models}
-              {row.retiredModels > 0 ? (
-                <span className="text-ink-faint"> ({row.retiredModels}r)</span>
-              ) : null}
-            </span>
-          ),
-          category: (
-            <span className="truncate text-ink-muted">
-              {row.categoryNames.join(", ") || "—"}
-            </span>
-          ),
-          fleet: (
-            <span className="text-ink-muted">{row.stock.fleet || "—"}</span>
-          ),
-          available:
-            row.stock.fleet === 0 ? (
-              <span className="text-ink-faint">—</span>
-            ) : row.stock.available === 0 ? (
-              <span className="font-bold text-accent-text">0</span>
-            ) : (
-              <span className="font-bold">{row.stock.available}</span>
-            ),
-          out: <span className="text-ink-muted">{row.stock.out || "—"}</span>,
-          rate: (
-            <span className="text-ink-muted">
-              {row.daily
-                ? row.daily.min === row.daily.max
-                  ? `${money(row.daily.min)}/d`
-                  : `${money(row.daily.min)}–${money(row.daily.max)}/d`
-                : row.monthly
-                  ? row.monthly.min === row.monthly.max
-                    ? `${money(row.monthly.min)}/mo`
-                    : `${money(row.monthly.min)}–${money(row.monthly.max)}/mo`
-                  : "—"}
-            </span>
-          ),
-        },
-      }))}
-    />
-  );
-}
-
-/** The prompt to group, shown only while there is something to group. */
 async function GroupingPrompt() {
-  const ungrouped = await getUngroupedCount();
-  if (ungrouped === 0) return null;
+  const suggestions = await getSuggestions();
+  if (suggestions.length === 0) return null;
   return (
     <Link
       href="/dashboard/assets/grouping"
       className="rounded-pill bg-accent-tint px-3 py-1 text-pill text-accent-on-tint transition-colors hover:bg-accent-tint-strong"
     >
-      {ungrouped} models not grouped →
+      {suggestions.length}{" "}
+      {suggestions.length === 1 ? "grouping" : "groupings"} suggested →
     </Link>
   );
 }
@@ -215,11 +114,11 @@ async function Table({
   search,
   page,
 }: {
-  view: AssetView;
+  view: FleetView;
   search: string;
   page: number;
 }) {
-  const { rows, total, pageSize } = await getAssetList({ view, search, page });
+  const { rows, total, pageSize } = await getFleetList({ view, search, page });
   const pages = Math.max(1, Math.ceil(total / pageSize));
 
   function hrefFor(next: number) {
@@ -241,39 +140,59 @@ async function Table({
       empty={
         search ? (
           <>
-            No asset in {ASSET_VIEW_LABEL[view]} matches &ldquo;{search}&rdquo;.
-            Try a different term, or switch to All.
+            Nothing in {VIEW_LABEL[view]} matches &ldquo;{search}&rdquo; — by
+            name, manufacturer, or the name of a model inside an asset.
+          </>
+        ) : view === "retired" ? (
+          <>
+            Nothing has been retired. Assets land here when they&rsquo;re sold,
+            recycled or written off — the units stay on the record either way.
           </>
         ) : (
-          EMPTY[view]
+          <>There are no assets yet. Register the first one.</>
         )
       }
       rows={rows.map((row) => ({
         id: row.id,
-        href: `/dashboard/assets/${row.id}`,
+        href: row.href,
         cells: {
-          name: <span className="font-bold">{row.name}</span>,
-          category: <span className="text-ink-muted">{row.categoryName}</span>,
-          maker: (
-            <span className="text-ink-muted">{row.maker ?? "—"}</span>
+          name: (
+            <span className="truncate">
+              <span className="font-bold">{row.name}</span>
+              {row.manufacturer ? (
+                <span className="text-ink-faint"> · {row.manufacturer}</span>
+              ) : null}
+            </span>
           ),
-          units: <span className="text-ink-muted">{row.units || "—"}</span>,
-          available:
-            // Nothing free is worth seeing at a glance on a list whose whole
-            // job is answering "can I promise this to someone".
-            row.units === 0 ? (
+          // A dash, not 1. Most of the fleet has no variants, and saying "1
+          // model" of a thing that has never had a second one is noise.
+          models:
+            row.models === null ? (
               <span className="text-ink-faint">—</span>
-            ) : row.available === 0 ? (
+            ) : (
+              <span className="text-ink-muted">
+                {row.models}
+                {row.retiredModels > 0 ? (
+                  <span className="text-ink-faint"> ({row.retiredModels}r)</span>
+                ) : null}
+              </span>
+            ),
+          category: (
+            <span className="truncate text-ink-muted">
+              {row.categoryNames.join(", ") || "—"}
+            </span>
+          ),
+          fleet: <span className="text-ink-muted">{row.stock.fleet || "—"}</span>,
+          available:
+            row.stock.fleet === 0 ? (
+              <span className="text-ink-faint">—</span>
+            ) : row.stock.available === 0 ? (
               <span className="font-bold text-accent-text">0</span>
             ) : (
-              <span>{row.available}</span>
+              <span className="font-bold">{row.stock.available}</span>
             ),
-          rate:
-            row.dailyRate === null ? (
-              <span className="text-ink-faint">—</span>
-            ) : (
-              MONEY.format(row.dailyRate)
-            ),
+          out: <span className="text-ink-muted">{row.stock.out || "—"}</span>,
+          rate: rateCell(row),
         },
       }))}
     />
@@ -281,36 +200,32 @@ async function Table({
 }
 
 /**
- * Inventory → Assets: two levels of the fleet on one screen.
+ * Inventory → Assets: one list of what the business owns.
  *
- * **Assets** are what you shop for — Mac Studio, RTX 5090 — with stock summed
- * across every model of them. **Models** is the priced product type, which is
- * what this screen used to be and still is on its own tab, so nothing that
- * linked here has lost its list. Units are a screen of their own.
+ * An asset with variants — Mac Studio, RTX 5090 — is one row with its stock
+ * summed across every model of it. An asset without variants is one row that
+ * *is* the thing, and it links straight to its own record. Both are assets;
+ * the difference is only whether a model tier exists underneath, and most of
+ * the fleet has none and never will.
  *
- * Search spans both: on Assets it matches a family name *or* any model name
- * inside one, so looking for "5090" finds the asset even though no family is
- * called that.
+ * That is the correction. An earlier pass split this into Assets and Models
+ * tabs and called all 224 rows models, which made a switch a "model" of
+ * nothing. The word model now appears only where an asset genuinely has more
+ * than one.
  *
- * Absorbs two v1 siblings — `assets/retired` becomes the Retired tab, and
- * `assets/register` becomes the action in the header. "Free" counts units whose
- * status is AVAILABLE, the one bookable definition
+ * "Free" counts units whose status is AVAILABLE, the one bookable definition
  * (`lib/inventory/availability.ts`); "Fleet" excludes retired and sold, so it
- * does not agree with the denormalized `totalQuantity` column and shouldn't.
+ * does not agree with the denormalized `totalQuantity` column and shouldn't. A
+ * family is Retired only when every model in it is — one live model means the
+ * thing is still in service.
  */
 export default async function AssetsPage({
   searchParams,
 }: {
-  searchParams: Promise<{
-    tab?: string;
-    view?: string;
-    q?: string;
-    page?: string;
-  }>;
+  searchParams: Promise<{ view?: string; q?: string; page?: string }>;
 }) {
   const params = await searchParams;
-  const tab = params.tab === "models" ? "models" : "assets";
-  const view: AssetView = isAssetView(params.view) ? params.view : "active";
+  const view: FleetView = isView(params.view) ? params.view : "active";
   const search = params.q?.trim() ?? "";
   const page = Math.max(1, Number(params.page) || 1);
 
@@ -329,44 +244,20 @@ export default async function AssetsPage({
             <Suspense fallback={null}>
               <GroupingPrompt />
             </Suspense>
-            <ListSearch placeholder="Search assets, models, categories" />
+            <ListSearch placeholder="Search assets, models, manufacturers" />
           </>
         }
       />
 
       <div className="flex flex-wrap items-center gap-2">
-        <FilterTabs
-          param="tab"
-          value={tab}
-          fallback="assets"
-          label="Fleet levels"
-          options={[
-            { value: "assets", label: "Assets" },
-            { value: "models", label: "Models" },
-          ]}
-        />
-        {/* Active / Retired / All belongs to models; a family is retired only
-            in the sense that all of its models are, which is a different
-            question and not one this strip can answer. */}
-        {tab === "models" ? (
-          <Suspense fallback={<FilterTabsSkeleton width={260} />}>
-            <Tabs view={view} search={search} />
-          </Suspense>
-        ) : null}
+        <Suspense fallback={<FilterTabsSkeleton width={260} />}>
+          <Tabs view={view} search={search} />
+        </Suspense>
       </div>
 
-      {tab === "models" ? (
-        <Suspense
-          key={`models:${view}:${search}:${page}`}
-          fallback={<ListTableSkeleton />}
-        >
-          <Table view={view} search={search} page={page} />
-        </Suspense>
-      ) : (
-        <Suspense key={`assets:${search}:${page}`} fallback={<ListTableSkeleton />}>
-          <FamilyTable search={search} page={page} />
-        </Suspense>
-      )}
+      <Suspense key={`${view}:${search}:${page}`} fallback={<ListTableSkeleton />}>
+        <Table view={view} search={search} page={page} />
+      </Suspense>
     </>
   );
 }

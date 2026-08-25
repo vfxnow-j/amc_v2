@@ -125,30 +125,60 @@ function range(values: (number | null)[]): RateRange {
 
 export const PAGE_SIZE = 40;
 
-export async function getFamilyList({
+/**
+ * A row on the Assets list: either a family with models under it, or an asset
+ * that stands on its own.
+ *
+ * Both are things the business owns, and that is the whole point of merging
+ * them. Most of the fleet has no variants — a switch is a switch — and calling
+ * those "models" of nothing was wrong. `models` is null for a standalone, which
+ * the list renders as a dash rather than as 1.
+ */
+export type FleetRow = {
+  kind: "asset" | "family";
+  id: string;
+  href: string;
+  name: string;
+  manufacturer: string | null;
+  /** How many models sit under it; null when it stands alone. */
+  models: number | null;
+  retiredModels: number;
+  categoryNames: string[];
+  retired: boolean;
+  stock: StockRollup;
+  daily: RateRange;
+  monthly: RateRange;
+};
+
+/** Active / Retired / All, applied to families and standalone assets alike. */
+export type FleetView = "active" | "retired" | "all";
+
+function matches(row: FleetRow, extra: string[], needle: string): boolean {
+  if (!needle) return true;
+  const hay = [row.name, row.manufacturer ?? "", ...extra]
+    .join(" ")
+    .toLowerCase();
+  return hay.includes(needle.toLowerCase());
+}
+
+/**
+ * Everything the business owns, at the level you shop for it.
+ *
+ * Assembled in memory rather than in SQL because it is a union across two
+ * tables that has to sort and page as one list, and the fleet is 224 rows —
+ * the whole set costs one query for the families, one for the standalone
+ * assets and one grouped count for the units. If the catalogue ever reaches
+ * the thousands this becomes a materialised view or a UNION, not a bigger
+ * in-memory sort.
+ */
+export async function getFleetList({
+  view = "active",
   search = "",
   page = 1,
-}: { search?: string; page?: number } = {}) {
-  const where = search
-    ? {
-        OR: [
-          { name: { contains: search, mode: "insensitive" as const } },
-          { manufacturer: { contains: search, mode: "insensitive" as const } },
-          {
-            assets: {
-              some: { name: { contains: search, mode: "insensitive" as const } },
-            },
-          },
-        ],
-      }
-    : {};
-
-  const [families, total] = await Promise.all([
+}: { view?: FleetView; search?: string; page?: number } = {}) {
+  const [families, loose] = await Promise.all([
     prisma.assetFamily.findMany({
-      where,
       orderBy: [{ name: "asc" }],
-      skip: (page - 1) * PAGE_SIZE,
-      take: PAGE_SIZE,
       select: {
         id: true,
         name: true,
@@ -156,6 +186,7 @@ export async function getFamilyList({
         assets: {
           select: {
             id: true,
+            name: true,
             retiredAt: true,
             dailyRate: true,
             monthlyRate: true,
@@ -164,37 +195,109 @@ export async function getFamilyList({
         },
       },
     }),
-    prisma.assetFamily.count({ where }),
+    prisma.asset.findMany({
+      where: { familyId: null },
+      orderBy: [{ name: "asc" }],
+      select: {
+        id: true,
+        name: true,
+        manufacturer: true,
+        model: true,
+        retiredAt: true,
+        dailyRate: true,
+        monthlyRate: true,
+        category: { select: { name: true } },
+      },
+    }),
   ]);
 
-  const stock = await stockByAsset(
-    families.flatMap((family) => family.assets.map((asset) => asset.id)),
-  );
+  const stock = await stockByAsset([
+    ...families.flatMap((family) => family.assets.map((asset) => asset.id)),
+    ...loose.map((asset) => asset.id),
+  ]);
 
-  const rows: FamilyRow[] = families.map((family) => ({
-    id: family.id,
-    name: family.name,
-    manufacturer: family.manufacturer,
-    categoryNames: [
-      ...new Set(family.assets.map((asset) => asset.category.name)),
-    ].sort(),
-    models: family.assets.length,
-    retiredModels: family.assets.filter((asset) => asset.retiredAt !== null)
-      .length,
-    stock: sum(family.assets.map((asset) => stock.get(asset.id) ?? { ...EMPTY })),
-    daily: range(
-      family.assets.map((asset) =>
-        asset.dailyRate === null ? null : Number(asset.dailyRate),
+  const searchable = new Map<string, string[]>();
+
+  const familyRows: FleetRow[] = families.map((family) => {
+    searchable.set(
+      family.id,
+      family.assets.map((asset) => asset.name),
+    );
+    return {
+      kind: "family" as const,
+      id: family.id,
+      href: `/dashboard/assets/family/${family.id}`,
+      name: family.name,
+      manufacturer: family.manufacturer,
+      models: family.assets.length,
+      retiredModels: family.assets.filter((a) => a.retiredAt !== null).length,
+      categoryNames: [
+        ...new Set(family.assets.map((asset) => asset.category.name)),
+      ].sort(),
+      // A family is retired only when every model in it is. One live model
+      // means the thing is still in service.
+      retired:
+        family.assets.length > 0 &&
+        family.assets.every((asset) => asset.retiredAt !== null),
+      stock: sum(
+        family.assets.map((asset) => stock.get(asset.id) ?? { ...EMPTY }),
       ),
-    ),
-    monthly: range(
-      family.assets.map((asset) =>
+      daily: range(
+        family.assets.map((a) => (a.dailyRate === null ? null : Number(a.dailyRate))),
+      ),
+      monthly: range(
+        family.assets.map((a) =>
+          a.monthlyRate === null ? null : Number(a.monthlyRate),
+        ),
+      ),
+    };
+  });
+
+  const looseRows: FleetRow[] = loose.map((asset) => {
+    searchable.set(asset.id, [asset.model ?? ""]);
+    return {
+      kind: "asset" as const,
+      id: asset.id,
+      href: `/dashboard/assets/${asset.id}`,
+      name: asset.name,
+      manufacturer: asset.manufacturer,
+      models: null,
+      retiredModels: 0,
+      categoryNames: [asset.category.name],
+      retired: asset.retiredAt !== null,
+      stock: stock.get(asset.id) ?? { ...EMPTY },
+      daily: range([asset.dailyRate === null ? null : Number(asset.dailyRate)]),
+      monthly: range([
         asset.monthlyRate === null ? null : Number(asset.monthlyRate),
-      ),
-    ),
-  }));
+      ]),
+    };
+  });
 
-  return { rows, total, page, pageSize: PAGE_SIZE };
+  const all = [...familyRows, ...looseRows]
+    .filter((row) =>
+      view === "all" ? true : view === "retired" ? row.retired : !row.retired,
+    )
+    .filter((row) => matches(row, searchable.get(row.id) ?? [], search.trim()))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  const start = (page - 1) * PAGE_SIZE;
+  return {
+    rows: all.slice(start, start + PAGE_SIZE),
+    total: all.length,
+    page,
+    pageSize: PAGE_SIZE,
+    families: familyRows.length,
+  };
+}
+
+/** Row counts per view, for the filter strip. */
+export async function getFleetCounts(search = "") {
+  const [active, retired, all] = await Promise.all([
+    getFleetList({ view: "active", search, page: 1 }),
+    getFleetList({ view: "retired", search, page: 1 }),
+    getFleetList({ view: "all", search, page: 1 }),
+  ]);
+  return { active: active.total, retired: retired.total, all: all.total };
 }
 
 export type FamilyRecord = {
