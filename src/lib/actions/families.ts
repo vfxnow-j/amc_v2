@@ -65,8 +65,24 @@ export async function createFamily(
     };
   }
 
+  // Seed the manufacturer from the models, but only when they agree. Where
+  // one model says PNY and another says nothing, the honest answer is that
+  // nobody has recorded who makes this — not "PNY", which would be a claim
+  // about the whole family drawn from a single purchase.
+  const makers = await prisma.asset.findMany({
+    where: { id: { in: assetIds }, manufacturer: { not: null } },
+    select: { manufacturer: true },
+  });
+  const distinct = [...new Set(makers.map((m) => m.manufacturer))];
+  const manufacturer =
+    distinct.length === 1 && makers.length === assetIds.length
+      ? distinct[0]
+      : null;
+
   const moved = await prisma.$transaction(async (tx) => {
-    const family = await tx.assetFamily.create({ data: { name: label } });
+    const family = await tx.assetFamily.create({
+      data: { name: label, manufacturer },
+    });
     const result = await tx.asset.updateMany({
       where: { id: { in: assetIds }, familyId: null },
       data: { familyId: family.id },
@@ -177,6 +193,55 @@ export async function ungroupAssets(
     status: "ok",
     message: `${count} ${count === 1 ? "model is" : "models are"} no longer grouped. Nothing else changed.`,
   };
+}
+
+/**
+ * The four things a family owns: its name, who makes it, and two notes.
+ *
+ * Everything else on this screen is rolled up from the models, which is why
+ * there is so little to edit here — and why editing it cannot affect a rate, a
+ * unit or a depreciation schedule.
+ */
+export async function updateFamily(
+  id: string,
+  input: {
+    name: string;
+    manufacturer: string;
+    description: string;
+    notes: string;
+  },
+): Promise<FamilyOutcome> {
+  const auth = await requireEditor();
+  if (!auth.authorized) {
+    return { status: "error", message: auth.error ?? "Not allowed." };
+  }
+
+  const label = clean(input.name);
+  if (!label) return { status: "error", message: "Give the asset a name." };
+
+  const clash = await prisma.assetFamily.findFirst({
+    where: { name: label, NOT: { id } },
+    select: { id: true },
+  });
+  if (clash) {
+    return { status: "error", message: `An asset called "${label}" already exists.` };
+  }
+
+  await prisma.assetFamily.update({
+    where: { id },
+    data: {
+      name: label,
+      // Empty means "not recorded", which is a different thing from an empty
+      // string and reads differently everywhere it is shown.
+      manufacturer: clean(input.manufacturer) || null,
+      description: clean(input.description) || null,
+      notes: input.notes.trim() || null,
+    },
+  });
+
+  refresh();
+  revalidatePath(`/dashboard/assets/family/${id}`);
+  return { status: "ok", message: "Saved." };
 }
 
 export async function renameFamily(

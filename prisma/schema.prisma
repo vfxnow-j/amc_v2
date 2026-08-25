@@ -280,6 +280,17 @@ model AssetFamily {
   notes       String?
   imageUrl    String?
 
+  // Who makes the thing. It belongs here rather than on the model because it is
+  // a property of the product, not of the batch: an RTX 5090 is NVIDIA's
+  // whichever board partner assembled the card you bought.
+  //
+  // `Asset.manufacturer` stays, and stays free to differ — that column holds
+  // the partner and part number of a particular purchase ("PNY Technologies,
+  // Inc.", "VCG509032TFXPB1-O"), which is exactly the thing that varies between
+  // models bought at different times. The family answers "what is it", the
+  // model answers "which one did we buy".
+  manufacturer String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

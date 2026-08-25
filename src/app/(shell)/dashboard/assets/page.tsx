@@ -122,8 +122,9 @@ async function FamilyTable({
       empty={
         search ? (
           <>
-            No asset matches &ldquo;{search}&rdquo;. Every model is still on the
-            Models tab, grouped or not.
+            No asset matches &ldquo;{search}&rdquo; by name, manufacturer or any
+            model inside one. Every model is still on the Models tab, grouped or
+            not.
           </>
         ) : (
           <>
@@ -143,7 +144,14 @@ async function FamilyTable({
         id: row.id,
         href: `/dashboard/assets/family/${row.id}`,
         cells: {
-          name: <span className="truncate font-bold">{row.name}</span>,
+          name: (
+            <span className="truncate">
+              <span className="font-bold">{row.name}</span>
+              {row.manufacturer ? (
+                <span className="text-ink-faint"> · {row.manufacturer}</span>
+              ) : null}
+            </span>
+          ),
           models: (
             <span className="text-ink-muted">
               {row.models}

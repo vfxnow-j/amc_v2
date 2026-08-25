@@ -33,6 +33,13 @@ export type ModelRow = {
   id: string;
   name: string;
   categoryName: string;
+  /**
+   * This model's own make and part number, which is the batch it was bought as
+   * — "PNY Technologies, Inc. VCG509032TFXPB1-O". Null on most, and different
+   * from the family's manufacturer whenever two purchases came from different
+   * partners.
+   */
+  maker: string | null;
   retired: boolean;
   dailyRate: number | null;
   monthlyRate: number | null;
@@ -42,6 +49,7 @@ export type ModelRow = {
 export type FamilyRow = {
   id: string;
   name: string;
+  manufacturer: string | null;
   /** Usually one; a family spanning two is worth seeing rather than flattening. */
   categoryNames: string[];
   models: number;
@@ -125,6 +133,7 @@ export async function getFamilyList({
     ? {
         OR: [
           { name: { contains: search, mode: "insensitive" as const } },
+          { manufacturer: { contains: search, mode: "insensitive" as const } },
           {
             assets: {
               some: { name: { contains: search, mode: "insensitive" as const } },
@@ -143,6 +152,7 @@ export async function getFamilyList({
       select: {
         id: true,
         name: true,
+        manufacturer: true,
         assets: {
           select: {
             id: true,
@@ -164,6 +174,7 @@ export async function getFamilyList({
   const rows: FamilyRow[] = families.map((family) => ({
     id: family.id,
     name: family.name,
+    manufacturer: family.manufacturer,
     categoryNames: [
       ...new Set(family.assets.map((asset) => asset.category.name)),
     ].sort(),
@@ -189,8 +200,11 @@ export async function getFamilyList({
 export type FamilyRecord = {
   id: string;
   name: string;
+  manufacturer: string | null;
   description: string | null;
   notes: string | null;
+  /** Makes recorded on the models themselves, where they differ from each other. */
+  modelMakers: string[];
   categoryNames: string[];
   stock: StockRollup;
   daily: RateRange;
@@ -204,6 +218,7 @@ export async function getFamily(id: string): Promise<FamilyRecord | null> {
     select: {
       id: true,
       name: true,
+      manufacturer: true,
       description: true,
       notes: true,
       assets: {
@@ -214,6 +229,8 @@ export async function getFamily(id: string): Promise<FamilyRecord | null> {
           retiredAt: true,
           dailyRate: true,
           monthlyRate: true,
+          manufacturer: true,
+          model: true,
           category: { select: { name: true } },
         },
       },
@@ -227,6 +244,8 @@ export async function getFamily(id: string): Promise<FamilyRecord | null> {
     id: asset.id,
     name: asset.name,
     categoryName: asset.category.name,
+    maker:
+      [asset.manufacturer, asset.model].filter(Boolean).join(" ") || null,
     retired: asset.retiredAt !== null,
     dailyRate: asset.dailyRate === null ? null : Number(asset.dailyRate),
     monthlyRate: asset.monthlyRate === null ? null : Number(asset.monthlyRate),
@@ -236,8 +255,16 @@ export async function getFamily(id: string): Promise<FamilyRecord | null> {
   return {
     id: family.id,
     name: family.name,
+    manufacturer: family.manufacturer,
     description: family.description,
     notes: family.notes,
+    modelMakers: [
+      ...new Set(
+        family.assets
+          .map((asset) => asset.manufacturer)
+          .filter((maker): maker is string => Boolean(maker)),
+      ),
+    ].sort(),
     categoryNames: [...new Set(models.map((m) => m.categoryName))].sort(),
     stock: sum(models.map((m) => m.stock)),
     daily: range(models.map((m) => m.dailyRate)),

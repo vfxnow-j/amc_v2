@@ -7,6 +7,7 @@ import {
   ListTableSkeleton,
   type Column,
 } from "@/components/list/list-table";
+import { FamilyDetails } from "@/components/inventory/family-details";
 import { Card, Field, Unset } from "@/components/record/record-card";
 import { PageHeader } from "@/components/shell/page-header";
 import { money } from "@/lib/format";
@@ -16,8 +17,9 @@ type Params = { params: Promise<{ id: string }> };
 
 /** Model · Category · Fleet · Free · Out · Service · Day · Month */
 const COLUMNS: Column[] = [
-  { key: "name", label: "Model", width: "minmax(0,1.6fr)" },
-  { key: "category", label: "Category", width: "132px" },
+  { key: "name", label: "Model", width: "minmax(0,1.5fr)" },
+  { key: "maker", label: "Make & part", width: "minmax(0,1fr)" },
+  { key: "category", label: "Category", width: "124px" },
   { key: "fleet", label: "Fleet", width: "58px", align: "right" },
   { key: "available", label: "Free", width: "58px", align: "right" },
   { key: "out", label: "Out", width: "52px", align: "right" },
@@ -67,6 +69,7 @@ export default async function FamilyRecordPage({ params }: Params) {
         title={family.name}
         blurb={
           <>
+            {family.manufacturer ? `${family.manufacturer} · ` : ""}
             {family.models.length}{" "}
             {family.models.length === 1 ? "model" : "models"}
             {family.categoryNames.length > 0
@@ -139,6 +142,11 @@ export default async function FamilyRecordPage({ params }: Params) {
                     ) : null}
                   </span>
                 ),
+                maker: model.maker ? (
+                  <span className="truncate text-ink-muted">{model.maker}</span>
+                ) : (
+                  <span className="text-ink-faint">—</span>
+                ),
                 category: (
                   <span className="truncate text-ink-muted">
                     {model.categoryName}
@@ -184,9 +192,25 @@ export default async function FamilyRecordPage({ params }: Params) {
             </p>
           </Card>
 
-          <Card title="About">
-            <div className="grid grid-cols-2 gap-3 px-4 pb-4">
-              <Field label="Models">{family.models.length}</Field>
+          <Card title="Details" meta="the only fields this level owns">
+            <FamilyDetails
+              id={family.id}
+              name={family.name}
+              manufacturer={family.manufacturer}
+              description={family.description}
+              notes={family.notes}
+            />
+          </Card>
+
+          <Card title="Where it came from">
+            <div className="grid grid-cols-2 gap-3 px-4 pb-3">
+              <Field label="Makes on the models">
+                {family.modelMakers.length > 0 ? (
+                  family.modelMakers.join(", ")
+                ) : (
+                  <Unset>None recorded</Unset>
+                )}
+              </Field>
               <Field label="Categories">
                 {family.categoryNames.length > 0 ? (
                   family.categoryNames.join(", ")
@@ -195,11 +219,13 @@ export default async function FamilyRecordPage({ params }: Params) {
                 )}
               </Field>
             </div>
-            {family.notes ? (
-              <p className="mx-4 mb-4 whitespace-pre-line rounded-well bg-sunken p-2 text-detail text-ink-muted">
-                {family.notes}
-              </p>
-            ) : null}
+            <p className="px-4 pb-4 text-detail text-ink-muted">
+              {family.modelMakers.length > 1
+                ? "These models were bought as different makes — the same product from different suppliers or at different times. That is why the make stays on the model and only the manufacturer sits on the asset."
+                : family.modelMakers.length === 1
+                  ? "One make recorded across these models. A later purchase from a different supplier will show up here without disturbing anything."
+                  : "No make or part number is recorded on any of these models. They came across from the import without one, which is true of most of the fleet."}
+            </p>
             <p className="mx-4 mb-4 rounded-well bg-sunken p-2 text-detail text-ink-muted">
               An asset is a container. Every unit, rate and depreciation
               schedule lives on the model it belongs to, so regrouping these
