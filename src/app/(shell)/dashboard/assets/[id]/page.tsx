@@ -19,6 +19,7 @@ import { MarketPricePanel } from "@/components/inventory/market-price-panel";
 import { dayYear, money } from "@/lib/format";
 import { isConfirmedPrice } from "@/lib/market-price";
 import { getAssetHeader } from "@/lib/queries/asset-record";
+import { getFamilyOfAsset } from "@/lib/queries/families";
 import { depreciationCategoryLabels } from "@/lib/types";
 
 type Params = { params: Promise<{ id: string }> };
@@ -49,10 +50,16 @@ export default async function AssetRecordPage({ params }: Params) {
   return (
     <>
       <PageHeader
-        eyebrow="Inventory · Asset"
+        eyebrow="Inventory · Model"
         title={asset.name}
         blurb={
           <>
+            {/* The way up. A model that belongs to an asset should say so and
+                be one click from the total, or the family tier is a place you
+                can only arrive at from the list. */}
+            <Suspense fallback={null}>
+              <FamilyCrumb id={id} />
+            </Suspense>
             {asset.category.name}
             {asset.maker ? ` · ${asset.maker}` : ""} ·{" "}
             {asset.units === 1 ? "1 unit" : `${asset.units} units`} registered ·
@@ -298,5 +305,33 @@ function Details({ asset }: { asset: Asset }) {
         </p>
       ) : null}
     </Card>
+  );
+}
+
+/**
+ * "Part of Mac Studio · 4 models", linking up to the asset.
+ *
+ * Renders nothing when the model is ungrouped, which is most of them (146 of
+ * 224) and not a problem to announce. Its own boundary, because a model record
+ * should not wait on a lookup that is decoration.
+ */
+async function FamilyCrumb({ id }: { id: string }) {
+  const family = await getFamilyOfAsset(id);
+  if (!family) return null;
+  return (
+    <>
+      Part of{" "}
+      <Link
+        href={`/dashboard/assets/family/${family.id}`}
+        className="text-accent-text hover:underline"
+      >
+        {family.name}
+      </Link>
+      <span className="text-ink-faint">
+        {" "}
+        ({family.models} {family.models === 1 ? "model" : "models"})
+      </span>{" "}
+      ·{" "}
+    </>
   );
 }
