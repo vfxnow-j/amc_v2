@@ -6,11 +6,19 @@ const WHITE = "/brand/VFXnow-Logo-AllWhite-Vector.png";
 /** Intrinsic size of both files — identical artwork, 1.495:1, tightly cropped. */
 const INTRINSIC = { width: 4009, height: 2681 };
 
-const WIDTH = {
-  /** The rail header, inside a 236px column. */
-  rail: "w-[124px]",
+/**
+ * Deliberately small. The mark is an identifier, not the point of the screen —
+ * the rail's job is the six clusters below it, and the first pass at this took
+ * 113px of vertical before the first nav row: a 124px-wide lockup with a label
+ * stacked under it. This is 54px tall including the label, and the artwork is
+ * still legible at that size — the "VFX" inside the ring was the limit, and it
+ * holds down to about 68px wide.
+ */
+const SIZE = {
+  /** The rail header, inside a 236px column. 80 x 54. */
+  rail: { logo: "w-[80px]", rule: "h-[16px]", label: "text-[8px]" },
   /** Signed-out screens, where the lockup is the only thing on the page. */
-  auth: "w-[168px]",
+  auth: { logo: "w-[108px]", rule: "h-[20px]", label: "text-[9px]" },
 } as const;
 
 /**
@@ -36,6 +44,9 @@ const WIDTH = {
  * box, and next/image still gets what it needs to serve a sized variant of a
  * 4009px source. Optimised, each is about 5KB.
  *
+ * Sizes live in one place above. Both callers scale together, so the rail and
+ * the sign-in screen cannot drift into two different marks again.
+ *
  * The cost, stated rather than hidden: both colourways are fetched and both are
  * preloaded, so about 10KB is spent to have 5KB on screen. A `display:none`
  * <img> is still downloaded, and in this version of next/image `loading="eager"`
@@ -52,19 +63,20 @@ const WIDTH = {
 export function BrandLockup({
   size = "rail",
 }: {
-  size?: keyof typeof WIDTH;
+  size?: keyof typeof SIZE;
 }) {
-  const shared = `${WIDTH[size]} h-auto flex-none`;
+  const scale = SIZE[size];
+  const shared = `${scale.logo} h-auto flex-none`;
 
   return (
     <div
       className={
         size === "rail"
-          ? "flex flex-col gap-[3px] px-2 pt-[2px] pb-[14px]"
-          : "mb-6 flex flex-col items-center gap-1"
+          ? "flex items-center gap-[7px] px-2 pt-[2px] pb-[12px]"
+          : "mb-6 flex items-center justify-center gap-[9px]"
       }
     >
-      {/* Visible text below says "AMC"; the wrapper supplies the rest. */}
+      {/* The visible "AMC" is only half the name; the wrapper supplies the rest. */}
       <span className="sr-only">VFXnow</span>
       <Image
         src={BLACK}
@@ -72,7 +84,7 @@ export function BrandLockup({
         aria-hidden
         loading="eager"
         {...INTRINSIC}
-        sizes="168px"
+        sizes="108px"
         className={`${shared} block dark:hidden`}
       />
       <Image
@@ -81,10 +93,17 @@ export function BrandLockup({
         aria-hidden
         loading="eager"
         {...INTRINSIC}
-        sizes="168px"
+        sizes="108px"
         className={`${shared} hidden dark:block`}
       />
-      <span className="text-[9px] font-bold tracking-[0.2em] text-ink-faint">
+      {/* Beside the mark on a rule, not stacked under it. The supplied artwork
+          is a full lockup ending in a wordmark, so a label underneath read as a
+          third line of branding; alongside, it reads as what it is — which
+          product of theirs this is. */}
+      <span aria-hidden className={`${scale.rule} w-px flex-none bg-hairline`} />
+      <span
+        className={`${scale.label} font-bold tracking-[0.18em] text-ink-faint`}
+      >
         AMC
       </span>
     </div>
