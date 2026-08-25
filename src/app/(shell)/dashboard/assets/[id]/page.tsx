@@ -44,22 +44,42 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
  */
 export default async function AssetRecordPage({ params }: Params) {
   const { id } = await params;
-  const asset = await getAssetHeader(id);
+  const [asset, family] = await Promise.all([
+    getAssetHeader(id),
+    getFamilyOfAsset(id),
+  ]);
   if (!asset) notFound();
 
   return (
     <>
       <PageHeader
-        eyebrow="Inventory · Model"
+        // "Model" only when it is one. A thing with no siblings is an asset in
+        // its own right, and most of the fleet is exactly that — calling a
+        // switch a model of nothing was the mistake this fixes.
+        eyebrow={family ? "Inventory · Model" : "Inventory · Asset"}
         title={asset.name}
         blurb={
           <>
             {/* The way up. A model that belongs to an asset should say so and
                 be one click from the total, or the family tier is a place you
                 can only arrive at from the list. */}
-            <Suspense fallback={null}>
-              <FamilyCrumb id={id} />
-            </Suspense>
+            {family ? (
+              <>
+                Part of{" "}
+                <Link
+                  href={`/dashboard/assets/family/${family.id}`}
+                  className="text-accent-text hover:underline"
+                >
+                  {family.name}
+                </Link>
+                <span className="text-ink-faint">
+                  {" "}
+                  ({family.models}{" "}
+                  {family.models === 1 ? "model" : "models"})
+                </span>{" "}
+                ·{" "}
+              </>
+            ) : null}
             {asset.category.name}
             {asset.maker ? ` · ${asset.maker}` : ""} ·{" "}
             {asset.units === 1 ? "1 unit" : `${asset.units} units`} registered ·
@@ -305,33 +325,5 @@ function Details({ asset }: { asset: Asset }) {
         </p>
       ) : null}
     </Card>
-  );
-}
-
-/**
- * "Part of Mac Studio · 4 models", linking up to the asset.
- *
- * Renders nothing when the model is ungrouped, which is most of them (146 of
- * 224) and not a problem to announce. Its own boundary, because a model record
- * should not wait on a lookup that is decoration.
- */
-async function FamilyCrumb({ id }: { id: string }) {
-  const family = await getFamilyOfAsset(id);
-  if (!family) return null;
-  return (
-    <>
-      Part of{" "}
-      <Link
-        href={`/dashboard/assets/family/${family.id}`}
-        className="text-accent-text hover:underline"
-      >
-        {family.name}
-      </Link>
-      <span className="text-ink-faint">
-        {" "}
-        ({family.models} {family.models === 1 ? "model" : "models"})
-      </span>{" "}
-      ·{" "}
-    </>
   );
 }
