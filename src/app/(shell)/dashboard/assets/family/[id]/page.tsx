@@ -8,6 +8,7 @@ import {
   type Column,
 } from "@/components/list/list-table";
 import { FamilyDetails } from "@/components/inventory/family-details";
+import { UngroupButton } from "@/components/inventory/ungroup-button";
 import { Card, Field, Unset } from "@/components/record/record-card";
 import { PageHeader } from "@/components/shell/page-header";
 import { money } from "@/lib/format";
@@ -79,12 +80,15 @@ export default async function FamilyRecordPage({ params }: Params) {
           </>
         }
         actions={
-          <Link
-            href="/dashboard/assets"
-            className="rounded-pill bg-sunken px-3 py-1 text-pill text-ink-muted transition-colors hover:bg-row-hover hover:text-ink"
-          >
-            ← All assets
-          </Link>
+          <>
+            <UngroupButton id={family.id} models={family.models.length} />
+            <Link
+              href="/dashboard/assets"
+              className="rounded-pill bg-sunken px-3 py-1 text-pill text-ink-muted transition-colors hover:bg-row-hover hover:text-ink"
+            >
+              ← All assets
+            </Link>
+          </>
         }
       />
 
