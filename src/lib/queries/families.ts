@@ -1,6 +1,5 @@
 import type { AssetStatus } from "@/generated/prisma/client";
 import { BOOKABLE, IN_FLEET, OUT_OF_FLEET } from "@/lib/inventory/availability";
-import { suggestFamilies, type FamilySuggestion } from "@/lib/inventory/families";
 import { prisma } from "@/lib/prisma";
 
 /**
@@ -388,35 +387,4 @@ export async function getFamilyOfAsset(assetId: string) {
     name: asset.family.name,
     models: asset.family._count.assets,
   };
-}
-
-export async function getUngroupedCount(): Promise<number> {
-  return prisma.asset.count({ where: { familyId: null } });
-}
-
-/**
- * What the review screen offers. Only ungrouped models are considered, so a
- * family somebody has already accepted is never proposed again or reshuffled.
- */
-export async function getSuggestions(): Promise<FamilySuggestion[]> {
-  const rows = await prisma.asset.findMany({
-    where: { familyId: null },
-    select: {
-      id: true,
-      name: true,
-      categoryId: true,
-      category: { select: { name: true } },
-      _count: { select: { units: { where: { status: { notIn: OUT_OF_FLEET } } } } },
-    },
-  });
-
-  return suggestFamilies(
-    rows.map((row) => ({
-      id: row.id,
-      name: row.name,
-      categoryId: row.categoryId,
-      categoryName: row.category.name,
-      units: row._count.units,
-    })),
-  );
 }

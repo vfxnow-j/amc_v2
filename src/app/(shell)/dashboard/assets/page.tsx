@@ -1,5 +1,4 @@
 import { Suspense } from "react";
-import Link from "next/link";
 import { FilterTabs, FilterTabsSkeleton } from "@/components/list/filter-tabs";
 import { ListSearch } from "@/components/list/list-search";
 import {
@@ -12,7 +11,6 @@ import { money } from "@/lib/format";
 import {
   getFleetCounts,
   getFleetList,
-  getSuggestions,
   type FleetRow,
   type FleetView,
 } from "@/lib/queries/families";
@@ -83,29 +81,6 @@ async function Tabs({ view, search }: { view: FleetView; search: string }) {
         count: counts[option],
       }))}
     />
-  );
-}
-
-/**
- * Offered only while there is something to offer, and phrased as an
- * opportunity rather than a backlog.
- *
- * The first version counted ungrouped models and reported it as an outstanding
- * number, which was the wrong idea twice over: most of the fleet has no
- * variants and never will, so "218 not grouped" described a normal resting
- * state as debt.
- */
-async function GroupingPrompt() {
-  const suggestions = await getSuggestions();
-  if (suggestions.length === 0) return null;
-  return (
-    <Link
-      href="/dashboard/assets/grouping"
-      className="rounded-pill bg-accent-tint px-3 py-1 text-pill text-accent-on-tint transition-colors hover:bg-accent-tint-strong"
-    >
-      {suggestions.length}{" "}
-      {suggestions.length === 1 ? "grouping" : "groupings"} suggested →
-    </Link>
   );
 }
 
@@ -239,14 +214,7 @@ export default async function AssetsPage({
             <HeaderBlurb />
           </Suspense>
         }
-        actions={
-          <>
-            <Suspense fallback={null}>
-              <GroupingPrompt />
-            </Suspense>
-            <ListSearch placeholder="Search assets, models, manufacturers" />
-          </>
-        }
+        actions={<ListSearch placeholder="Search assets, models, manufacturers" />}
       />
 
       <div className="flex flex-wrap items-center gap-2">
