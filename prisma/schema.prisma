@@ -264,14 +264,44 @@ model Vendor {
   @@map("vendors")
 }
 
-// Asset = Product Type (e.g., "RTX 4090")
-// Shared name, category, rates, and total quantity of physical units
+// AssetFamily = the thing you shop for ("Mac Studio", "RTX 5090"), one level
+// above the priced model. Purely a container: it owns no rate, no depreciation
+// and no units, because those genuinely differ between models — a Mac Studio M1
+// Ultra 1TB is $400/month and the 4TB is $550. Everything a family shows about
+// stock or money is rolled up from its models, never stored here, so grouping
+// can be changed or undone without touching a figure anyone relies on.
+//
+// Optional by design. 130 of the 224 assets are one-offs with nothing to group
+// them with, and inventing a family of one for each would be noise.
+model AssetFamily {
+  id          String  @id @default(cuid())
+  name        String  @unique
+  description String?
+  notes       String?
+  imageUrl    String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  assets Asset[]
+
+  @@map("asset_families")
+}
+
+// Asset = a priced model (e.g., "RTX 5090 32GB OC")
+// Shared name, category, rates, and total quantity of physical units.
+// Shown as "Model" in the UI, under the family it belongs to.
 model Asset {
   id          String        @id @default(cuid())
   name        String
   description String?
   categoryId  String
   category    AssetCategory @relation(fields: [categoryId], references: [id])
+
+  // The family this model sits under. Null means ungrouped, which is a normal
+  // resting state and not a backlog.
+  familyId String?
+  family   AssetFamily? @relation(fields: [familyId], references: [id], onDelete: SetNull)
 
   // Import fields
   assetNumber String? // Original Asset# from import
@@ -334,6 +364,7 @@ model Asset {
   invoiceItems     InvoiceItem[]
   poItems          POItem[]
 
+  @@index([familyId])
   @@map("assets")
 }
 
