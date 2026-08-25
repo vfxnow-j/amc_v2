@@ -111,7 +111,7 @@ const RECORD_ROUTES: {
     find: () => firstId(() => prisma.invoice.findFirst({ select: { id: true } })),
   },
   {
-    label: "asset record",
+    label: "model record",
     path: (id) => `/dashboard/assets/${id}`,
     find: () => firstId(() => prisma.asset.findFirst({ select: { id: true } })),
   },
@@ -144,6 +144,15 @@ const RECORD_ROUTES: {
     label: "lease record",
     path: (id) => `/dashboard/leases/${id}`,
     find: () => firstId(() => prisma.lease.findFirst({ select: { id: true } })),
+  },
+  {
+    // The asset (family) record. Its figures are rolled up from the models
+    // rather than stored, so it is the one inventory screen that can break on
+    // data rather than on code — an empty family, a family whose models span
+    // two categories, one with no rates anywhere.
+    label: "asset record",
+    path: (id) => `/dashboard/assets/family/${id}`,
+    find: () => firstId(() => prisma.assetFamily.findFirst({ select: { id: true } })),
   },
   {
     label: "rate card record",
