@@ -1,6 +1,7 @@
 import type {
   BillingCycleType,
   DiscountType,
+  InvoiceStatus,
   ReservationStatus,
 } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
@@ -52,8 +53,28 @@ export type OrderLifecycle = {
     paymentTerms: number | null;
     total: number;
   };
-  /** How much has been raised and settled against the order so far. */
-  invoiced: { count: number; billed: number; paid: number };
+  /**
+   * Everything raised against the order, and the totals over it.
+   *
+   * On the card rather than in a second one: an order's terms and its invoices
+   * are the same question asked twice — what does this bill, and what has it
+   * billed — and answering them in two cards meant the terms could say
+   * "monthly" while the list beside it showed one invoice and neither said why.
+   */
+  invoiced: {
+    count: number;
+    billed: number;
+    paid: number;
+    rows: {
+      id: string;
+      invoiceNumber: string;
+      status: InvoiceStatus;
+      issued: Date;
+      due: Date;
+      total: number;
+      paid: number;
+    }[];
+  };
   /** Live links to the online quote, and when the newest one dies. */
   quoteLinks: { count: number; latestExpiry: Date | null };
 };
@@ -100,10 +121,18 @@ export async function getOrderLifecycle(
         total: true,
       },
     }),
-    prisma.invoice.aggregate({
-      where: { reservationId: id, status: { notIn: ["VOID", "CANCELLED"] } },
-      _sum: { total: true, amountPaid: true },
-      _count: true,
+    prisma.invoice.findMany({
+      where: { reservationId: id },
+      orderBy: { issueDate: "desc" },
+      select: {
+        id: true,
+        invoiceNumber: true,
+        status: true,
+        issueDate: true,
+        dueDate: true,
+        total: true,
+        amountPaid: true,
+      },
     }),
     prisma.quoteToken.aggregate({
       where: { reservationId: id, expiresAt: { gt: now }, usedAt: null },
@@ -113,6 +142,10 @@ export async function getOrderLifecycle(
   ]);
 
   if (!order) return null;
+
+  const live = invoices.filter(
+    (invoice) => invoice.status !== "VOID" && invoice.status !== "CANCELLED",
+  );
 
   return {
     id: order.id,
@@ -150,9 +183,20 @@ export async function getOrderLifecycle(
       total: Number(order.total),
     },
     invoiced: {
-      count: invoices._count,
-      billed: Number(invoices._sum.total ?? 0),
-      paid: Number(invoices._sum.amountPaid ?? 0),
+      // Void and canceled invoices carry a total nobody is waiting for, so they
+      // are listed but never counted — the same rule the Accounts record uses.
+      count: live.length,
+      billed: live.reduce((sum, invoice) => sum + Number(invoice.total), 0),
+      paid: live.reduce((sum, invoice) => sum + Number(invoice.amountPaid), 0),
+      rows: invoices.map((invoice) => ({
+        id: invoice.id,
+        invoiceNumber: invoice.invoiceNumber,
+        status: invoice.status,
+        issued: invoice.issueDate,
+        due: invoice.dueDate,
+        total: Number(invoice.total),
+        paid: Number(invoice.amountPaid),
+      })),
     },
     quoteLinks: {
       count: links._count,

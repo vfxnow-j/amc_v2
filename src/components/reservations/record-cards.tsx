@@ -2,7 +2,6 @@ import Link from "next/link";
 import { Card, CardSkeleton } from "@/components/record/record-card";
 import {
   getReservationActivity,
-  getReservationInvoices,
   getReservationLines,
   type RecordUnit,
 } from "@/lib/queries/reservation-record";
@@ -134,51 +133,6 @@ export async function LinesCard({ id }: { id: string }) {
           </li>
         ))}
       </ul>
-    </Card>
-  );
-}
-
-export async function BillingCard({ id }: { id: string }) {
-  const invoices = await getReservationInvoices(id);
-  const billed = invoices.reduce((sum, invoice) => sum + invoice.total, 0);
-  const paid = invoices.reduce((sum, invoice) => sum + invoice.amountPaid, 0);
-
-  return (
-    <Card
-      title="Billing"
-      meta={
-        invoices.length === 0
-          ? undefined
-          : `${MONEY.format(paid)} of ${MONEY.format(billed)} paid`
-      }
-    >
-      {invoices.length === 0 ? (
-        <p className="px-4 pb-4 text-body text-ink-muted">
-          Nothing invoiced against this order yet. Invoices raised from it appear
-          here.
-        </p>
-      ) : (
-        <ul className="flex flex-col gap-px px-2 pb-3">
-          {invoices.map((invoice) => (
-            <li key={invoice.id}>
-              <Link
-                href={`/dashboard/invoices/${invoice.id}`}
-                className="grid grid-cols-[1fr_84px_90px] items-center gap-2 rounded-row px-2 py-[6px] text-detail hover:bg-row-hover"
-              >
-                <span className="truncate font-bold">
-                  {invoice.invoiceNumber}
-                </span>
-                <span className="truncate text-ink-muted">
-                  {invoice.status.toLowerCase()}
-                </span>
-                <span className="text-right tabular-nums">
-                  {MONEY.format(invoice.total)}
-                </span>
-              </Link>
-            </li>
-          ))}
-        </ul>
-      )}
     </Card>
   );
 }

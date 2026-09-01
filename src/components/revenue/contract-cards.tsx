@@ -142,67 +142,6 @@ export async function ContractLinesCard({ id }: { id: string }) {
 }
 
 /** What has been billed against the contract, and what has come in. */
-export async function ContractBillingCard({
-  id,
-  value,
-}: {
-  id: string;
-  value: number;
-}) {
-  const { rows, invoiced, paid } = await getContractInvoices(id);
-
-  return (
-    <Card
-      title="Billing"
-      meta={
-        rows.length === 0
-          ? undefined
-          : `${moneyExact(paid)} of ${moneyExact(invoiced)} invoiced`
-      }
-    >
-      {rows.length === 0 ? (
-        <CardEmpty>
-          Nothing has been invoiced against this contract, so none of its{" "}
-          {money(value)} has been asked for. Raise an invoice from the order.
-        </CardEmpty>
-      ) : (
-        <>
-          <ul className="flex flex-col gap-px px-2 pb-2">
-            {rows.map((invoice) => (
-              <li key={invoice.id}>
-                <Link
-                  href={`/dashboard/invoices/${invoice.id}`}
-                  className="grid grid-cols-[1fr_80px_100px] items-baseline gap-2 rounded-row px-2 py-[6px] text-detail hover:bg-row-hover"
-                >
-                  <span className="truncate font-bold tabular-nums">
-                    {invoice.invoiceNumber}
-                  </span>
-                  <span className="truncate text-ink-muted">
-                    {INVOICE_STATUS_LABEL[invoice.status]}
-                  </span>
-                  <span className="text-right tabular-nums">
-                    {moneyExact(invoice.total)}
-                  </span>
-                </Link>
-              </li>
-            ))}
-          </ul>
-          {/* The contract value and what has been invoiced are different facts,
-              and on a rent-to-own they are meant to differ for years. Saying
-              which is which stops the gap reading as a missing invoice. */}
-          <p className="px-4 pb-4 text-detail text-ink-muted">
-            {Math.abs(invoiced - value) < 0.01
-              ? "The contract has been invoiced in full."
-              : invoiced < value
-                ? `${moneyExact(value - invoiced)} of the ${moneyExact(value)} contract has not been invoiced yet.`
-                : `${moneyExact(invoiced - value)} more has been invoiced than the contract is worth.`}
-          </p>
-        </>
-      )}
-    </Card>
-  );
-}
-
 /**
  * The units that physically changed hands.
  *

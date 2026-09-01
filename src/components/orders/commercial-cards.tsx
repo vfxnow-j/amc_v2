@@ -1,5 +1,4 @@
 import { Card, CardEmpty, Field, Unset } from "@/components/record/record-card";
-import { ContractBillingCard } from "@/components/revenue/contract-cards";
 import { dayYear, moneyExact } from "@/lib/format";
 import { getContractOrder } from "@/lib/queries/contract-record";
 
@@ -58,13 +57,6 @@ export function MarginStripSkeleton() {
   return (
     <section className="h-[62px] animate-pulse rounded-card bg-panel shadow-sm" />
   );
-}
-
-/** Invoices raised against the order, and what is still owed. */
-export async function OrderBillingCard({ id }: { id: string }) {
-  const order = await getContractOrder(id);
-  if (!order) return null;
-  return <ContractBillingCard id={id} value={order.total} />;
 }
 
 /**

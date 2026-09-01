@@ -5,7 +5,6 @@ import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/shell/page-header";
 import {
   ActivityCard,
-  BillingCard,
   Card,
   CardSkeleton,
   LinesCard,
@@ -16,10 +15,9 @@ import {
   CommercialDetailsCard,
   MarginStrip,
   MarginStripSkeleton,
-  OrderBillingCard,
   RtoTermsCard,
 } from "@/components/orders/commercial-cards";
-import { BillingTermsCard } from "@/components/orders/billing-terms-card";
+import { OrderBillingCard } from "@/components/orders/billing-card";
 import {
   OrderActionBar,
   OrderActionBarSkeleton,
@@ -194,14 +192,10 @@ export default async function OrderRecordPage({ params }: Params) {
             </Suspense>
           ) : null}
 
-          <Suspense fallback={<CardSkeleton title="Billing terms" rows={4} />}>
-            <BillingTermsCard id={id} type={header.type} />
-          </Suspense>
-
-          <Suspense fallback={<CardSkeleton title="Billing" rows={3} />}>
-            {/* A sale's billing is read against the contract value; a rental's
-                against what has been invoiced as it runs. */}
-            {commercial ? <OrderBillingCard id={id} /> : <BillingCard id={id} />}
+          {/* One card: what it bills on, and what it has billed. The type
+              changes only the closing sentence — see billing-card.tsx. */}
+          <Suspense fallback={<CardSkeleton title="Billing" rows={6} />}>
+            <OrderBillingCard id={id} type={header.type} />
           </Suspense>
 
           {commercial ? (
