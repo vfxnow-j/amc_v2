@@ -87,3 +87,129 @@ export async function getRevenueByType(
     window: WINDOW_LABEL[range],
   };
 }
+
+// ---------------------------------------------------------------------------
+// The billing book
+// ---------------------------------------------------------------------------
+
+export type BillingBook = {
+  /** Active orders that bill again on a cycle. */
+  recurring: {
+    count: number;
+    /** The order value carried by them. Not per-cycle — see the note below. */
+    value: number;
+    /** Billing on or before the next seven days. */
+    dueSoon: number;
+    /** Recurring, active, and with no next billing date — the run skips these. */
+    stalled: number;
+  };
+  /** Committed orders that bill once. */
+  oneTime: {
+    count: number;
+    value: number;
+    /** Of those, how many have had nothing raised against them yet. */
+    uninvoiced: number;
+    uninvoicedValue: number;
+  };
+  /** Committed orders deliberately never invoiced. */
+  notBilled: { count: number; value: number };
+};
+
+/**
+ * Recurring against one-time, across the committed book.
+ *
+ * The question this answers is the one the type cards cannot: of everything
+ * live, how much bills again by itself and how much has to be raised by hand.
+ * They are different businesses — one is a subscription book that keeps
+ * earning while nobody touches it, the other is a queue of invoices somebody
+ * has to remember.
+ *
+ * Two limits, stated rather than smoothed over:
+ *
+ * - **`value` is the order's total, not a per-cycle figure.** A recurring
+ *   order's `total` is what the whole term is worth, and no column holds "what
+ *   one cycle costs" — `runBillingCycle` derives it from the lines at billing
+ *   time. Summing totals and calling it MRR would be a fabricated number of
+ *   exactly the kind the loanAmount trap produced, so it is labelled as
+ *   contract value and left alone.
+ * - **`stalled` is a real fault, not a rounding**. `runBillingCycle` filters on
+ *   `nextBillingDate: { lte: now }`, so a recurring order with a null date is
+ *   never picked up and never bills. It is counted because nothing else counts
+ *   it.
+ */
+export async function getBillingBook(now = new Date()): Promise<BillingBook> {
+  const soon = new Date(now);
+  soon.setDate(soon.getDate() + 7);
+
+  const committed: Prisma.ReservationWhereInput = {
+    status: { in: OPEN_STATUSES },
+  };
+  const recurring: Prisma.ReservationWhereInput = {
+    ...committed,
+    notBilled: false,
+    isRecurring: true,
+    billingCycleType: { not: "ONE_TIME" },
+  };
+  const oneTime: Prisma.ReservationWhereInput = {
+    ...committed,
+    notBilled: false,
+    OR: [{ billingCycleType: "ONE_TIME" }, { isRecurring: false }],
+  };
+
+  const [recurringAgg, dueSoon, stalled, oneTimeAgg, oneTimeRows, invoiced, notBilledAgg] =
+    await Promise.all([
+      prisma.reservation.aggregate({
+        where: recurring,
+        _sum: { total: true },
+        _count: true,
+      }),
+      prisma.reservation.count({
+        where: { ...recurring, nextBillingDate: { lte: soon, not: null } },
+      }),
+      prisma.reservation.count({ where: { ...recurring, nextBillingDate: null } }),
+      prisma.reservation.aggregate({
+        where: oneTime,
+        _sum: { total: true },
+        _count: true,
+      }),
+      prisma.reservation.findMany({
+        where: oneTime,
+        select: { id: true, total: true },
+      }),
+      prisma.invoice.groupBy({
+        by: ["reservationId"],
+        where: {
+          reservationId: { not: null },
+          status: { notIn: ["VOID", "CANCELLED"] },
+        },
+        _count: true,
+      }),
+      prisma.reservation.aggregate({
+        where: { ...committed, notBilled: true },
+        _sum: { total: true },
+        _count: true,
+      }),
+    ]);
+
+  const hasInvoice = new Set(invoiced.map((row) => row.reservationId));
+  const bare = oneTimeRows.filter((row) => !hasInvoice.has(row.id));
+
+  return {
+    recurring: {
+      count: recurringAgg._count,
+      value: Number(recurringAgg._sum.total ?? 0),
+      dueSoon,
+      stalled,
+    },
+    oneTime: {
+      count: oneTimeAgg._count,
+      value: Number(oneTimeAgg._sum.total ?? 0),
+      uninvoiced: bare.length,
+      uninvoicedValue: bare.reduce((sum, row) => sum + Number(row.total), 0),
+    },
+    notBilled: {
+      count: notBilledAgg._count,
+      value: Number(notBilledAgg._sum.total ?? 0),
+    },
+  };
+}

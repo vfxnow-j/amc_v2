@@ -19,6 +19,12 @@ import {
   OrderBillingCard,
   RtoTermsCard,
 } from "@/components/orders/commercial-cards";
+import { BillingTermsCard } from "@/components/orders/billing-terms-card";
+import {
+  OrderActionBar,
+  OrderActionBarSkeleton,
+} from "@/components/orders/order-action-bar";
+import { StageStrip, StageStripSkeleton } from "@/components/orders/stage-strip";
 import { getReservationHeader } from "@/lib/queries/reservation-record";
 import { STATUS_LABEL, TYPE_LABEL } from "@/lib/reservations/status";
 import type { ReservationStatus, ReservationType } from "@/generated/prisma/client";
@@ -117,6 +123,17 @@ export default async function OrderRecordPage({ params }: Params) {
         }
       />
 
+      {/* Every stage it has passed through, and the move out of the one it is
+          at. Both read the same lifecycle map, so the line and the button can
+          never disagree about where the order is. */}
+      <Suspense fallback={<StageStripSkeleton />}>
+        <StageStrip id={id} />
+      </Suspense>
+
+      <Suspense fallback={<OrderActionBarSkeleton />}>
+        <OrderActionBar id={id} type={header.type} />
+      </Suspense>
+
       {/* Handover at a glance, before any card has to load. */}
       <section className="flex items-center gap-3 rounded-card bg-panel px-4 py-3 shadow-sm">
         <Progress label="Ordered" value={progress.ordered} />
@@ -159,7 +176,8 @@ export default async function OrderRecordPage({ params }: Params) {
             <Card title="Check out">
               <p className="px-4 pb-4 text-body text-ink-muted">
                 This order is {STATUS_LABEL[header.status].toLowerCase()}. Units
-                can be scanned out once it starts preparing.
+                can be scanned out against its lines once it starts preparing —
+                use Prepare order above.
               </p>
             </Card>
           ) : null}
@@ -169,6 +187,10 @@ export default async function OrderRecordPage({ params }: Params) {
               <RtoTermsCard id={id} />
             </Suspense>
           ) : null}
+
+          <Suspense fallback={<CardSkeleton title="Billing terms" rows={4} />}>
+            <BillingTermsCard id={id} type={header.type} />
+          </Suspense>
 
           <Suspense fallback={<CardSkeleton title="Billing" rows={3} />}>
             {/* A sale's billing is read against the contract value; a rental's

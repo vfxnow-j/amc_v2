@@ -1,0 +1,456 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { addDays } from "date-fns";
+import { prisma } from "@/lib/prisma";
+import { requireEditor } from "@/lib/auth-utils";
+import {
+  activateReservation,
+  approveReservation,
+  cancelReservation,
+  completeReservation,
+  markLost,
+  markQuoteSent,
+  markShipped,
+  requestRevision,
+  startPreparing,
+  updateReservation,
+} from "@/lib/actions/reservations";
+import { generateQuoteToken, sendQuoteLinkEmail } from "@/lib/actions/quote-tokens";
+import { createInvoiceFromReservation } from "@/lib/actions/invoices";
+import { isEmailConfigured } from "@/lib/email/client";
+import type { BillingCycleType } from "@/generated/prisma/client";
+
+/**
+ * The stage controls on the order record.
+ *
+ * A sibling to `lib/actions/desk.ts`, and for the same reason: the ported
+ * transition actions each return a different shape — one throws, one returns
+ * `{ error }`, one returns the updated row — and a screen cannot render three
+ * shapes. Everything here comes back as one `StageOutcome`, so the action bar
+ * has exactly one thing to handle.
+ *
+ * Nothing here re-implements a transition. Each wrapper calls the ported action
+ * that already holds the transaction, the guard and the `StatusHistory` write,
+ * and adds only what the screen needs on top: a message a person can read, and
+ * the follow-on the dialog asked for (an email, an invoice).
+ */
+
+export type StageOutcome =
+  | { status: "ok"; message: string; href?: string }
+  | { status: "error"; message: string };
+
+/** The ported actions disagree about how to fail. This is the one reading. */
+function reasonFrom(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return "That did not work. Try again, or check the order's status.";
+}
+
+/** `{ error }` is how about half the ported actions refuse. */
+function refusal(result: unknown): string | null {
+  if (result && typeof result === "object" && "error" in result) {
+    const { error } = result as { error?: unknown };
+    if (typeof error === "string") return error;
+  }
+  return null;
+}
+
+function touch(id: string) {
+  revalidatePath("/dashboard/orders");
+  revalidatePath(`/dashboard/orders/${id}`);
+}
+
+// ---------------------------------------------------------------------------
+// Quoting
+// ---------------------------------------------------------------------------
+
+/**
+ * Mint a link to the online quote, for copying.
+ *
+ * Also stamps a 30-day expiry on the order when it has none, which is why this
+ * is a write and not a read: the date on the link, on the PDF and on the order
+ * have to be the same date.
+ */
+export async function createQuoteLink(
+  id: string,
+): Promise<{ status: "ok"; url: string } | { status: "error"; message: string }> {
+  try {
+    const { url } = await generateQuoteToken(id);
+    touch(id);
+    return { status: "ok", url };
+  } catch (error) {
+    return { status: "error", message: reasonFrom(error) };
+  }
+}
+
+/**
+ * Send the quote, and record that it went.
+ *
+ * Two halves that are allowed to disagree. Emailing is best-effort — this
+ * instance ships with outbound mail switched off, and a quote read out over the
+ * phone or pasted into a thread is still a quote that was sent. So the status
+ * moves on the person's say-so (they pressed OK), and the message says exactly
+ * which addresses actually received something and which did not.
+ *
+ * Each recipient gets its own token. `sendQuoteLinkEmail` mints one per send,
+ * and rather than fight that, it is the better behaviour: a link forwarded on
+ * can be told apart from the one that was issued.
+ */
+export async function sendOrderQuote(
+  id: string,
+  input: { emails: string[]; message?: string },
+): Promise<StageOutcome> {
+  const auth = await requireEditor();
+  if (!auth.authorized) return { status: "error", message: auth.error ?? "Unauthorized" };
+
+  const recipients = input.emails
+    .flatMap((entry) => entry.split(/[,;\s]+/))
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+
+  const sent: string[] = [];
+  const failed: string[] = [];
+
+  if (recipients.length > 0 && !isEmailConfigured()) {
+    failed.push(...recipients);
+  } else {
+    for (const email of recipients) {
+      try {
+        await sendQuoteLinkEmail(id, email, input.message);
+        sent.push(email);
+      } catch {
+        failed.push(email);
+      }
+    }
+  }
+
+  // sendQuoteLinkEmail already moves DRAFT/REVISION to QUOTE_SENT on a
+  // successful send. When nothing sent — or the order was already out — this is
+  // what records it, and a refusal here is only ever "it is past that stage".
+  const order = await prisma.reservation.findUnique({
+    where: { id },
+    select: { status: true },
+  });
+  if (!order) return { status: "error", message: "Order not found." };
+
+  let moved = false;
+  if (order.status === "DRAFT" || order.status === "REVISION") {
+    const result = await markQuoteSent(id);
+    const problem = refusal(result);
+    if (problem) return { status: "error", message: problem };
+    moved = true;
+  }
+
+  touch(id);
+
+  const parts: string[] = [];
+  if (sent.length > 0) parts.push(`Emailed to ${sent.join(", ")}.`);
+  if (failed.length > 0) {
+    parts.push(
+      isEmailConfigured()
+        ? `Could not email ${failed.join(", ")} — send the link yourself.`
+        : `Outbound email is switched off here, so ${failed.join(", ")} was not written to. Copy the link and send it yourself.`,
+    );
+  }
+  parts.push(moved ? "Marked as quoted." : "Already marked as quoted.");
+
+  return { status: "ok", message: parts.join(" ") };
+}
+
+// ---------------------------------------------------------------------------
+// Committing
+// ---------------------------------------------------------------------------
+
+/** `force` skips the stock check the action runs, which only warns anyway. */
+export async function approveOrder(id: string, force?: boolean): Promise<StageOutcome> {
+  try {
+    const result = await approveReservation(id, force);
+    const problem = refusal(result);
+    if (problem) return { status: "error", message: problem };
+    touch(id);
+    return { status: "ok", message: "Approved. It can be prepared now." };
+  } catch (error) {
+    return { status: "error", message: reasonFrom(error) };
+  }
+}
+
+export async function reviseOrder(id: string, notes?: string): Promise<StageOutcome> {
+  try {
+    const result = await requestRevision(id, notes?.trim() || undefined);
+    const problem = refusal(result);
+    if (problem) return { status: "error", message: problem };
+    touch(id);
+    return { status: "ok", message: "Pulled back for revision. Reprice it, then send it again." };
+  } catch (error) {
+    return { status: "error", message: reasonFrom(error) };
+  }
+}
+
+export async function loseOrder(id: string, reason?: string): Promise<StageOutcome> {
+  try {
+    await markLost(id, reason?.trim() || undefined);
+    touch(id);
+    return { status: "ok", message: "Marked lost." };
+  } catch (error) {
+    return { status: "error", message: reasonFrom(error) };
+  }
+}
+
+export async function cancelOrder(id: string, reason?: string): Promise<StageOutcome> {
+  try {
+    await cancelReservation(id, reason?.trim() || undefined);
+    touch(id);
+    return { status: "ok", message: "Order canceled. Any assigned units were released." };
+  } catch (error) {
+    return { status: "error", message: reasonFrom(error) };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// The floor
+// ---------------------------------------------------------------------------
+
+/**
+ * Hand the order to the floor.
+ *
+ * Two things at once, because on this floor they are one act: the order is
+ * flagged as being built by a named person, and — if asked for — the client is
+ * told it is being built. The notification is optional and its failure is not
+ * the transition's failure; the kit is being pulled either way.
+ *
+ * `preparedById` defaults to whoever pressed the button. Nobody prepares an
+ * order anonymously, and making the common case require a dropdown selection
+ * only produces orders with nobody's name on them.
+ */
+export async function prepareOrder(
+  id: string,
+  input: { preparedById?: string; notifyEmail?: string },
+): Promise<StageOutcome> {
+  const auth = await requireEditor();
+  if (!auth.authorized) return { status: "error", message: auth.error ?? "Unauthorized" };
+
+  const email = input.notifyEmail?.trim();
+  if (email && !isEmailConfigured()) {
+    return {
+      status: "error",
+      message:
+        "Outbound email is switched off in this instance, so the client cannot be notified. Clear the address to prepare the order without one.",
+    };
+  }
+
+  try {
+    const result = await startPreparing(
+      id,
+      input.preparedById || auth.userId,
+      email ? { email } : undefined,
+    );
+    const problem = refusal(result);
+    if (problem) return { status: "error", message: problem };
+    touch(id);
+    return {
+      status: "ok",
+      message: email
+        ? `Preparing. ${email} was told the order is being built.`
+        : "Preparing. Scan units out against the lines as they are pulled.",
+    };
+  } catch (error) {
+    return { status: "error", message: reasonFrom(error) };
+  }
+}
+
+export async function shipOrder(
+  id: string,
+  input: { notifyEmail?: string },
+): Promise<StageOutcome> {
+  const email = input.notifyEmail?.trim();
+  if (email && !isEmailConfigured()) {
+    return {
+      status: "error",
+      message:
+        "Outbound email is switched off in this instance, so the client cannot be notified. Clear the address to mark it shipped without one.",
+    };
+  }
+
+  try {
+    const result = await markShipped(id, email ? { email } : undefined);
+    const problem = refusal(result);
+    if (problem) return { status: "error", message: problem };
+    touch(id);
+    return { status: "ok", message: "Marked shipped." };
+  } catch (error) {
+    return { status: "error", message: reasonFrom(error) };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Billing
+// ---------------------------------------------------------------------------
+
+export type BillingTerms = {
+  billingCycleType: BillingCycleType;
+  billingCycleDay: number;
+  billingCycleDays: number | null;
+  isRecurring: boolean;
+  notBilled: boolean;
+  taxRate: number;
+  discountType: "PERCENTAGE" | "FIXED" | null;
+  discountValue: number;
+  paymentTerms: number | null;
+};
+
+/**
+ * Save what the order bills on.
+ *
+ * Delegated to `updateReservation` rather than written here, because the cycle,
+ * the discount and the tax rate all feed the stored totals — writing the
+ * columns directly would leave an order whose header total disagreed with its
+ * own tax rate. It also recomputes `nextBillingDate` from the cycle, which is
+ * the column the billing run actually reads.
+ */
+export async function saveBillingTerms(
+  id: string,
+  terms: BillingTerms,
+): Promise<StageOutcome> {
+  if (terms.billingCycleType === "CUSTOM" && !terms.billingCycleDays) {
+    return { status: "error", message: "A custom cycle needs a length in days." };
+  }
+  if (terms.taxRate < 0 || terms.taxRate > 100) {
+    return { status: "error", message: "A tax rate is a percentage between 0 and 100." };
+  }
+  if (terms.discountType === "PERCENTAGE" && terms.discountValue > 100) {
+    return { status: "error", message: "A percentage discount cannot exceed 100." };
+  }
+
+  try {
+    await updateReservation(id, {
+      billingCycleType: terms.billingCycleType,
+      billingCycleDay: terms.billingCycleDay,
+      ...(terms.billingCycleDays ? { billingCycleDays: terms.billingCycleDays } : {}),
+      // A one-time charge is never recurring, whatever the switch said.
+      isRecurring: terms.billingCycleType === "ONE_TIME" ? false : terms.isRecurring,
+      notBilled: terms.notBilled,
+      taxRate: terms.taxRate,
+      discountType: terms.discountType ?? undefined,
+      discountValue: terms.discountValue,
+      ...(terms.paymentTerms != null ? { paymentTerms: terms.paymentTerms } : {}),
+    });
+    touch(id);
+    return { status: "ok", message: "Billing terms saved. The order total was repriced against them." };
+  } catch (error) {
+    return { status: "error", message: reasonFrom(error) };
+  }
+}
+
+/**
+ * Raise an invoice against the order, now.
+ *
+ * The recurring billing run raises the scheduled ones; this is the manual
+ * counterpart, for the first charge on activation and for anything billed
+ * out of cycle. The due date comes from the order's own payment terms, falling
+ * back to the client's — the same precedence `runBillingCycle` uses.
+ */
+export async function invoiceOrder(
+  id: string,
+  input?: { dueDays?: number },
+): Promise<StageOutcome> {
+  const order = await prisma.reservation.findUnique({
+    where: { id },
+    select: {
+      notBilled: true,
+      total: true,
+      paymentTerms: true,
+      client: { select: { paymentTerms: true } },
+    },
+  });
+  if (!order) return { status: "error", message: "Order not found." };
+  if (order.notBilled) {
+    return {
+      status: "error",
+      message: "This order is marked not billed. Clear that in its billing terms before invoicing it.",
+    };
+  }
+
+  const days = input?.dueDays ?? order.paymentTerms ?? order.client.paymentTerms ?? 30;
+
+  try {
+    const invoice = await createInvoiceFromReservation(id, addDays(new Date(), days));
+    touch(id);
+    revalidatePath("/dashboard/invoices");
+    const number = (invoice as { invoiceNumber?: string })?.invoiceNumber;
+    const invoiceId = (invoice as { id?: string })?.id;
+    return {
+      status: "ok",
+      message: `${number ?? "Invoice"} raised, due in ${days} days. It is a draft until you send it.`,
+      href: invoiceId ? `/dashboard/invoices/${invoiceId}` : undefined,
+    };
+  } catch (error) {
+    return { status: "error", message: reasonFrom(error) };
+  }
+}
+
+/**
+ * Activate the order: the point revenue starts.
+ *
+ * Activation is what puts an order on the billing run — `runBillingCycle` only
+ * looks at `status: ACTIVE` — so this is the last moment the cycle can be got
+ * right, and the dialog that calls it shows the terms rather than hiding them.
+ * Terms passed here are saved first, so what the person confirmed is what the
+ * order bills on.
+ *
+ * The first invoice is optional and raised after activation, never before: an
+ * invoice against an order that failed to activate is worse than no invoice.
+ */
+export async function activateOrder(
+  id: string,
+  input?: { terms?: BillingTerms; invoiceNow?: boolean },
+): Promise<StageOutcome> {
+  if (input?.terms) {
+    const saved = await saveBillingTerms(id, input.terms);
+    if (saved.status === "error") return saved;
+  }
+
+  try {
+    await activateReservation(id);
+  } catch (error) {
+    return { status: "error", message: reasonFrom(error) };
+  }
+
+  touch(id);
+
+  const order = await prisma.reservation.findUnique({
+    where: { id },
+    select: { billingCycleType: true, isRecurring: true, nextBillingDate: true, notBilled: true },
+  });
+
+  const cycle =
+    order?.notBilled === true
+      ? "It is marked not billed, so nothing will be raised against it."
+      : order?.billingCycleType === "ONE_TIME"
+        ? "It bills once, for the whole term."
+        : order?.nextBillingDate
+          ? `Next invoice ${order.nextBillingDate.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}.`
+          : "No next billing date is set, so the run will not pick it up.";
+
+  if (!input?.invoiceNow) {
+    return { status: "ok", message: `Order active. ${cycle}` };
+  }
+
+  const invoiced = await invoiceOrder(id);
+  if (invoiced.status === "error") {
+    return {
+      status: "ok",
+      message: `Order active. ${cycle} The invoice was not raised: ${invoiced.message}`,
+    };
+  }
+  return { status: "ok", message: `Order active. ${invoiced.message}`, href: invoiced.href };
+}
+
+export async function completeOrder(id: string): Promise<StageOutcome> {
+  try {
+    await completeReservation(id);
+    touch(id);
+    return { status: "ok", message: "Order completed." };
+  } catch (error) {
+    return { status: "error", message: reasonFrom(error) };
+  }
+}

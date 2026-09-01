@@ -10,6 +10,10 @@ import {
   RevenueStrip,
   RevenueStripSkeleton,
 } from "@/components/orders/revenue-strip";
+import {
+  BillingBook,
+  BillingBookSkeleton,
+} from "@/components/orders/billing-book";
 import { RangeControl } from "@/components/overview/range-control";
 import { PageHeader } from "@/components/shell/page-header";
 import { moneyCompact } from "@/lib/format";
@@ -126,6 +130,13 @@ export default async function OrdersPage({
 
       <Suspense fallback={<RevenueStripSkeleton />}>
         <RevenueStrip range={range} />
+      </Suspense>
+
+      {/* Where the money comes from, then how it arrives. The second is not the
+          first split differently: a recurring order and a one-time one of the
+          same type and value behave nothing alike once they are active. */}
+      <Suspense fallback={<BillingBookSkeleton />}>
+        <BillingBook />
       </Suspense>
 
       <div className="flex flex-wrap items-center gap-2">
