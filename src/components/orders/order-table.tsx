@@ -5,7 +5,7 @@ import {
   type Column,
   type Row,
 } from "@/components/list/list-table";
-import { money, windowLabel } from "@/lib/format";
+import { dayYear, daysUntil, money, windowLabel } from "@/lib/format";
 import { TYPE_FILTER_LABEL, type TypeFilter } from "@/lib/orders/types";
 import { getReservationList } from "@/lib/queries/reservations";
 import { STATUS_LABEL, TYPE_LABEL } from "@/lib/reservations/status";
@@ -16,6 +16,7 @@ const COLUMNS: Column[] = [
   { key: "number", label: "Order", width: "132px" },
   { key: "type", label: "Type", width: "96px" },
   { key: "client", label: "Client", width: "minmax(0,1.4fr)" },
+  { key: "raised", label: "Raised", width: "84px" },
   { key: "window", label: "Window", width: "136px" },
   { key: "units", label: "Units", width: "66px", align: "right" },
   { key: "value", label: "Value", width: "88px", align: "right" },
@@ -103,6 +104,12 @@ export async function OrderTable({
           ) : null}
         </span>
       ),
+      // The column the list is sorted by. Relative while it is recent, because
+      // "Today" is what makes a newly raised order findable at a glance; a date
+      // once it is old enough that the exact day matters more than the gap.
+      raised: (
+        <span className="truncate text-ink-muted">{raisedLabel(row.raised)}</span>
+      ),
       window: (
         <span className="truncate text-ink-muted">
           {windowLabel(row.start, row.end)}
@@ -159,3 +166,12 @@ export async function OrderTable({
 }
 
 export { ListTableSkeleton as OrderTableSkeleton };
+
+/** "Today" · "3d ago" · "Jul 12, 26" — how recently the order was written. */
+function raisedLabel(raised: Date, now: Date = new Date()): string {
+  const days = -daysUntil(raised, now);
+  if (days <= 0) return "Today";
+  if (days === 1) return "Yesterday";
+  if (days < 14) return `${days}d ago`;
+  return dayYear(raised);
+}

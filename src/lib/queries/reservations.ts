@@ -92,6 +92,8 @@ export type ReservationRow = {
   type: ReservationType;
   clientName: string;
   projectName: string | null;
+  /** When the order was written. The list is sorted by it. */
+  raised: Date;
   start: Date;
   end: Date;
   status: ReservationStatus;
@@ -154,14 +156,20 @@ export async function getReservationList({
   const [records, total] = await Promise.all([
     prisma.reservation.findMany({
       where,
-      // Most recent window first: the hub is a working list, not an archive.
-      orderBy: [{ startDate: "desc" }],
+      // Most recently raised first (owner's call, 2026-09-01). It sorted by
+      // startDate — "most recent window first" — which sorts by when the job
+      // runs rather than when the order was written, so an order booked for
+      // October sat above one raised this morning and new work was invisible
+      // among forward bookings. The list carries a Raised column now, because
+      // a list sorted by a value it does not show cannot be read.
+      orderBy: [{ createdAt: "desc" }],
       skip: (page - 1) * PAGE_SIZE,
       take: PAGE_SIZE,
       select: {
         id: true,
         reservationNumber: true,
         reservationType: true,
+        createdAt: true,
         startDate: true,
         endDate: true,
         status: true,
@@ -198,6 +206,7 @@ export async function getReservationList({
         type: record.reservationType,
         clientName: record.client.name,
         projectName: record.projectName,
+        raised: record.createdAt,
         start: record.startDate,
         end: record.endDate,
         status: record.status,
