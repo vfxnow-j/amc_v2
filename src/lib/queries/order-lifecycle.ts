@@ -77,13 +77,32 @@ export type OrderLifecycle = {
   };
   /** Live links to the online quote, and when the newest one dies. */
   quoteLinks: { count: number; latestExpiry: Date | null };
+  /**
+   * Whether everything physical is out of the building.
+   *
+   * Shipping is gated on it — `markShipped` refuses while anything is
+   * outstanding — so the record works it out up front and the button says why
+   * rather than offering itself and then failing.
+   *
+   * Only asset-backed, non-component lines count. A service line or a delivery
+   * charge has no unit to scan, and counting it meant an order carrying one
+   * could never ship at all.
+   */
+  handover: {
+    /** Scannable lines not yet fully checked out. */
+    linesOutstanding: number;
+    /** Units still to go out across those lines. */
+    unitsOutstanding: number;
+    /** No scannable lines at all — a services-only or cloud order. */
+    nothingToScan: boolean;
+  };
 };
 
 export async function getOrderLifecycle(
   id: string,
 ): Promise<OrderLifecycle | null> {
   const now = new Date();
-  const [order, invoices, links] = await Promise.all([
+  const [order, invoices, scannable, links] = await Promise.all([
     prisma.reservation.findUnique({
       where: { id },
       select: {
@@ -134,6 +153,15 @@ export async function getOrderLifecycle(
         amountPaid: true,
       },
     }),
+    prisma.reservationItem.findMany({
+      where: {
+        reservationId: id,
+        assetId: { not: null },
+        parentId: null,
+        package: { isActive: true },
+      },
+      select: { quantity: true, checkedOutCount: true },
+    }),
     prisma.quoteToken.aggregate({
       where: { reservationId: id, expiresAt: { gt: now }, usedAt: null },
       _max: { expiresAt: true },
@@ -142,6 +170,10 @@ export async function getOrderLifecycle(
   ]);
 
   if (!order) return null;
+
+  const outstanding = scannable.filter(
+    (item) => item.checkedOutCount < item.quantity,
+  );
 
   const live = invoices.filter(
     (invoice) => invoice.status !== "VOID" && invoice.status !== "CANCELLED",
@@ -201,6 +233,14 @@ export async function getOrderLifecycle(
     quoteLinks: {
       count: links._count,
       latestExpiry: links._max.expiresAt,
+    },
+    handover: {
+      linesOutstanding: outstanding.length,
+      unitsOutstanding: outstanding.reduce(
+        (sum, item) => sum + (item.quantity - item.checkedOutCount),
+        0,
+      ),
+      nothingToScan: scannable.length === 0,
     },
   };
 }

@@ -55,6 +55,7 @@ export async function OrderActionBar({
           clientPaymentTerms={order.client.paymentTerms}
           staff={staff}
           total={billing.total}
+          handover={order.handover}
           terms={{
             billingCycleType: billing.cycleType,
             billingCycleDay: billing.cycleDay,

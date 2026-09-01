@@ -57,6 +57,12 @@ export type OrderActionsProps = {
   terms: BillingTerms;
   /** Shown in the activate dialog so the cycle is confirmed against a figure. */
   total: number;
+  /** What is still to be scanned out. Shipping is gated on it. */
+  handover: {
+    linesOutstanding: number;
+    unitsOutstanding: number;
+    nothingToScan: boolean;
+  };
 };
 
 export function OrderActions(props: OrderActionsProps) {
@@ -81,16 +87,40 @@ export function OrderActions(props: OrderActionsProps) {
 
   const shared = { busy, run, onClose: () => setOpen(null), ...props };
 
+  const { handover } = props;
+  // Preparing *is* checking out — the scan well sits directly below this card,
+  // and the order cannot ship until it is empty of work. Saying what is left
+  // here means nobody has to infer it from the counts strip further up.
+  const preparing = props.status === "PREPARING";
+  const blocked = handover.unitsOutstanding > 0;
+
   return (
     <div className="flex flex-col gap-2">
+      {preparing ? (
+        <p className="text-detail text-balance text-ink-muted">
+          {handover.nothingToScan
+            ? "Nothing physical on this order to scan, so it can ship as soon as you say so."
+            : blocked
+              ? `${handover.unitsOutstanding} ${handover.unitsOutstanding === 1 ? "unit" : "units"} still to scan out across ${handover.linesOutstanding} ${handover.linesOutstanding === 1 ? "line" : "lines"}. Scan them below — it cannot ship until they are all out.`
+              : "Everything is checked out. It can ship."}
+        </p>
+      ) : null}
       {moves.length === 0 ? null : (
         <div className="flex flex-wrap items-center gap-2">
-          {moves.map((spec) => (
+          {moves.map((spec) => {
+            // Offering a button that the server will refuse is worse than not
+            // offering it: the person scans nothing and learns nothing.
+            const gated = spec.move === "ship" && blocked;
+            return (
             <button
               key={spec.move}
               type="button"
-              title={spec.detail}
-              disabled={busy}
+              title={
+                gated
+                  ? `${handover.unitsOutstanding} units still to check out`
+                  : spec.detail
+              }
+              disabled={busy || gated}
               onClick={() => {
                 setOutcome(null);
                 setOpen(spec.move);
@@ -103,7 +133,8 @@ export function OrderActions(props: OrderActionsProps) {
             >
               {spec.label}
             </button>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -364,21 +395,37 @@ function PrepareDialog({ id, clientEmail, staff, busy, run, onClose }: DialogPro
   );
 }
 
-function ShipDialog({ id, clientEmail, busy, run, onClose }: DialogProps) {
+/**
+ * Shipping is the handover: the kit leaves the building and is the client's
+ * problem until it comes back.
+ *
+ * Gated on everything being scanned out, and the gate is stated here as well as
+ * enforced on the server — a shipped order with unscanned kit is a unit nobody
+ * can find. Only lines with a unit to scan count: a service line or a delivery
+ * charge has nothing to check out, and counting those meant an order carrying
+ * one could never ship at all.
+ *
+ * Billing is offered here but not implied by shipping. They are different
+ * facts — kit can be with a client for a week before the cycle starts, and a
+ * cloud order bills without anything shipping — so activation stays a decision,
+ * with its terms confirmed in its own dialog.
+ */
+function ShipDialog({ id, clientEmail, handover, busy, run, onClose }: DialogProps) {
   const [notify, setNotify] = useState(!!clientEmail);
   const [email, setEmail] = useState(clientEmail ?? "");
+  const blocked = handover.unitsOutstanding > 0;
 
   return (
     <Modal
       open
       onOpenChange={(next) => !next && onClose()}
       title="Mark shipped"
-      blurb="Every line has to be checked out first — the order refuses otherwise, because a shipped order with unscanned kit is a unit nobody can find."
+      blurb="The kit leaves the building and is with the client from here. Everything has to be scanned out first."
       footer={
         <>
           <ModalCancel />
           <ModalConfirm
-            disabled={busy || (notify && !email.trim())}
+            disabled={busy || blocked || (notify && !email.trim())}
             onClick={() => run(() => shipOrder(id, { notifyEmail: notify ? email : undefined }))}
           >
             {busy ? "Marking…" : "Mark shipped"}
@@ -386,6 +433,23 @@ function ShipDialog({ id, clientEmail, busy, run, onClose }: DialogProps) {
         </>
       }
     >
+      {blocked ? (
+        <Notice tone="error">
+          {handover.unitsOutstanding}{" "}
+          {handover.unitsOutstanding === 1 ? "unit is" : "units are"} still to be
+          checked out across {handover.linesOutstanding}{" "}
+          {handover.linesOutstanding === 1 ? "line" : "lines"}. Close this and
+          scan them out first.
+        </Notice>
+      ) : (
+        <p className="mb-3 text-detail text-ink-muted">
+          {handover.nothingToScan
+            ? "Nothing physical on this order, so there was nothing to scan."
+            : "Everything on the order is checked out."}{" "}
+          Once shipped it is with the client, and comes back through check-in.
+        </p>
+      )}
+
       <label className="flex items-start gap-2">
         <input
           type="checkbox"
@@ -393,7 +457,12 @@ function ShipDialog({ id, clientEmail, busy, run, onClose }: DialogProps) {
           onChange={(event) => setNotify(event.target.checked)}
           className="mt-[3px] size-4 flex-none accent-[var(--color-accent-solid)]"
         />
-        <span className="text-detail text-ink">Tell the client it is on its way</span>
+        <span className="text-detail text-ink">
+          Tell the client it is on its way
+          <span className="block text-micro text-ink-faint">
+            Sends the order number and its dates. Nothing about pricing.
+          </span>
+        </span>
       </label>
       {notify ? (
         <input
@@ -403,6 +472,11 @@ function ShipDialog({ id, clientEmail, busy, run, onClose }: DialogProps) {
           className="mt-2 h-9 w-full rounded-well border-0 bg-sunken px-3 text-detail text-ink outline-none"
         />
       ) : null}
+
+      <p className="mt-3 border-t border-hairline pt-3 text-micro text-ink-faint">
+        Shipping does not start billing. Activate the order when the cycle
+        should begin — kit is often with a client before it starts earning.
+      </p>
     </Modal>
   );
 }
