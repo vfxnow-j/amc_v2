@@ -134,18 +134,24 @@ export default async function OrderRecordPage({ params }: Params) {
         <OrderActionBar id={id} type={header.type} />
       </Suspense>
 
-      {/* Handover at a glance, before any card has to load. */}
-      <section className="flex items-center gap-3 rounded-card bg-panel px-4 py-3 shadow-sm">
+      {/* The term and the handover, in one strip and before any card has to
+          load. The dates belong beside the counts they govern: "4 of 9 still to
+          go out" means something different the day before the start date than
+          it does a week after it. */}
+      <section className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-card bg-panel px-4 py-3 shadow-sm">
+        <Stamp label="Goes out" value={DAY.format(header.start)} />
+        <Stamp
+          label={header.isRecurring ? "Period ends" : "Due back"}
+          value={DAY.format(header.end)}
+        />
+        <Stamp label="Term" value={termLength(header.start, header.end)} />
+        <span aria-hidden className="h-7 w-px bg-hairline" />
         <Progress label="Ordered" value={progress.ordered} />
         <Progress label="Assigned" value={progress.assigned} />
         <Progress label="Out now" value={outNow} />
         <Progress label="Returned" value={progress.returned} />
-        <p className="ml-auto text-detail text-ink-muted">
-          {!hasUnits
-            ? "No physical units on this order"
-            : outstanding > 0
-              ? `${outstanding} of ${progress.ordered} still to go out`
-              : `${outNow} of ${progress.ordered} still with the client`}
+        <p className="ml-auto max-w-[42ch] text-detail text-balance text-ink-muted">
+          {handover(header, progress.ordered, outNow, outstanding)}
         </p>
       </section>
 
@@ -239,4 +245,75 @@ function Progress({ label, value }: { label: string; value: number }) {
       </span>
     </span>
   );
+}
+
+/** Label over value, for a date rather than a count. */
+function Stamp({ label, value }: { label: string; value: string }) {
+  return (
+    <span className="flex flex-col">
+      <span className="text-micro uppercase text-ink-muted">{label}</span>
+      <span className="text-body font-bold">{value}</span>
+    </span>
+  );
+}
+
+/** How long the order runs, said the way a person would say it. */
+function termLength(start: Date, end: Date): string {
+  const days = Math.max(
+    1,
+    Math.round((end.getTime() - start.getTime()) / 86_400_000),
+  );
+  if (days < 14) return `${days} ${days === 1 ? "day" : "days"}`;
+  if (days < 60) {
+    const weeks = Math.round(days / 7);
+    return `${weeks} ${weeks === 1 ? "week" : "weeks"}`;
+  }
+  const months = Math.round(days / 30);
+  return `${months} months`;
+}
+
+/**
+ * Where the order is against its own dates.
+ *
+ * The one thing this must not do is call a recurring order late. A recurring
+ * order's `endDate` is the end of a **billing period**, not a return date —
+ * counting them as returns once read 214 units overdue against a real 35 — so
+ * a recurring order is never described as due back or overdue here, whatever
+ * its end date says.
+ */
+function handover(
+  header: { start: Date; end: Date; isRecurring: boolean },
+  ordered: number,
+  outNow: number,
+  outstanding: number,
+): string {
+  if (ordered === 0) return "No physical units on this order";
+
+  const now = Date.now();
+  const days = (to: Date) => Math.round((to.getTime() - now) / 86_400_000);
+
+  if (outstanding > 0) {
+    const until = days(header.start);
+    const when =
+      until > 1
+        ? `, ${until} days before it goes out`
+        : until === 1
+          ? ", due out tomorrow"
+          : until === 0
+            ? ", due out today"
+            : `, ${Math.abs(until)} days past the start date`;
+    return `${outstanding} of ${ordered} still to go out${when}`;
+  }
+
+  if (outNow === 0) return `All ${ordered} back`;
+
+  if (header.isRecurring) {
+    return `${outNow} of ${ordered} with the client, on a recurring order — its end date is a billing period, not a return`;
+  }
+
+  const left = days(header.end);
+  if (left > 1) return `${outNow} of ${ordered} with the client, back in ${left} days`;
+  if (left === 1) return `${outNow} of ${ordered} with the client, back tomorrow`;
+  if (left === 0) return `${outNow} of ${ordered} with the client, back today`;
+  return `${outNow} of ${ordered} still out, ${Math.abs(left)} days past the return date`;
 }
