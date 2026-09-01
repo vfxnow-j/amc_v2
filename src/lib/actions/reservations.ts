@@ -2681,17 +2681,33 @@ export async function markShipped(id: string, notifyClient?: { email: string }) 
     return { error: 'Can only mark shipped from Preparing status' }
   }
 
-  // Only check items from the active package
+  // Only check items from the active package, and only the ones that can
+  // actually be scanned. A line with no assetId is a service, a delivery charge
+  // or an ad-hoc fee — 477 of them in this database — and it has no unit to
+  // check out, so its checkedOutCount is permanently 0. Counting those meant an
+  // order carrying a single service line could never be shipped, whatever the
+  // warehouse did. Components (parentId set) are pricing rows beneath their
+  // parent and are excluded for the same reason checkoutReservationItem
+  // excludes them.
   const activePackage = reservation.packages.find((p) => p.isActive)
-  const itemsToCheck = activePackage
+  const inPackage = activePackage
     ? reservation.items.filter((i) => i.packageId === activePackage.id)
     : reservation.items
+  const itemsToCheck = inPackage.filter((i) => i.assetId && !i.parentId)
 
-  const allCheckedOut = itemsToCheck.length > 0 && itemsToCheck.every(
-    (item) => item.checkedOutCount >= item.quantity
+  // An order with nothing physical on it — all services, or a cloud order — has
+  // nothing to check out and ships on the say-so of whoever is shipping it.
+  const outstanding = itemsToCheck.filter(
+    (item) => item.checkedOutCount < item.quantity
   )
-  if (!allCheckedOut) {
-    return { error: 'All items must be checked out before marking as shipped' }
+  if (outstanding.length > 0) {
+    const units = outstanding.reduce(
+      (sum, item) => sum + (item.quantity - item.checkedOutCount),
+      0
+    )
+    return {
+      error: `${units} ${units === 1 ? 'unit is' : 'units are'} still to be checked out across ${outstanding.length} ${outstanding.length === 1 ? 'line' : 'lines'}. Scan everything out before shipping.`,
+    }
   }
 
   const updated = await prisma.$transaction(async (tx) => {
