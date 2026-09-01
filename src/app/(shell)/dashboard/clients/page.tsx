@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import Link from "next/link";
 import { ListSearch } from "@/components/list/list-search";
 import {
   ListTable,
@@ -130,7 +131,17 @@ export default async function ClientsPage({
             <HeaderBlurb />
           </Suspense>
         }
-        actions={<ListSearch placeholder="Search clients, companies, email" />}
+        actions={
+          <>
+            <ListSearch placeholder="Search clients, companies, email" />
+            <Link
+              href="/dashboard/clients/new"
+              className="rounded-pill bg-accent-solid px-4 py-2 text-pill text-accent-on-solid"
+            >
+              New account
+            </Link>
+          </>
+        }
       />
 
       <Suspense key={`${search}:${page}`} fallback={<ListTableSkeleton />}>

@@ -13,6 +13,7 @@ import {
 import type { AssetAvailability } from "@/lib/queries/order-builder";
 import type { ReservationType } from "@/generated/prisma/client";
 import { Notice } from "@/components/feedback/notice";
+import { createAccount } from "@/lib/actions/accounts";
 import { ORDER_TYPES } from "@/lib/orders/types";
 import { TYPE_LABEL } from "@/lib/reservations/status";
 
@@ -106,6 +107,8 @@ export function OrderBuilder({
   const [client, setClient] = useState<Client | null>(initialClient);
   const [clientQuery, setClientQuery] = useState("");
   const [clientHits, setClientHits] = useState<Client[]>([]);
+  const [creatingClient, setCreatingClient] = useState(false);
+  const [newClientError, setNewClientError] = useState("");
 
   const [assetQuery, setAssetQuery] = useState("");
   const [assetHits, setAssetHits] = useState<AssetAvailability[]>([]);
@@ -480,6 +483,55 @@ export function OrderBuilder({
                     </li>
                   ))}
                 </ul>
+              ) : null}
+
+              {/* A client who is not in the system yet is the normal way an
+                  order starts — a call from somebody new. Sending the person to
+                  the Accounts screen to make one loses everything typed into
+                  this builder so far, so the account is created here, from the
+                  name already in the box, and selected. */}
+              {clientQuery.trim().length >= 2 && clientHits.length === 0 ? (
+                <div className="mt-1 rounded-well bg-sunken p-2">
+                  {newClientError ? (
+                    <p role="alert" className="mb-2 text-detail text-destructive">
+                      {newClientError}
+                    </p>
+                  ) : null}
+                  <button
+                    type="button"
+                    disabled={creatingClient}
+                    onClick={() => {
+                      const name = clientQuery.trim();
+                      setNewClientError("");
+                      setCreatingClient(true);
+                      createAccount({ name }).then((result) => {
+                        setCreatingClient(false);
+                        if (result.status === "ok") {
+                          setClient({ id: result.id, name: result.name, companyName: null });
+                          setClientQuery("");
+                        } else if (result.status === "duplicate") {
+                          setClient({
+                            id: result.existing.id,
+                            name: result.existing.name,
+                            companyName: result.existing.companyName,
+                          });
+                          setClientQuery("");
+                        } else {
+                          setNewClientError(result.message);
+                        }
+                      });
+                    }}
+                    className="w-full rounded-row px-2 py-[6px] text-left text-detail text-accent-text hover:bg-row-hover disabled:opacity-50"
+                  >
+                    {creatingClient
+                      ? "Creating…"
+                      : `No match — create “${clientQuery.trim()}” as a new account`}
+                  </button>
+                  <p className="px-2 pt-1 text-micro text-ink-faint">
+                    Creates it with just the name. Fill in the rest on the
+                    account record later.
+                  </p>
+                </div>
               ) : null}
             </div>
           )}
