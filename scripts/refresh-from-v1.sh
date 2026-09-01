@@ -32,6 +32,13 @@
 #
 # v1 is read-only throughout: this reads its database and never writes to it,
 # and never touches its .env — credentials come from the container.
+#
+# Run it yourself rather than asking an agent to. Two gates sit in the way of
+# one: Claude Code's auto-mode classifier refuses the destructive SQL, and
+# Prisma 7 refuses `db push` when it detects it was invoked by an agent, wanting
+# consent naming the exact command. Both are correct to do so; the effect is
+# that an agent gets a third of the way through and stops, which is a worse
+# place to be than either end.
 set -euo pipefail
 
 CONTAINER=vfxnow-amc-db-1
@@ -73,6 +80,26 @@ say "  asset families:      $(psql2 'select count(*) from asset_families')"
 say "  models grouped:      $(psql2 'select count(*) from assets where "familyId" is not null')"
 say "  credentials kept:    $(psql2 'select count(*) from users')"
 say "  work orders:         $(psql2 'select count(*) from work_orders') (schema restored empty if none)"
+rule
+
+# Columns v1 has grown since the fork that v2's schema does not model. These are
+# dropped by `prisma db push` and the data in them is lost — which is correct,
+# v2 does not have the feature — but it should be a decision, not a surprise in
+# a push warning. On 2026-09-01 this was `packages.rtoTermMonths`: v1 lets one
+# RTO order quote several terms as package options, across 5 orders and 21
+# packages at 12 and 24 months. All five still carry an order-level term, so the
+# record shows a term; what is lost is the per-option alternatives.
+say "columns v1 has that v2 does not model (dropped by db push):"
+docker exec "$CONTAINER" psql -U postgres -d "$V1_DB" -tAc "
+  select '  '||table_name||'.'||column_name
+    from information_schema.columns
+   where table_schema='public'" > /tmp/refresh-v1-cols.txt
+docker exec "$CONTAINER" psql -U postgres -d "$V2_DB" -tAc "
+  select '  '||table_name||'.'||column_name
+    from information_schema.columns
+   where table_schema='public'" > /tmp/refresh-v2-cols.txt
+comm -23 <(sort /tmp/refresh-v1-cols.txt) <(sort /tmp/refresh-v2-cols.txt) \
+  | grep -v '\(chat_messages\|chat_sessions\)\.' || say "  none"
 rule
 
 if [[ "$APPLY" != true ]]; then
@@ -128,8 +155,10 @@ gunzip -c "$DUMP" | docker exec -i "$CONTAINER" psql -U postgres -d "$V2_DB" --q
 # ---------------------------------------------------------------------------
 # 4 · v2's own schema back on top
 # ---------------------------------------------------------------------------
+# Prisma 7 dropped --skip-generate; the datasource URL comes from
+# prisma.config.ts, so this must run from the project root.
 say "putting v2's schema back (prisma db push)"
-( cd "$ROOT" && npx prisma db push --skip-generate --accept-data-loss )
+( cd "$ROOT" && npx prisma db push --accept-data-loss )
 
 # ---------------------------------------------------------------------------
 # 5 · The carried rows, and the residue that must not come back
@@ -138,8 +167,27 @@ say "restoring what was set aside, and dropping the assistant residue"
 docker exec -i "$CONTAINER" psql -U postgres -d "$V2_DB" -v ON_ERROR_STOP=1 <<'SQL'
 -- The grouping, exactly as it was. A model that v1 has since retired simply
 -- fails to match and stays ungrouped, which is the right outcome.
-insert into public.asset_families select * from carry.asset_families
-  on conflict (id) do nothing;
+-- Named columns, generated from what both tables actually have.
+-- `insert ... select *` is wrong here: `prisma db push` recreates the table with
+-- the column order of the Prisma model, which is not the order the set-aside
+-- copy was made in. That mismatch happened on the 2026-09-01 run and was caught
+-- only because two of the columns had incompatible types. Two text columns in
+-- the wrong order would have been written silently.
+do $$
+declare cols text;
+begin
+  select string_agg(quote_ident(c.column_name), ', ' order by c.ordinal_position)
+    into cols
+    from information_schema.columns c
+   where c.table_schema = 'public' and c.table_name = 'asset_families'
+     and exists (
+       select 1 from information_schema.columns k
+        where k.table_schema = 'carry' and k.table_name = 'asset_families'
+          and k.column_name = c.column_name);
+  execute format(
+    'insert into public.asset_families (%s) select %s from carry.asset_families
+       on conflict (id) do nothing', cols, cols);
+end $$;
 update public.assets a
    set "familyId" = m."familyId"
   from carry.asset_family_map m
