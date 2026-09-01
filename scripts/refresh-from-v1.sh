@@ -26,6 +26,12 @@
 #      qc_test_runs and asset_families are v2-only tables. `prisma db push`
 #      puts the schema back after the restore.
 #
+# It also copies v1's documents/ tree across, which is easy to forget and fails
+# quietly: Document rows travel with the database, the PDFs they point at do
+# not. Without this, every signed quote and delivery note on the refreshed
+# orders resolves to a 410 — the record of the document survives, the document
+# does not. The directory is gitignored, so it is only ever moved by this.
+#
 # The assistant residue v1 still carries (chat_sessions, chat_messages, and two
 # llm_knowledge_* settings rows) is dropped again on the way in — v2 is
 # deliberately clear of it, and a refresh must not quietly bring it back.
@@ -46,6 +52,7 @@ V1_DB=vfxnow_amc
 V2_DB=vfxnow_amc_v2
 STAMP=$(date +%Y%m%d-%H%M%S)
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+V1_ROOT=/home/docker/projects/vfxnow-amc
 BACKUP="$ROOT/backups/v2-before-refresh-$STAMP.sql.gz"
 DUMP="$ROOT/backups/v1-snapshot-$STAMP.sql.gz"
 
@@ -89,6 +96,8 @@ rule
 # RTO order quote several terms as package options, across 5 orders and 21
 # packages at 12 and 24 months. All five still carry an order-level term, so the
 # record shows a term; what is lost is the per-option alternatives.
+say "documents: $(find "$V1_ROOT/documents" -type f 2>/dev/null | wc -l | tr -d ' ') files in v1, $(find "$ROOT/documents" -type f 2>/dev/null | wc -l | tr -d ' ') here — the rows travel with the database, the files do not"
+rule
 say "columns v1 has that v2 does not model (dropped by db push):"
 docker exec "$CONTAINER" psql -U postgres -d "$V1_DB" -tAc "
   select '  '||table_name||'.'||column_name
@@ -108,7 +117,7 @@ if [[ "$APPLY" != true ]]; then
   say "  1. back v2 up to backups/v2-before-refresh-<stamp>.sql.gz"
   say "  2. snapshot v1 to backups/v1-snapshot-<stamp>.sql.gz"
   say "  3. replace v2's public schema with that snapshot"
-  say "  4. prisma db push, to put v2's own tables and columns back"
+  say "  4. prisma db push, and copy v1's documents/ tree across"
   say "  5. restore the carried-across rows, and drop the assistant residue"
   exit 0
 fi
@@ -159,6 +168,21 @@ gunzip -c "$DUMP" | docker exec -i "$CONTAINER" psql -U postgres -d "$V2_DB" --q
 # prisma.config.ts, so this must run from the project root.
 say "putting v2's schema back (prisma db push)"
 ( cd "$ROOT" && npx prisma db push --accept-data-loss )
+
+# ---------------------------------------------------------------------------
+# 4b · The files the Document rows point at
+# ---------------------------------------------------------------------------
+# rsync rather than cp: re-running a refresh should not recopy 14MB, and a file
+# generated in v2 that v1 has never seen is v2's own and is left alone (no
+# --delete). v1 is the source and is never written to.
+say "copying v1's documents/ across"
+if [[ -d "$V1_ROOT/documents" ]]; then
+  mkdir -p "$ROOT/documents"
+  rsync -a "$V1_ROOT/documents/" "$ROOT/documents/"
+  say "  $(find "$ROOT/documents" -type f | wc -l | tr -d ' ') files, $(du -sh "$ROOT/documents" | cut -f1)"
+else
+  say "  v1 has no documents/ directory — nothing to copy"
+fi
 
 # ---------------------------------------------------------------------------
 # 5 · The carried rows, and the residue that must not come back
