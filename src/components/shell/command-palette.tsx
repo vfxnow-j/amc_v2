@@ -1,17 +1,28 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { navDestinations, type NavMatch } from "@/lib/nav/clusters";
+import { searchRecords, type SearchHit } from "@/lib/actions/search";
 import type { Role } from "@/lib/roles";
 
 /**
  * ⌘K destination search. Mounted only while open, so each launch starts with a
  * clean query and selection without resetting state in an effect.
  *
- * Scope today is the rail's destinations. The handoff also wants orders, units,
- * serials and clients in here; that needs the data layer, so it joins once the
- * screens are wired to real queries.
+ * Two kinds of result in one list: the rail's destinations, matched in the
+ * browser because they are already here, and records — units, orders, clients,
+ * models, invoices — fetched as you type.
+ *
+ * Records took a while to arrive and their absence was worse than it looked.
+ * The placeholder has always said "Search or scan", so the box invited a
+ * barcode gun and then reported no match, which is not a missing feature so
+ * much as a lie. A scan now lands on the unit: an exact barcode or serial sorts
+ * above everything, and a digits-only query skips the client and model searches
+ * entirely, because nobody scanning a box is looking for a company name.
+ *
+ * Destinations stay above records when both match. Typing "orders" should go to
+ * the Orders screen, not to an order that happens to be called that.
  */
 /**
  * Dashboard and Settings are pinned rows outside the six clusters, so they have
@@ -21,6 +32,23 @@ import type { Role } from "@/lib/roles";
  * the same way.
  */
 const PINNED_CODE = "★";
+
+/** A one-glyph tile per record kind, matching how the rail marks a cluster. */
+const KIND_MARK: Record<SearchHit["kind"], string> = {
+  unit: "▮",
+  order: "OR",
+  client: "CL",
+  model: "MO",
+  invoice: "IN",
+};
+
+const KIND_LABEL: Record<SearchHit["kind"], string> = {
+  unit: "Unit",
+  order: "Order",
+  client: "Client",
+  model: "Model",
+  invoice: "Invoice",
+};
 
 function groupOf(destination: NavMatch): string {
   return destination.cluster?.label ?? "Pinned";
@@ -37,8 +65,16 @@ export function CommandPalette({
   const [query, setQuery] = useState("");
   const [highlighted, setHighlighted] = useState(0);
 
+  // Results are stored with the query they answer, so "are these still the
+  // right hits" is a comparison rather than a second piece of state that has to
+  // be cleared in step with the first.
+  const [found, setFound] = useState<{ query: string; hits: SearchHit[] }>({
+    query: "",
+    hits: [],
+  });
+
   const destinations = useMemo(() => navDestinations(role), [role]);
-  const results = useMemo(() => {
+  const pages = useMemo(() => {
     const needle = query.trim().toLowerCase();
     if (!needle) return destinations;
     return destinations.filter((destination) =>
@@ -48,13 +84,64 @@ export function CommandPalette({
     );
   }, [destinations, query]);
 
+  /**
+   * Records, fetched as you type.
+   *
+   * Debounced, and every response checked against the query that is current
+   * when it lands — a barcode gun types a whole code and presses Enter in a few
+   * milliseconds, so responses genuinely do arrive out of order, and the fix is
+   * to drop the stale one rather than to slow the box down.
+   */
+  const needle = query.trim();
+  const searchable = needle.length >= 2;
+  const hits = useMemo(
+    () => (searchable && found.query === needle ? found.hits : []),
+    [searchable, found, needle],
+  );
+  const searching = searchable && found.query !== needle;
+
+  const latest = useRef(0);
+  useEffect(() => {
+    if (!searchable) return;
+    const ticket = ++latest.current;
+    const timer = setTimeout(async () => {
+      const hits = await searchRecords(needle);
+      if (ticket !== latest.current) return;
+      setFound({ query: needle, hits });
+    }, 140);
+    return () => clearTimeout(timer);
+  }, [needle, searchable]);
+
+  /** One flat list, because one set of arrow keys walks it. */
+  const results = useMemo(
+    () => [
+      ...pages.map((destination) => ({
+        key: `page-${destination.cluster?.id ?? "pinned"}-${destination.page.id}`,
+        href: destination.page.href,
+        mark: destination.cluster?.code ?? PINNED_CODE,
+        label: destination.page.label,
+        detail: null as string | null,
+        group: groupOf(destination),
+      })),
+      ...hits.map((hit) => ({
+        key: hit.key,
+        href: hit.href,
+        mark: KIND_MARK[hit.kind],
+        label: hit.label,
+        detail: hit.detail || null,
+        group: KIND_LABEL[hit.kind],
+      })),
+    ],
+    [pages, hits],
+  );
+
   // The query can shrink the list under the highlight between renders.
   const selected = Math.min(highlighted, Math.max(results.length - 1, 0));
 
   function go(index: number) {
-    const destination = results[index];
-    if (!destination) return;
-    router.push(destination.page.href);
+    const row = results[index];
+    if (!row) return;
+    router.push(row.href);
     onClose();
   }
 
@@ -115,18 +202,21 @@ export function CommandPalette({
 
         {results.length === 0 ? (
           <p className="px-4 py-6 text-detail text-ink-muted">
-            Nothing matches “{query.trim()}” — try a page name like
-            “Reservations”, or clear the box to see everything.
+            {searching
+              ? "Searching…"
+              : !searchable
+                ? "Type at least two characters, or scan a barcode."
+                : `Nothing matches “${needle}” — no page, unit, order, client, model or invoice. A barcode finds its unit whatever state it is in.`}
           </p>
         ) : (
           <ul
             id="command-palette-results"
             role="listbox"
-            aria-label="Destinations"
+            aria-label="Search results"
             className="max-h-80 overflow-y-auto p-2"
           >
-            {results.map((destination, index) => (
-              <li key={`${destination.cluster?.id ?? "pinned"}-${destination.page.id}`}>
+            {results.map((row, index) => (
+              <li key={row.key}>
                 <button
                   type="button"
                   id={`command-palette-option-${index}`}
@@ -142,13 +232,18 @@ export function CommandPalette({
                     aria-hidden
                     className="flex size-[26px] flex-none items-center justify-center rounded-tile bg-nav-mark-closed text-[10px] font-extrabold text-ink-muted"
                   >
-                    {destination.cluster?.code ?? PINNED_CODE}
+                    {row.mark}
                   </span>
-                  <span className="truncate text-body">
-                    {destination.page.label}
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-body">{row.label}</span>
+                    {row.detail ? (
+                      <span className="block truncate text-detail text-ink-faint">
+                        {row.detail}
+                      </span>
+                    ) : null}
                   </span>
-                  <span className="ml-auto text-detail text-ink-faint">
-                    {groupOf(destination)}
+                  <span className="ml-auto flex-none text-detail text-ink-faint">
+                    {row.group}
                   </span>
                 </button>
               </li>
@@ -157,8 +252,8 @@ export function CommandPalette({
         )}
 
         <p className="border-t border-hairline px-4 py-2 text-[11px] text-ink-faint">
-          Pages only for now · orders, units, serials and clients join this
-          search when the data layer lands
+          Pages, units, orders, clients, models and invoices · scan a barcode to
+          jump to its unit
         </p>
       </div>
     </div>
