@@ -413,3 +413,86 @@ is read-only and proves the Operate cluster end to end. Then Reservations, which
 now carries the check-out/check-in flow the Desk was going to hold, and is the
 hub the whole app orbits. Service Center stays ahead of Inventory because the
 record's "flag for service" path depends on it.
+
+---
+
+# Create / modify paths — the queue (opened 2026-09-01)
+
+Audited on the owner's ask, after Accounts turned out to have no create path at
+all. The finding generalises: **v2 can read everything and write almost
+nothing.** Every action listed below was ported from v1 months ago and is
+reachable from no screen — the same shape as `createClient`, and as the whole
+documents layer before `/api/documents/[id]` landed. This is wiring, not new
+logic.
+
+Orders are excluded — they are done (build, stages, billing, documents, quote
+portal).
+
+## Reachable today
+
+| Path | How |
+| --- | --- |
+| Order create / stage / bill / document | `/dashboard/orders/new`, the record |
+| Account create | `/dashboard/clients/new`, and inline in the order builder |
+| Cloud product create / edit | Settings → Cloud products |
+| Payment record | Invoice record |
+| Rate card apply | Rate card record |
+| PO receive | PO record |
+| Lead assign | Lead record |
+
+## The queue
+
+Ordered by what unblocks dev testing first, not by cluster.
+
+**1 · Inventory — the fleet you test against.** Nothing here can be created.
+- Asset (model) create/edit/retire — `createAsset` `updateAsset` `deleteAsset`
+- Unit create/edit — `createAssetUnit` `updateAssetUnit` `deleteAssetUnit`,
+  plus `bulkUpdateAssets`
+- Location create/edit — `createLocation` `updateLocation` `deleteLocation`
+- Vendor create/edit — `createVendor` `updateVendor` `deleteVendor`
+- Category create/edit — `createCategory` `updateCategory` `deleteCategory`
+  (Settings → Categories has a form; confirm it is wired end to end)
+
+**2 · Revenue — money in and out.**
+- Invoice create/edit standalone — `createInvoice` `updateInvoice`
+  (only `createInvoiceFromReservation` is reachable, from an order)
+- Purchase order create/edit — `createPurchaseOrder` `updatePurchaseOrder`
+  (receiving works; raising one does not)
+- Lease create/edit — `createLease` `updateLease` `deleteLease`
+
+**3 · Clients — the rest of the cluster.**
+- Account **edit** — `updateClient` exists; the record is read-only
+- Contact create/edit — `addClientContact` `updateClientContact`
+  `deleteClientContact`
+- Lead create/edit/convert — `createLead` `updateLead` `updateLeadStatus`
+  `addLeadActivity` `convertLeadToReservation`
+
+**4 · Service centre.**
+- Work order open — `openWorkOrder` (the record drives an existing one; nothing
+  raises one). Note the `WorkOrder` table is still empty, so this is also how
+  that record finally gets exercised.
+- Maintenance record — `createMaintenanceRecord` `updateMaintenanceRecord`
+  `addMaintenanceNotes`
+- Coverage/RMA — check what exists; may need actions, not just wiring
+
+**5 · Operate — the rest.**
+- Package create/edit — `createPackage` `updatePackage` `deletePackage` exist in
+  `actions/reservations` and are reachable only from the order builder's
+  internals; Packages has no screen-level create
+- Service create/edit — `createService` `updateService` `deleteService`
+- Audit / scan list create — `createInventoryAudit` `createScanList`
+
+## Rules for the queue
+
+- **Wire, do not rewrite.** Each of these has a ported action holding the
+  transaction and the guards. Add the v2 outcome layer and the form, the way
+  `lib/actions/accounts.ts` wraps `createClient`.
+- **Only what is genuinely required is required.** The account form asks for a
+  name and nothing else; a form that demands a billing address gets filled with
+  placeholder text nobody corrects.
+- **Create where the work is**, not only on the list screen. The order builder
+  creates an account inline because that is where a new client actually turns
+  up. Ask the same question of every path here.
+- **Deleting is not in this queue.** Every delete action listed is noted for
+  completeness; whether v2 offers destructive controls at all is the owner's
+  call, and the restored data is real.
