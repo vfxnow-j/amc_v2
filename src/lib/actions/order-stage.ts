@@ -12,6 +12,7 @@ import {
   markLost,
   markQuoteSent,
   markShipped,
+  removeReservationItem,
   requestRevision,
   startPreparing,
   updateReservation,
@@ -453,4 +454,59 @@ export async function completeOrder(id: string): Promise<StageOutcome> {
   } catch (error) {
     return { status: "error", message: reasonFrom(error) };
   }
+}
+
+// ---------------------------------------------------------------------------
+// Lines
+// ---------------------------------------------------------------------------
+
+/**
+ * Take a line off the order.
+ *
+ * `removeReservationItem` was ported and reachable from nothing, so a line
+ * added in error could only be fixed in v1. It does more than delete a row: any
+ * unit still out against the line is returned to stock, its checkout canceled
+ * and its revenue recomputed, and the order is repriced from what is left.
+ *
+ * That is the right behaviour and it is also why the screen asks first, and
+ * says the number. Removing a line with three units out with a client silently
+ * marks three units available while they sit in somebody's studio.
+ */
+export async function removeOrderLine(
+  reservationId: string,
+  itemId: string,
+): Promise<StageOutcome> {
+  const auth = await requireEditor();
+  if (!auth.authorized) return { status: "error", message: auth.error ?? "Unauthorized" };
+
+  const item = await prisma.reservationItem.findUnique({
+    where: { id: itemId },
+    select: {
+      reservationId: true,
+      description: true,
+      asset: { select: { name: true } },
+      _count: { select: { units: { where: { checkedOutAt: { not: null }, checkedInAt: null } } } },
+    },
+  });
+  if (!item || item.reservationId !== reservationId) {
+    return { status: "error", message: "That line is not on this order." };
+  }
+
+  const label = item.asset?.name ?? item.description ?? "The line";
+  const out = item._count.units;
+
+  try {
+    await removeReservationItem(reservationId, itemId);
+  } catch (error) {
+    return { status: "error", message: reasonFrom(error) };
+  }
+
+  touch(reservationId);
+  return {
+    status: "ok",
+    message:
+      out > 0
+        ? `${label} removed. ${out} ${out === 1 ? "unit was" : "units were"} still out against it and ${out === 1 ? "has" : "have"} been returned to stock — check ${out === 1 ? "it is" : "they are"} physically back.`
+        : `${label} removed and the order repriced.`,
+  };
 }

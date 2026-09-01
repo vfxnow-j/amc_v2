@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Card, CardSkeleton } from "@/components/record/record-card";
+import { RemoveLine } from "@/components/orders/remove-line";
 import {
   getReservationActivity,
   getReservationLines,
@@ -41,7 +42,14 @@ const TONE_CLASS = {
 } as const;
 
 /** Line · units. The unit rows are the point — this is where the kit is. */
-export async function LinesCard({ id }: { id: string }) {
+export async function LinesCard({
+  id,
+  editable = false,
+}: {
+  id: string;
+  /** Whether lines can still be taken off — false once the order is closed. */
+  editable?: boolean;
+}) {
   const lines = await getReservationLines(id);
   const unitCount = lines.reduce((sum, line) => sum + line.units.length, 0);
 
@@ -64,7 +72,13 @@ export async function LinesCard({ id }: { id: string }) {
       <ul className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-2 pb-3">
         {lines.map((line) => (
           <li key={line.id} className="rounded-bubble bg-row-alt p-2">
-            <div className="grid grid-cols-[1fr_58px_96px_96px] items-baseline gap-2 px-1">
+            <div
+              className={`grid items-baseline gap-2 px-1 ${
+                editable
+                  ? "grid-cols-[1fr_58px_96px_96px_20px]"
+                  : "grid-cols-[1fr_58px_96px_96px]"
+              }`}
+            >
               <span className="truncate font-bold">
                 {line.label}
                 {line.packageName && line.packageName !== "Default" ? (
@@ -86,6 +100,14 @@ export async function LinesCard({ id }: { id: string }) {
               <span className="text-right font-bold tabular-nums">
                 {MONEY.format(line.subtotal)}
               </span>
+              {editable ? (
+                <RemoveLine
+                  reservationId={id}
+                  itemId={line.id}
+                  label={line.label}
+                  unitsOut={Math.max(0, line.attachedOut)}
+                />
+              ) : null}
             </div>
 
             {line.units.length > 0 ? (

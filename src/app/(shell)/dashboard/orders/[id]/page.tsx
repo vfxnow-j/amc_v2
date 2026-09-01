@@ -22,7 +22,11 @@ import { OrderDocumentsCard } from "@/components/orders/documents-card";
 import { OrderActionBar } from "@/components/orders/order-action-bar";
 import { StageStrip, StageStripSkeleton } from "@/components/orders/stage-strip";
 import { getReservationHeader } from "@/lib/queries/reservation-record";
-import { STATUS_LABEL, TYPE_LABEL } from "@/lib/reservations/status";
+import {
+  ARCHIVE_STATUSES,
+  STATUS_LABEL,
+  TYPE_LABEL,
+} from "@/lib/reservations/status";
 import type { ReservationStatus, ReservationType } from "@/generated/prisma/client";
 
 type Params = { params: Promise<{ id: string }> };
@@ -155,8 +159,12 @@ export default async function OrderRecordPage({ params }: Params) {
       ) : null}
 
       <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[1.6fr_1fr]">
+        {/* Lines can be taken off while the order is still live. The ported
+            action refuses on a closed order, so the control is not offered on
+            one either — the screen and the server agree rather than the screen
+            offering something that will be refused. */}
         <Suspense fallback={<CardSkeleton title="Lines" rows={10} />}>
-          <LinesCard id={id} />
+          <LinesCard id={id} editable={!ARCHIVE_STATUSES.includes(header.status)} />
         </Suspense>
 
         <div className="flex min-h-0 flex-col gap-3">
