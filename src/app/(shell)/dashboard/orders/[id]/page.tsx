@@ -18,10 +18,7 @@ import {
   RtoTermsCard,
 } from "@/components/orders/commercial-cards";
 import { OrderBillingCard } from "@/components/orders/billing-card";
-import {
-  OrderActionBar,
-  OrderActionBarSkeleton,
-} from "@/components/orders/order-action-bar";
+import { OrderActionBar } from "@/components/orders/order-action-bar";
 import { StageStrip, StageStripSkeleton } from "@/components/orders/stage-strip";
 import { getReservationHeader } from "@/lib/queries/reservation-record";
 import { STATUS_LABEL, TYPE_LABEL } from "@/lib/reservations/status";
@@ -128,10 +125,6 @@ export default async function OrderRecordPage({ params }: Params) {
         <StageStrip id={id} />
       </Suspense>
 
-      <Suspense fallback={<OrderActionBarSkeleton />}>
-        <OrderActionBar id={id} type={header.type} />
-      </Suspense>
-
       {/* The term and the handover, in one strip and before any card has to
           load. The dates belong beside the counts they govern: "4 of 9 still to
           go out" means something different the day before the start date than
@@ -166,6 +159,12 @@ export default async function OrderRecordPage({ params }: Params) {
         </Suspense>
 
         <div className="flex min-h-0 flex-col gap-3">
+          {/* The moves sit directly above the scan well, in the order the work
+              happens: prepare the order, then scan units out against it. */}
+          <Suspense fallback={<CardSkeleton title="Move it on" rows={2} />}>
+            <OrderActionBar id={id} type={header.type} />
+          </Suspense>
+
           {/* checkoutReservationItem refuses before PREPARING, and an order with
               no asset-backed lines has nothing to scan either way — so the panel
               is only offered where it can actually work. */}
