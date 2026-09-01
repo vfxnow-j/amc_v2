@@ -18,6 +18,7 @@ import {
   RtoTermsCard,
 } from "@/components/orders/commercial-cards";
 import { OrderBillingCard } from "@/components/orders/billing-card";
+import { OrderDocumentsCard } from "@/components/orders/documents-card";
 import { OrderActionBar } from "@/components/orders/order-action-bar";
 import { StageStrip, StageStripSkeleton } from "@/components/orders/stage-strip";
 import { getReservationHeader } from "@/lib/queries/reservation-record";
@@ -202,6 +203,13 @@ export default async function OrderRecordPage({ params }: Params) {
               <CommercialDetailsCard id={id} />
             </Suspense>
           ) : null}
+
+          {/* The paperwork, next to the billing it belongs with — a signed
+              quote is the document that says the client agreed to those
+              numbers. */}
+          <Suspense fallback={<CardSkeleton title="Documents" rows={3} />}>
+            <OrderDocumentsCard id={id} status={header.status} />
+          </Suspense>
 
           <Suspense fallback={<CardSkeleton title="Activity" rows={5} />}>
             <ActivityCard id={id} />
