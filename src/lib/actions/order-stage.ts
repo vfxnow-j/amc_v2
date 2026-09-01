@@ -11,8 +11,11 @@ import {
   completeReservation,
   markLost,
   markQuoteSent,
+  addItemToReservation,
   markShipped,
   removeReservationItem,
+  updateReservationItemQuantity,
+  updateReservationItemRate,
   requestRevision,
   startPreparing,
   updateReservation,
@@ -20,7 +23,7 @@ import {
 import { generateQuoteToken, sendQuoteLinkEmail } from "@/lib/actions/quote-tokens";
 import { createInvoiceFromReservation } from "@/lib/actions/invoices";
 import { isEmailConfigured } from "@/lib/email/client";
-import type { BillingCycleType } from "@/generated/prisma/client";
+import type { BillingCycleType, PricingType } from "@/generated/prisma/client";
 
 /**
  * The stage controls on the order record.
@@ -509,4 +512,100 @@ export async function removeOrderLine(
         ? `${label} removed. ${out} ${out === 1 ? "unit was" : "units were"} still out against it and ${out === 1 ? "has" : "have"} been returned to stock — check ${out === 1 ? "it is" : "they are"} physically back.`
         : `${label} removed and the order repriced.`,
   };
+}
+
+/**
+ * Change what a line costs, or how many of it.
+ *
+ * Both ported actions reprice the line and the order in one transaction and
+ * refuse on a closed order; quantity additionally refuses to drop below what is
+ * physically checked out, which is the guard that matters — the alternative is
+ * an order claiming to be for two machines while three are with the client.
+ *
+ * Revising is why these exist. The stage moved to REVISION and nothing on the
+ * record could actually be revised, so an order pulled back for repricing was a
+ * dead end: the only ways out were removing a line wholesale or editing it in
+ * v1.
+ */
+export async function setLineQuantity(
+  reservationId: string,
+  itemId: string,
+  quantity: number,
+): Promise<StageOutcome> {
+  if (!Number.isInteger(quantity) || quantity < 1) {
+    return { status: "error", message: "A line is for at least one." };
+  }
+  try {
+    await updateReservationItemQuantity(reservationId, itemId, quantity);
+    touch(reservationId);
+    return { status: "ok", message: `Quantity set to ${quantity}; the order was repriced.` };
+  } catch (error) {
+    return { status: "error", message: reasonFrom(error) };
+  }
+}
+
+export async function setLineRate(
+  reservationId: string,
+  itemId: string,
+  rate: number,
+  pricingType?: PricingType,
+): Promise<StageOutcome> {
+  if (!Number.isFinite(rate) || rate < 0) {
+    return { status: "error", message: "A rate is zero or more." };
+  }
+  try {
+    await updateReservationItemRate(reservationId, itemId, rate, pricingType);
+    touch(reservationId);
+    return { status: "ok", message: "Rate updated; the order was repriced." };
+  } catch (error) {
+    return { status: "error", message: reasonFrom(error) };
+  }
+}
+
+/**
+ * Put another line on the order.
+ *
+ * Takes an asset, or a description for an ad-hoc charge. The rate is passed
+ * explicitly rather than looked up again: the caller has already been shown a
+ * rate alongside the availability for this order's window, and quietly
+ * substituting a different one at save time is how a quoted price and a booked
+ * price come apart.
+ */
+export async function addOrderLine(
+  reservationId: string,
+  line: {
+    assetId?: string | null;
+    description?: string;
+    rate: number;
+    pricingType: PricingType;
+    quantity: number;
+    isOneTime?: boolean;
+  },
+): Promise<StageOutcome> {
+  if (!line.assetId && !line.description?.trim()) {
+    return { status: "error", message: "A line needs an asset or a description." };
+  }
+  if (!Number.isInteger(line.quantity) || line.quantity < 1) {
+    return { status: "error", message: "A line is for at least one." };
+  }
+  if (!Number.isFinite(line.rate) || line.rate < 0) {
+    return { status: "error", message: "A rate is zero or more." };
+  }
+
+  try {
+    await addItemToReservation(
+      reservationId,
+      line.assetId ?? null,
+      line.pricingType,
+      line.rate,
+      line.quantity,
+      line.description?.trim() || undefined,
+      undefined,
+      line.isOneTime,
+    );
+    touch(reservationId);
+    return { status: "ok", message: "Line added; the order was repriced." };
+  } catch (error) {
+    return { status: "error", message: reasonFrom(error) };
+  }
 }

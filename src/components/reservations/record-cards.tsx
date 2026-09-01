@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { Card, CardSkeleton } from "@/components/record/record-card";
 import { RemoveLine } from "@/components/orders/remove-line";
+import { AddLine } from "@/components/orders/add-line";
+import { LineEditor } from "@/components/orders/line-editor";
 import {
   getReservationActivity,
   getReservationLines,
@@ -45,10 +47,13 @@ const TONE_CLASS = {
 export async function LinesCard({
   id,
   editable = false,
+  window,
 }: {
   id: string;
-  /** Whether lines can still be taken off — false once the order is closed. */
+  /** Whether lines can still be changed — false once the order is closed. */
   editable?: boolean;
+  /** The order's dates, so added lines are checked against the right window. */
+  window?: { start: string; end: string };
 }) {
   const lines = await getReservationLines(id);
   const unitCount = lines.reduce((sum, line) => sum + line.units.length, 0);
@@ -56,10 +61,13 @@ export async function LinesCard({
   if (lines.length === 0) {
     return (
       <Card title="Lines">
-        <p className="px-4 pb-4 text-body text-ink-muted">
+        <p className="px-4 pb-3 text-body text-ink-muted">
           Nothing has been added to this order yet — add a line to price it, or
           scan a unit to add one as you pull it.
         </p>
+        {editable && window ? (
+          <AddLine reservationId={id} start={window.start} end={window.end} />
+        ) : null}
       </Card>
     );
   }
@@ -88,15 +96,30 @@ export async function LinesCard({
                   </span>
                 ) : null}
               </span>
-              <span className="text-right tabular-nums text-ink-muted">
-                ×{line.quantity}
-              </span>
-              <span className="text-right tabular-nums text-ink-muted">
-                {MONEY.format(line.rate)}
-                <span className="text-ink-faint">
-                  {line.isOneTime ? " once" : ` /${line.pricingType.toLowerCase()}`}
-                </span>
-              </span>
+              {editable ? (
+                <LineEditor
+                  reservationId={id}
+                  itemId={line.id}
+                  quantity={line.quantity}
+                  rate={line.rate}
+                  pricingType={line.pricingType}
+                  isOneTime={line.isOneTime}
+                />
+              ) : (
+                <>
+                  <span className="text-right tabular-nums text-ink-muted">
+                    ×{line.quantity}
+                  </span>
+                  <span className="text-right tabular-nums text-ink-muted">
+                    {MONEY.format(line.rate)}
+                    <span className="text-ink-faint">
+                      {line.isOneTime
+                        ? " once"
+                        : ` /${line.pricingType.toLowerCase()}`}
+                    </span>
+                  </span>
+                </>
+              )}
               <span className="text-right font-bold tabular-nums">
                 {MONEY.format(line.subtotal)}
               </span>
@@ -155,6 +178,9 @@ export async function LinesCard({
           </li>
         ))}
       </ul>
+      {editable && window ? (
+        <AddLine reservationId={id} start={window.start} end={window.end} />
+      ) : null}
     </Card>
   );
 }

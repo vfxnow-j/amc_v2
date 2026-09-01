@@ -164,7 +164,14 @@ export default async function OrderRecordPage({ params }: Params) {
             one either — the screen and the server agree rather than the screen
             offering something that will be refused. */}
         <Suspense fallback={<CardSkeleton title="Lines" rows={10} />}>
-          <LinesCard id={id} editable={!ARCHIVE_STATUSES.includes(header.status)} />
+          <LinesCard
+            id={id}
+            editable={!ARCHIVE_STATUSES.includes(header.status)}
+            window={{
+              start: header.start.toISOString(),
+              end: header.end.toISOString(),
+            }}
+          />
         </Suspense>
 
         <div className="flex min-h-0 flex-col gap-3">
