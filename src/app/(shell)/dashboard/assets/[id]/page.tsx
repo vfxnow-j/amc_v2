@@ -1,4 +1,6 @@
 import { Suspense } from "react";
+import { BuildCard } from "@/components/inventory/build-card";
+import { getAssetBuild } from "@/lib/actions/asset-build";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -122,6 +124,13 @@ export default async function AssetRecordPage({ params }: Params) {
         </div>
 
         <div className="flex min-h-0 flex-col gap-3">
+          {/* What one of these is made of. Recorded once here and expanded onto
+              every order the SKU goes on, instead of the configuration being
+              rebuilt by hand each time or encoded into the asset's name. */}
+          <Suspense fallback={<CardSkeleton title="Build" rows={4} />}>
+            <AssetBuild id={id} assetName={asset.name} />
+          </Suspense>
+
           <Suspense fallback={<CardSkeleton title="Units" rows={12} />}>
             <AssetUnitsCard id={id} assetName={asset.name} />
           </Suspense>
@@ -326,4 +335,10 @@ function Details({ asset }: { asset: Asset }) {
       ) : null}
     </Card>
   );
+}
+
+/** The SKU's build, read on the server and edited on the client. */
+async function AssetBuild({ id, assetName }: { id: string; assetName: string }) {
+  const rows = await getAssetBuild(id);
+  return <BuildCard assetId={id} assetName={assetName} rows={rows} />;
 }

@@ -126,8 +126,23 @@ export type RecordUnit = {
   checkedInAt: Date | null;
 };
 
+/** A part nested under a configured SKU. */
+export type RecordComponent = {
+  id: string;
+  label: string;
+  quantity: number;
+  rate: number;
+  pricingType: string;
+  subtotal: number;
+  isOneTime: boolean;
+  /** Part of the base price: shown as spec, charged nothing. */
+  includedInParent: boolean;
+};
+
 export type RecordLine = {
   id: string;
+  /** What this line is built from. Empty for anything that is not configured. */
+  components: RecordComponent[];
   /** Asset name, or the free-text description for an ad-hoc line. */
   label: string;
   assetId: string | null;
@@ -184,6 +199,24 @@ export async function getReservationLines(id: string): Promise<RecordLine[]> {
       service: { select: { name: true } },
       cloudProduct: { select: { name: true } },
       package: { select: { name: true } },
+      // What the SKU is configured with. One level deep, matching the schema —
+      // and shown, which it never was: 44 component rows existed on orders in
+      // this database and the record filtered every one of them out, so a
+      // workstation quoted with a $360 GPU on it looked like a bare workstation.
+      components: {
+        orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+        select: {
+          id: true,
+          quantity: true,
+          rate: true,
+          pricingType: true,
+          subtotal: true,
+          isOneTime: true,
+          includedInParent: true,
+          description: true,
+          asset: { select: { name: true } },
+        },
+      },
       units: {
         orderBy: { assetUnit: { barcode: "asc" } },
         select: {
@@ -222,6 +255,16 @@ export async function getReservationLines(id: string): Promise<RecordLine[]> {
 
     return {
       id: item.id,
+      components: item.components.map((part) => ({
+        id: part.id,
+        label: part.asset?.name ?? part.description ?? "Part",
+        quantity: part.quantity,
+        rate: Number(part.rate),
+        pricingType: part.pricingType,
+        subtotal: Number(part.subtotal),
+        isOneTime: part.isOneTime,
+        includedInParent: part.includedInParent,
+      })),
       label:
         item.asset?.name ??
         item.service?.name ??

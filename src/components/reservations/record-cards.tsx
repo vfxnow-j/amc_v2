@@ -133,6 +133,53 @@ export async function LinesCard({
               ) : null}
             </div>
 
+            {/* What the SKU is configured with. An included part is the base
+                spec — shown so the machine reads as what it is, charged
+                nothing. Anything else carries its own rate on top, and the
+                configured total is what the client is actually quoted. */}
+            {line.components.length > 0 ? (
+              <ul className="mt-1 flex flex-col gap-px">
+                {line.components.map((part) => (
+                  <li
+                    key={part.id}
+                    className="grid grid-cols-[1fr_58px_96px_96px] items-baseline gap-2 rounded-row px-2 py-[5px] text-detail hover:bg-row-hover"
+                  >
+                    <span className="truncate text-ink-muted">
+                      <span className="text-ink-faint">↳ </span>
+                      {part.label}
+                    </span>
+                    <span className="text-right tabular-nums text-ink-faint">
+                      ×{part.quantity}
+                    </span>
+                    <span className="text-right tabular-nums text-ink-faint">
+                      {part.includedInParent
+                        ? "included"
+                        : `${MONEY.format(part.rate)}${part.isOneTime ? " once" : ` /${part.pricingType.toLowerCase()}`}`}
+                    </span>
+                    <span className="text-right tabular-nums text-ink-muted">
+                      {part.includedInParent ? "—" : MONEY.format(part.subtotal)}
+                    </span>
+                  </li>
+                ))}
+                {line.components.some((part) => !part.includedInParent) ? (
+                  <li className="grid grid-cols-[1fr_58px_96px_96px] items-baseline gap-2 px-2 pt-[3px] text-detail">
+                    <span className="col-span-3 text-right text-ink-muted">
+                      Configured
+                    </span>
+                    <span className="text-right font-bold tabular-nums">
+                      {MONEY.format(
+                        line.subtotal +
+                          line.components.reduce(
+                            (sum, part) => sum + part.subtotal,
+                            0,
+                          ),
+                      )}
+                    </span>
+                  </li>
+                ) : null}
+              </ul>
+            ) : null}
+
             {line.units.length > 0 ? (
               <ul className="mt-1 flex flex-col gap-px">
                 {line.units.map((unit) => {

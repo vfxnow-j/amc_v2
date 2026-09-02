@@ -20,13 +20,13 @@ enum UserRole {
 }
 
 model User {
-  id            String    @id @default(cuid())
-  email         String    @unique
-  name          String
-  passwordHash  String?
-  role          UserRole  @default(STAFF)
-  image         String?
-  emailVerified DateTime?
+  id                String    @id @default(cuid())
+  email             String    @unique
+  name              String
+  passwordHash      String?
+  role              UserRole  @default(STAFF)
+  image             String?
+  emailVerified     DateTime?
   mfaEnabled        Boolean   @default(false)
   mfaSecret         String?
   mfaDefault        String?   @default("email")
@@ -37,32 +37,32 @@ model User {
   // STAFF, light for admin/finance) and themeName to the house palette.
   // Validated against lib/theme rather than by an enum, so adding a seventh
   // theme is two CSS ramps and not a migration.
-  colorMode         String?
-  themeName         String?
+  colorMode String?
+  themeName String?
 
-  createdAt         DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relations
-  accounts           Account[]
-  sessions           Session[]
-  checkoutsCreated   Checkout[]         @relation("CheckoutCreatedBy")
-  checkoutsCheckedIn Checkout[]         @relation("CheckoutCheckedInBy")
-  approvalsGiven     CheckoutApproval[]
-  auditLogs          AuditLog[]
-  notifications      Notification[]
-  apiKeys            ApiKey[]
-  mfaTrustTokens     MfaTrustToken[]
-  assignedLeads      Lead[]             @relation("LeadAssignedTo")
-  leadActivities     LeadActivity[]
-  statusChanges      StatusHistory[]
-  reservationsPrepared Reservation[]  @relation("ReservationPreparedBy")
-  flowTasksAssigned    FlowTask[]     @relation("FlowTaskAssignees")
-  flowTasksCreated     FlowTask[]     @relation("FlowTaskCreator")
-  flowGroupsCreated    FlowGroup[]    @relation("FlowGroupCreator")
-  flowTaskComments     FlowTaskComment[] @relation("FlowTaskComments")
-  workOrdersOpened     WorkOrder[]       @relation("WorkOrderOpenedBy")
-  workOrdersAssigned   WorkOrder[]       @relation("WorkOrderAssignedTech")
+  accounts             Account[]
+  sessions             Session[]
+  checkoutsCreated     Checkout[]         @relation("CheckoutCreatedBy")
+  checkoutsCheckedIn   Checkout[]         @relation("CheckoutCheckedInBy")
+  approvalsGiven       CheckoutApproval[]
+  auditLogs            AuditLog[]
+  notifications        Notification[]
+  apiKeys              ApiKey[]
+  mfaTrustTokens       MfaTrustToken[]
+  assignedLeads        Lead[]             @relation("LeadAssignedTo")
+  leadActivities       LeadActivity[]
+  statusChanges        StatusHistory[]
+  reservationsPrepared Reservation[]      @relation("ReservationPreparedBy")
+  flowTasksAssigned    FlowTask[]         @relation("FlowTaskAssignees")
+  flowTasksCreated     FlowTask[]         @relation("FlowTaskCreator")
+  flowGroupsCreated    FlowGroup[]        @relation("FlowGroupCreator")
+  flowTaskComments     FlowTaskComment[]  @relation("FlowTaskComments")
+  workOrdersOpened     WorkOrder[]        @relation("WorkOrderOpenedBy")
+  workOrdersAssigned   WorkOrder[]        @relation("WorkOrderAssignedTech")
 
   @@map("users")
 }
@@ -233,15 +233,15 @@ model Location {
   parentLocationId String?
   parentLocation   Location?  @relation("LocationHierarchy", fields: [parentLocationId], references: [id])
   childLocations   Location[] @relation("LocationHierarchy")
-  taxRate          Decimal?   @db.Decimal(5, 4)  // Store as decimal, e.g., 0.0825
-  taxLabel         String?                       // e.g., "TX Sales Tax 8.25%"
+  taxRate          Decimal?   @db.Decimal(5, 4) // Store as decimal, e.g., 0.0825
+  taxLabel         String? // e.g., "TX Sales Tax 8.25%"
   createdAt        DateTime   @default(now())
   updatedAt        DateTime   @updatedAt
 
-  assetUnits      AssetUnit[]
-  transfersFrom   AssetTransfer[] @relation("TransferFrom")
-  transfersTo     AssetTransfer[] @relation("TransferTo")
-  purchaseOrders  PurchaseOrder[]
+  assetUnits     AssetUnit[]
+  transfersFrom  AssetTransfer[] @relation("TransferFrom")
+  transfersTo    AssetTransfer[] @relation("TransferTo")
+  purchaseOrders PurchaseOrder[]
 
   @@map("locations")
 }
@@ -375,8 +375,67 @@ model Asset {
   invoiceItems     InvoiceItem[]
   poItems          POItem[]
 
+  // What this SKU is built from, and what it is a part of. See AssetComponent.
+  components AssetComponent[] @relation("AssetBuild")
+  partOf     AssetComponent[] @relation("AssetPart")
+
   @@index([familyId])
   @@map("assets")
+}
+
+/// How a component is charged when its parent SKU goes on an order.
+enum ComponentPriceMode {
+  /// Part of the base price. Listed on the quote so the client sees the spec,
+  /// and contributes nothing to the total.
+  INCLUDED
+  /// Charged on top of the parent, at its own rate.
+  ADDS
+}
+
+/// What a SKU is built from — its bill of materials.
+///
+/// The old way of doing this was categories: a category flagged `isConfigurable`
+/// could host children, a category flagged `isComponent` could be one, and the
+/// actual specification lived in the asset's *name*
+/// ("Intel U9 285K Workstation / 64GB RAM / 1TB NVMe SSD"). It produced
+/// categories that exist only as spec labels and hold no assets at all —
+/// "RAM: 64GB", "8TB M.2 NVMe SSD" — and the configuration had to be rebuilt by
+/// hand on every order, because nothing recorded what a workstation normally
+/// contains.
+///
+/// This records it once, on the SKU. Adding the SKU to an order expands these
+/// rows into nested lines, which stay editable per order — the same machine
+/// genuinely does go out with a different GPU depending on who ordered it, and
+/// the existing data prices the same card at $300, $350 and $360 on different
+/// orders.
+model AssetComponent {
+  id               String @id @default(cuid())
+  /// The configurable SKU — the workstation.
+  assetId          String
+  asset            Asset  @relation("AssetBuild", fields: [assetId], references: [id], onDelete: Cascade)
+  /// The part that goes in it — the GPU, the drive, the capture card.
+  componentAssetId String
+  componentAsset   Asset  @relation("AssetPart", fields: [componentAssetId], references: [id], onDelete: Restrict)
+
+  quantity     Int                @default(1)
+  priceMode    ComponentPriceMode @default(ADDS)
+  /// Expanded onto the order automatically when the SKU is added. False makes
+  /// it an option the person can pick rather than part of the base build.
+  isDefault    Boolean            @default(true)
+  /// This part has its own units and is meant to be scanned — graphics cards
+  /// and network cards are, storage is not yet. Recorded from the start so the
+  /// catalogue is ready; check-out does not act on it yet.
+  tracked      Boolean            @default(false)
+  /// Charged at this instead of the component asset's own rate, when set.
+  rateOverride Decimal?           @db.Decimal(12, 2)
+  notes        String?
+  sortOrder    Int                @default(0)
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  @@unique([assetId, componentAssetId])
+  @@index([assetId])
+  @@map("asset_components")
 }
 
 // AssetUnit = Individual physical instance with barcode, serial, status
@@ -395,17 +454,17 @@ model AssetUnit {
   notes        String?
 
   // Ownership & Purchase info per unit (may vary)
-  ownershipType   OwnershipType @default(CASH)
-  purchaseDate    DateTime
-  receivedDate    DateTime?
-  purchasePrice   Decimal?   @db.Decimal(12, 2)
-  warrantyExpiry  DateTime?
+  ownershipType  OwnershipType @default(CASH)
+  purchaseDate   DateTime
+  receivedDate   DateTime?
+  purchasePrice  Decimal?      @db.Decimal(12, 2)
+  warrantyExpiry DateTime?
 
   // Loan details (when ownershipType = LOAN)
-  loanName             String?
-  fundingBusiness      String?
-  loanAmount           Decimal?  @db.Decimal(12, 2)
-  amortizationEndDate  DateTime?
+  loanName            String?
+  fundingBusiness     String?
+  loanAmount          Decimal?  @db.Decimal(12, 2)
+  amortizationEndDate DateTime?
 
   // Financial tracking per unit
   totalRevenue    Decimal @default(0) @db.Decimal(12, 2)
@@ -418,9 +477,9 @@ model AssetUnit {
   soldNotes          String?
 
   // Retirement tracking
-  retirementReason  RetirementReason?
-  retiredAt         DateTime?
-  retiredTo         String?
+  retirementReason RetirementReason?
+  retiredAt        DateTime?
+  retiredTo        String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -432,8 +491,8 @@ model AssetUnit {
   reservationItemUnits ReservationItemUnit[]
   serviceCoverages     ServiceCoverage[]
   workOrders           WorkOrder[]
-  leaseId              String?   @map("lease_id")
-  lease                Lease?    @relation(fields: [leaseId], references: [id])
+  leaseId              String?               @map("lease_id")
+  lease                Lease?                @relation(fields: [leaseId], references: [id])
 
   @@index([assetId])
   @@index([status])
@@ -541,46 +600,46 @@ model MaintenanceRecord {
 // ============================================
 
 model Client {
-  id             String   @id @default(cuid())
+  id             String  @id @default(cuid())
   name           String
   companyName    String?
   email          String?
   phone          String?
   address        String?
   billingAddress String?
-  paymentTerms   Int      @default(30) // Days
-  taxExempt      Boolean  @default(false)
+  paymentTerms   Int     @default(30) // Days
+  taxExempt      Boolean @default(false)
   notes          String?
   qbCustomerId   String? // QuickBooks Customer ID
 
   // Marketing
-  marketingTag   String?  // e.g. "Ad-Generated", "Referral", "Organic"
-  marketingOptIn Boolean  @default(false) // Allow marketing engagement from campaigns
+  marketingTag   String? // e.g. "Ad-Generated", "Referral", "Organic"
+  marketingOptIn Boolean @default(false) // Allow marketing engagement from campaigns
 
   // Verification tracking
-  agreementSignedAt    DateTime?
-  agreementSignerName  String?
-  idVerifiedAt         DateTime?
-  coiVerifiedAt        DateTime?
+  agreementSignedAt   DateTime?
+  agreementSignerName String?
+  idVerifiedAt        DateTime?
+  coiVerifiedAt       DateTime?
 
   // Verification opt-outs (admin-configurable)
-  skipIdRequirement    Boolean   @default(false)
-  skipCoiRequirement   Boolean   @default(false)
+  skipIdRequirement  Boolean @default(false)
+  skipCoiRequirement Boolean @default(false)
 
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Pricing
   customPricing Json? // Custom pricing rules per category
 
-  contacts     ClientContact[]
-  checkouts    Checkout[]
-  reservations Reservation[]
-  invoices     Invoice[]
-  convertedLeads Lead[]
-  boundLeads   Lead[]     @relation("LeadBoundToClient")
+  contacts          ClientContact[]
+  checkouts         Checkout[]
+  reservations      Reservation[]
+  invoices          Invoice[]
+  convertedLeads    Lead[]
+  boundLeads        Lead[]                   @relation("LeadBoundToClient")
   requirementTokens ClientRequirementToken[]
-  inventoryAudits InventoryAudit[]
+  inventoryAudits   InventoryAudit[]
 
   @@map("clients")
 }
@@ -741,10 +800,10 @@ enum BillingCycleType {
 }
 
 enum ReservationType {
-  RENTAL       // Equipment rental with return expected
-  SALE         // Equipment sale, no return expected
-  RENT_TO_OWN  // Equipment financing — fixed monthly payments toward ownership
-  CLOUD        // Cloud services (placeholder — coming soon)
+  RENTAL // Equipment rental with return expected
+  SALE // Equipment sale, no return expected
+  RENT_TO_OWN // Equipment financing — fixed monthly payments toward ownership
+  CLOUD // Cloud services (placeholder — coming soon)
 }
 
 enum DeliveryMethod {
@@ -775,34 +834,34 @@ model Reservation {
   endDate   DateTime
 
   // Status
-  status      ReservationStatus @default(DRAFT)
-  confirmedAt DateTime?
-  quoteSentAt DateTime?
+  status         ReservationStatus @default(DRAFT)
+  confirmedAt    DateTime?
+  quoteSentAt    DateTime?
   // Date the quoted pricing stops being honored. Drives the quote-link expiry,
   // the "Valid until" line on the quote PDF, and the online quote header.
   // Stamped to +30 days when a quote link is first generated if left unset.
   quoteExpiresAt DateTime?
-  approvedAt  DateTime?
-  preparingAt  DateTime?
-  preparedById String?
-  preparedBy   User?     @relation("ReservationPreparedBy", fields: [preparedById], references: [id])
-  shippedAt   DateTime?
-  completedAt DateTime?
-  lostAt      DateTime?
-  lostReason  String?
+  approvedAt     DateTime?
+  preparingAt    DateTime?
+  preparedById   String?
+  preparedBy     User?             @relation("ReservationPreparedBy", fields: [preparedById], references: [id])
+  shippedAt      DateTime?
+  completedAt    DateTime?
+  lostAt         DateTime?
+  lostReason     String?
 
   // Pricing totals
-  subtotal       Decimal @default(0) @db.Decimal(12, 2)
+  subtotal       Decimal       @default(0) @db.Decimal(12, 2)
   discountType   DiscountType?
-  discountValue  Decimal?   @default(0) @db.Decimal(12, 2)
-  discountAmount Decimal    @default(0) @db.Decimal(12, 2)
-  taxRate        Decimal @default(0) @db.Decimal(5, 2)
-  taxAmount      Decimal @default(0) @db.Decimal(12, 2)
-  total          Decimal @default(0) @db.Decimal(12, 2)
+  discountValue  Decimal?      @default(0) @db.Decimal(12, 2)
+  discountAmount Decimal       @default(0) @db.Decimal(12, 2)
+  taxRate        Decimal       @default(0) @db.Decimal(5, 2)
+  taxAmount      Decimal       @default(0) @db.Decimal(12, 2)
+  total          Decimal       @default(0) @db.Decimal(12, 2)
 
   // Margin tracking
-  totalCost    Decimal?  @db.Decimal(12, 2)
-  totalMargin  Decimal?  @db.Decimal(12, 2)
+  totalCost   Decimal? @db.Decimal(12, 2)
+  totalMargin Decimal? @db.Decimal(12, 2)
 
   // Internal costs (not billed to client)
   internalShippingCost Decimal? @db.Decimal(12, 2)
@@ -810,13 +869,13 @@ model Reservation {
   hardwareCost         Decimal? @db.Decimal(12, 2)
 
   // Billing cycle configuration
-  billingCycleType  BillingCycleType @default(MONTHLY)
-  billingCycleDay   Int              @default(1) // Day of month for MONTHLY (1-28), or day of week for WEEKLY (0=Sun, 6=Sat)
-  billingCycleDays  Int?             // Number of days for CUSTOM billing period
-  nextBillingDate        DateTime?        // Next scheduled billing date
-  lastBilledDate         DateTime?        // Date of last invoice generated
-  billingPeriodsCompleted Int @default(0)  // How many billing periods have been invoiced
-  notBilled              Boolean       @default(false) // Skip all invoicing (eval, gifted, etc.)
+  billingCycleType        BillingCycleType @default(MONTHLY)
+  billingCycleDay         Int              @default(1) // Day of month for MONTHLY (1-28), or day of week for WEEKLY (0=Sun, 6=Sat)
+  billingCycleDays        Int? // Number of days for CUSTOM billing period
+  nextBillingDate         DateTime? // Next scheduled billing date
+  lastBilledDate          DateTime? // Date of last invoice generated
+  billingPeriodsCompleted Int              @default(0) // How many billing periods have been invoiced
+  notBilled               Boolean          @default(false) // Skip all invoicing (eval, gifted, etc.)
 
   // Recurring
   isRecurring         Boolean       @default(false)
@@ -827,18 +886,18 @@ model Reservation {
   childReservations   Reservation[] @relation("RecurringReservations")
 
   // Delivery & Return
-  deliveryMethod      DeliveryMethod?
-  deliveryAddress     String?
-  deliveryDate        DateTime?
-  deliveryCost        Decimal?     @db.Decimal(12, 2)
-  deliveryCourier     String?
-  deliveryNotes       String?
-  returnMethod        DeliveryMethod?
-  returnDate          DateTime?
-  returnCost          Decimal?     @db.Decimal(12, 2)
-  shippingMarginType  String?      // 'FIXED' or 'PERCENTAGE' — applies to both delivery & return
-  shippingMargin      Decimal?     @db.Decimal(12, 2)
-  returnCourier       String?
+  deliveryMethod           DeliveryMethod?
+  deliveryAddress          String?
+  deliveryDate             DateTime?
+  deliveryCost             Decimal?        @db.Decimal(12, 2)
+  deliveryCourier          String?
+  deliveryNotes            String?
+  returnMethod             DeliveryMethod?
+  returnDate               DateTime?
+  returnCost               Decimal?        @db.Decimal(12, 2)
+  shippingMarginType       String? // 'FIXED' or 'PERCENTAGE' — applies to both delivery & return
+  shippingMargin           Decimal?        @db.Decimal(12, 2)
+  returnCourier            String?
   deliveryTrackingProvider String?
   deliveryTrackingNumber   String?
   returnTrackingProvider   String?
@@ -857,15 +916,15 @@ model Reservation {
   convertedFromNumber String?
 
   // HubSpot integration
-  hubspotDealId       String?   @unique
+  hubspotDealId String? @unique
 
   // Rent-to-Own (RTO) fields
-  rtoTermMonths       Int?                           // 3, 6, 12, 24, 36
-  rtoMonthlyPayment   Decimal?  @db.Decimal(12, 2)   // Fixed monthly installment amount
-  rtoBuyoutPrice      Decimal?  @db.Decimal(12, 2)   // Total price for ownership
-  rtoInstallmentsPaid Int?      @default(0)           // Count of PAID invoices
-  rtoStartDate        DateTime?                       // When first installment began
-  rtoDefaultCount     Int?      @default(0)           // Number of missed/overdue payments
+  rtoTermMonths       Int? // 3, 6, 12, 24, 36
+  rtoMonthlyPayment   Decimal?  @db.Decimal(12, 2) // Fixed monthly installment amount
+  rtoBuyoutPrice      Decimal?  @db.Decimal(12, 2) // Total price for ownership
+  rtoInstallmentsPaid Int?      @default(0) // Count of PAID invoices
+  rtoStartDate        DateTime? // When first installment began
+  rtoDefaultCount     Int?      @default(0) // Number of missed/overdue payments
 
   // Payment terms (override client default; null = use client's paymentTerms)
   paymentTerms Int?
@@ -916,19 +975,19 @@ model Package {
 }
 
 model ReservationItem {
-  id            String      @id @default(cuid())
-  reservationId String
-  reservation   Reservation @relation(fields: [reservationId], references: [id], onDelete: Cascade)
-  packageId     String?
-  package       Package?    @relation(fields: [packageId], references: [id], onDelete: Cascade)
-  assetId       String?
-  asset         Asset?      @relation(fields: [assetId], references: [id])
-  serviceId     String?
-  service       Service?    @relation(fields: [serviceId], references: [id])
+  id             String        @id @default(cuid())
+  reservationId  String
+  reservation    Reservation   @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+  packageId      String?
+  package        Package?      @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  assetId        String?
+  asset          Asset?        @relation(fields: [assetId], references: [id])
+  serviceId      String?
+  service        Service?      @relation(fields: [serviceId], references: [id])
   cloudProductId String?
-  cloudProduct  CloudProduct? @relation(fields: [cloudProductId], references: [id])
-  description   String?
-  category      String?    // Manual category for ad-hoc items (asset-linked items use asset.category)
+  cloudProduct   CloudProduct? @relation(fields: [cloudProductId], references: [id])
+  description    String?
+  category       String? // Manual category for ad-hoc items (asset-linked items use asset.category)
 
   // Pricing for this item
   pricingType PricingType @default(DAILY)
@@ -938,8 +997,8 @@ model ReservationItem {
   isOneTime   Boolean     @default(false) // One-time charge: subtotal = rate × qty (no term multiplication)
 
   // Margin tracking (sales)
-  costBasis      Decimal?  @db.Decimal(12, 2)  // Per-unit cost
-  marginPercent  Decimal?  @db.Decimal(5, 2)   // Margin % applied
+  costBasis     Decimal? @db.Decimal(12, 2) // Per-unit cost
+  marginPercent Decimal? @db.Decimal(5, 2) // Margin % applied
 
   // Tracking (counts instead of booleans for multi-unit)
   assignedCount   Int @default(0) // Units soft-assigned during prep
@@ -952,9 +1011,14 @@ model ReservationItem {
   sortOrder Int      @default(0)
 
   // Component nesting (one level deep): configurable parent items host component sub-items.
-  parentId   String?
-  parent     ReservationItem?  @relation("ReservationItemComponents", fields: [parentId], references: [id], onDelete: Cascade)
-  components ReservationItem[] @relation("ReservationItemComponents")
+  /// Set on a component line whose cost is already in its parent's price. It is
+  /// shown on the quote as part of the specification and contributes nothing to
+  /// the total. Distinct from a rate that happens to be zero, which is a charge
+  /// somebody waived.
+  includedInParent Boolean           @default(false)
+  parentId         String?
+  parent           ReservationItem?  @relation("ReservationItemComponents", fields: [parentId], references: [id], onDelete: Cascade)
+  components       ReservationItem[] @relation("ReservationItemComponents")
 
   // Relations
   units ReservationItemUnit[]
@@ -976,7 +1040,7 @@ model ReservationItemUnit {
   assetUnitId       String
   assetUnit         AssetUnit       @relation(fields: [assetUnitId], references: [id])
 
-  assignedAt   DateTime?  // Soft-assigned during prep (unit earmarked but not checked out)
+  assignedAt   DateTime? // Soft-assigned during prep (unit earmarked but not checked out)
   checkedOutAt DateTime?
   checkedInAt  DateTime?
   checkoutId   String?
@@ -1025,7 +1089,7 @@ model Invoice {
   terms String?
 
   // Billing period tracking
-  periodNumber   Int?       // Which billing period this invoice covers (1, 2, 3…)
+  periodNumber    Int? // Which billing period this invoice covers (1, 2, 3…)
   periodStartDate DateTime? // Start of billing period (e.g. 1st of month)
   periodEndDate   DateTime? // End of billing period (e.g. last day of month)
 
@@ -1182,13 +1246,13 @@ model POItem {
   receivedQuantity Int     @default(0)
 
   assetId       String?
-  asset         Asset?   @relation(fields: [assetId], references: [id])
+  asset         Asset?  @relation(fields: [assetId], references: [id])
   // Receiving mode (mutually exclusive):
   //  - isInventoried: full fixed-asset tracking — creates Asset + AssetUnits (assets + serials)
   //  - isResale: goods held for resale — receive serial numbers only, no fixed asset
   //  - neither: consumable (cable/light item) — no serials, never touches fixed assets
-  isInventoried Boolean  @default(true)
-  isResale      Boolean  @default(false)
+  isInventoried Boolean @default(true)
+  isResale      Boolean @default(false)
 
   // Serial numbers captured when receiving a resale line (serials-only, no
   // AssetUnits). Appended to on each partial receipt.
@@ -1285,9 +1349,9 @@ model AuditLog {
 
 model StatusHistory {
   id          String   @id @default(cuid())
-  entityType  String   // "RESERVATION" | "CHECKOUT" | "INVOICE"
+  entityType  String // "RESERVATION" | "CHECKOUT" | "INVOICE"
   entityId    String
-  fromStatus  String?  // null for initial creation
+  fromStatus  String? // null for initial creation
   toStatus    String
   changedById String?
   changedBy   User?    @relation(fields: [changedById], references: [id])
@@ -1372,14 +1436,14 @@ model QuoteToken {
 // ============================================
 
 model ClientRequirementToken {
-  id               String   @id @default(cuid())
-  token            String   @unique
+  id               String    @id @default(cuid())
+  token            String    @unique
   clientId         String
-  client           Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  client           Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
   requirementTypes String[] // e.g. ["ID", "COI"]
   expiresAt        DateTime
   usedAt           DateTime?
-  createdAt        DateTime @default(now())
+  createdAt        DateTime  @default(now())
 
   @@index([token])
   @@index([clientId])
@@ -1413,13 +1477,13 @@ enum AuditItemStatus {
 }
 
 model InventoryAudit {
-  id             String               @id @default(cuid())
-  name           String
-  scope          InventoryAuditScope
-  status         InventoryAuditStatus @default(DRAFT)
+  id     String               @id @default(cuid())
+  name   String
+  scope  InventoryAuditScope
+  status InventoryAuditStatus @default(DRAFT)
 
-  categoryId     String?
-  locationId     String?
+  categoryId String?
+  locationId String?
 
   // CLIENT_ORDER scope: audit currently checked-out units for a client's selected orders
   clientId       String?
@@ -1432,40 +1496,40 @@ model InventoryAudit {
   missingCount    Int @default(0)
   unexpectedCount Int @default(0)
 
-  notes          String?
+  notes String?
 
-  startedAt      DateTime?
-  completedAt    DateTime?
-  createdById    String
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdById String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
-  items          AuditItem[]
+  items AuditItem[]
 
   @@index([status])
   @@map("inventory_audits")
 }
 
 model AuditItem {
-  id                 String          @id @default(cuid())
-  auditId            String
-  audit              InventoryAudit  @relation(fields: [auditId], references: [id], onDelete: Cascade)
+  id          String         @id @default(cuid())
+  auditId     String
+  audit       InventoryAudit @relation(fields: [auditId], references: [id], onDelete: Cascade)
   // Null when the scanned barcode is not a registered asset unit (unknown item)
-  assetUnitId        String?
+  assetUnitId String?
   // Raw scanned barcode — retained so unknown items can be reviewed / used to create an asset
-  barcode            String?
+  barcode     String?
 
-  status             AuditItemStatus @default(PENDING)
-  scannedAt          DateTime?
-  scannedById        String?
+  status      AuditItemStatus @default(PENDING)
+  scannedAt   DateTime?
+  scannedById String?
 
-  issueType          String?
-  issueNotes         String?
+  issueType  String?
+  issueNotes String?
 
   expectedLocationId String?
   expectedStatus     String?
 
-  createdAt          DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@unique([auditId, assetUnitId])
   @@index([auditId, status])
@@ -1479,14 +1543,14 @@ model AuditItem {
 model CloudProduct {
   id          String               @id @default(cuid())
   category    CloudProductCategory
-  name        String                // e.g. "16C", "64GB", "RTX A6000"
+  name        String // e.g. "16C", "64GB", "RTX A6000"
   description String?
 
   // Cost basis (our cost per period)
-  costHourly  Decimal  @db.Decimal(12, 4) @default(0)
-  costDaily   Decimal  @db.Decimal(12, 4) @default(0)
-  costWeekly  Decimal  @db.Decimal(12, 4) @default(0)
-  costMonthly Decimal  @db.Decimal(12, 4) @default(0)
+  costHourly  Decimal @default(0) @db.Decimal(12, 4)
+  costDaily   Decimal @default(0) @db.Decimal(12, 4)
+  costWeekly  Decimal @default(0) @db.Decimal(12, 4)
+  costMonthly Decimal @default(0) @db.Decimal(12, 4)
 
   // Sell price overrides (null = derive from cost × (1 + margin))
   sellHourly  Decimal? @db.Decimal(12, 4)
@@ -1494,7 +1558,7 @@ model CloudProduct {
   sellWeekly  Decimal? @db.Decimal(12, 4)
   sellMonthly Decimal? @db.Decimal(12, 4)
 
-  marginPercent Decimal @db.Decimal(5, 2) @default(25)
+  marginPercent Decimal @default(25) @db.Decimal(5, 2)
   active        Boolean @default(true)
   sortOrder     Int     @default(0)
 
@@ -1513,14 +1577,14 @@ model CloudProduct {
 // ============================================
 
 model ScanList {
-  id          String         @id @default(cuid())
+  id          String   @id @default(cuid())
   name        String
   description String?
   createdById String
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  items       ScanListItem[]
+  items ScanListItem[]
 
   @@index([createdById])
   @@map("scan_lists")
@@ -1561,18 +1625,18 @@ model Setting {
 // ============================================
 
 model ApiKey {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   name        String
-  keyHash     String   @unique
+  keyHash     String    @unique
   prefix      String
-  role        UserRole @default(VIEWER)
-  isActive    Boolean  @default(true)
+  role        UserRole  @default(VIEWER)
+  isActive    Boolean   @default(true)
   lastUsedAt  DateTime?
   expiresAt   DateTime?
   createdById String
-  createdBy   User     @relation(fields: [createdById], references: [id])
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdBy   User      @relation(fields: [createdById], references: [id])
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   @@index([prefix])
   @@map("api_keys")
@@ -1591,7 +1655,7 @@ enum LeadSource {
   PHONE
   EMAIL
   DIRECT
-  AD        // From paid advertising
+  AD // From paid advertising
   OTHER
 }
 
@@ -1600,56 +1664,56 @@ enum LeadStatus {
   CONTACTED
   QUALIFIED
   PROSPECT // Order created, awaiting quote outcome
-  BOUND    // Bound to existing order/client (different contact on same account)
+  BOUND // Bound to existing order/client (different contact on same account)
   UNQUALIFIED
   WON
   LOST
 }
 
 model Lead {
-  id                    String      @id @default(cuid())
-  name                  String
-  email                 String?
-  phone                 String?
-  companyName           String?
-  source                LeadSource  @default(OTHER)
-  channel               String?     // Entry point: "Contact Us Form", "Pricing Page", "Inbound Call", etc.
-  salesRep              String?     // Sales rep name for DIRECT source
-  status                LeadStatus  @default(NEW)
-  assignedToId          String?
-  assignedTo            User?       @relation("LeadAssignedTo", fields: [assignedToId], references: [id])
-  estimatedValue        Decimal?    @db.Decimal(12, 2)
-  notes                 String?
+  id             String     @id @default(cuid())
+  name           String
+  email          String?
+  phone          String?
+  companyName    String?
+  source         LeadSource @default(OTHER)
+  channel        String? // Entry point: "Contact Us Form", "Pricing Page", "Inbound Call", etc.
+  salesRep       String? // Sales rep name for DIRECT source
+  status         LeadStatus @default(NEW)
+  assignedToId   String?
+  assignedTo     User?      @relation("LeadAssignedTo", fields: [assignedToId], references: [id])
+  estimatedValue Decimal?   @db.Decimal(12, 2)
+  notes          String?
 
   // Integration IDs
-  hubspotContactId      String?     @unique
-  justcallContactId     String?     @unique
+  hubspotContactId  String? @unique
+  justcallContactId String? @unique
 
   // Conversion
-  convertedToClientId   String?
-  convertedToClient     Client?     @relation(fields: [convertedToClientId], references: [id])
+  convertedToClientId    String?
+  convertedToClient      Client?   @relation(fields: [convertedToClientId], references: [id])
   convertedReservationId String?
-  convertedAt           DateTime?
+  convertedAt            DateTime?
 
   // Binding (link to existing order without creating new reservation)
-  boundToReservationId  String?
-  boundToClientId       String?
-  boundToClient         Client?     @relation("LeadBoundToClient", fields: [boundToClientId], references: [id])
-  boundAt               DateTime?
+  boundToReservationId String?
+  boundToClientId      String?
+  boundToClient        Client?   @relation("LeadBoundToClient", fields: [boundToClientId], references: [id])
+  boundAt              DateTime?
 
   // Ad tracking (for AD source leads)
-  adCampaign            String?     // Campaign name/ID
-  adPlatform            String?     // "Google Ads", "Meta", "LinkedIn", etc.
-  adCost                Decimal?    @db.Decimal(12, 2) // Cost attributed to this lead
+  adCampaign String? // Campaign name/ID
+  adPlatform String? // "Google Ads", "Meta", "LinkedIn", etc.
+  adCost     Decimal? @db.Decimal(12, 2) // Cost attributed to this lead
 
   // Lost reason
-  lostReason            String?
-  lostAt                DateTime?
+  lostReason String?
+  lostAt     DateTime?
 
-  createdAt             DateTime    @default(now())
-  updatedAt             DateTime    @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  activities            LeadActivity[]
+  activities LeadActivity[]
 
   @@index([status])
   @@index([assignedToId])
@@ -1712,27 +1776,27 @@ enum LeaseStatus {
 }
 
 model Lease {
-  id             String      @id @default(cuid())
-  assetUnits     AssetUnit[]
-  leaseName      String
-  leaseNumber    String      @unique
-  lender         String
+  id          String      @id @default(cuid())
+  assetUnits  AssetUnit[]
+  leaseName   String
+  leaseNumber String      @unique
+  lender      String
 
-  monthlyPayment Decimal     @db.Decimal(12, 2)
-  interestRate   Decimal     @db.Decimal(5, 4)
-  totalAmount    Decimal     @db.Decimal(12, 2)
-  payoffAmount   Decimal?    @db.Decimal(12, 2)
+  monthlyPayment Decimal  @db.Decimal(12, 2)
+  interestRate   Decimal  @db.Decimal(5, 4)
+  totalAmount    Decimal  @db.Decimal(12, 2)
+  payoffAmount   Decimal? @db.Decimal(12, 2)
 
-  startDate      DateTime
-  endDate        DateTime
-  termMonths     Int
+  startDate  DateTime
+  endDate    DateTime
+  termMonths Int
 
-  status         LeaseStatus @default(ACTIVE)
-  paidOffDate    DateTime?
-  notes          String?
+  status      LeaseStatus @default(ACTIVE)
+  paidOffDate DateTime?
+  notes       String?
 
-  createdAt      DateTime    @default(now())
-  updatedAt      DateTime    @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([status])
   @@map("leases")
@@ -1761,8 +1825,8 @@ model Service {
 // ============================================
 
 enum CampaignType {
-  INTERNAL  // Internal notifications (e.g. lead follow-up reminders)
-  EXTERNAL  // Client-facing (e.g. follow-up emails after quote)
+  INTERNAL // Internal notifications (e.g. lead follow-up reminders)
+  EXTERNAL // Client-facing (e.g. follow-up emails after quote)
   EMAIL_LIST // Bulk email to opted-in marketing contacts
 }
 
@@ -1782,22 +1846,22 @@ model MarketingCampaign {
   status      CampaignStatus @default(DRAFT)
 
   // Trigger configuration
-  triggerType     String?    // "LEAD_NO_UPDATE", "QUOTE_NO_ACTION", "NEW_LEAD", etc.
-  triggerDelayMin Int?       // Minutes before trigger fires (e.g. 5 for 5-min lead follow-up)
-  triggerConfig   Json?      // Extra config (e.g. { "statuses": ["NEW"], "channels": [...] })
+  triggerType     String? // "LEAD_NO_UPDATE", "QUOTE_NO_ACTION", "NEW_LEAD", etc.
+  triggerDelayMin Int? // Minutes before trigger fires (e.g. 5 for 5-min lead follow-up)
+  triggerConfig   Json? // Extra config (e.g. { "statuses": ["NEW"], "channels": [...] })
 
   // Email template (for external/email-list campaigns)
-  emailSubject  String?
-  emailBody     String?      // HTML template
+  emailSubject String?
+  emailBody    String? // HTML template
 
   // Targeting
   targetOptInOnly Boolean @default(true) // Only target clients with marketingOptIn = true
 
   // Stats
-  sentCount     Int @default(0)
-  openCount     Int @default(0)
-  clickCount    Int @default(0)
-  convertCount  Int @default(0)
+  sentCount    Int @default(0)
+  openCount    Int @default(0)
+  clickCount   Int @default(0)
+  convertCount Int @default(0)
 
   enabled   Boolean  @default(false) // Master on/off switch
   createdAt DateTime @default(now())
@@ -1809,13 +1873,13 @@ model MarketingCampaign {
 
 model MarketingAdExpense {
   id          String   @id @default(cuid())
-  platform    String   // "Google Ads", "Meta Ads", "LinkedIn Ads", etc.
-  campaignRef String?  // External campaign ID/name
+  platform    String // "Google Ads", "Meta Ads", "LinkedIn Ads", etc.
+  campaignRef String? // External campaign ID/name
   date        DateTime
   spend       Decimal  @db.Decimal(12, 2)
   impressions Int?
   clicks      Int?
-  leads       Int?     // Number of leads generated
+  leads       Int? // Number of leads generated
   notes       String?
 
   createdAt DateTime @default(now())
@@ -1827,14 +1891,14 @@ model MarketingAdExpense {
 }
 
 model MarketingTactic {
-  id          String   @id @default(cuid())
+  id          String  @id @default(cuid())
   name        String
   description String?
-  category    String   // "Lead Gen", "Conversion", "Retention", "Awareness"
-  channel     String?  // "Email", "Phone", "Ad", "Social", etc.
-  isActive    Boolean  @default(true)
-  metrics     Json?    // Tracked KPIs: { calls: 0, leads: 0, conversions: 0, revenue: 0 }
-  costToDate  Decimal  @default(0) @db.Decimal(12, 2)
+  category    String // "Lead Gen", "Conversion", "Retention", "Awareness"
+  channel     String? // "Email", "Phone", "Ad", "Social", etc.
+  isActive    Boolean @default(true)
+  metrics     Json? // Tracked KPIs: { calls: 0, leads: 0, conversions: 0, revenue: 0 }
+  costToDate  Decimal @default(0) @db.Decimal(12, 2)
   notes       String?
 
   createdAt DateTime @default(now())
@@ -1863,13 +1927,13 @@ enum FlowTaskPriority {
 }
 
 model FlowGroup {
-  id        String   @id @default(cuid())
+  id        String  @id @default(cuid())
   name      String
-  color     String   @default("#6366f1") // Hex color for group header
-  sortOrder Int      @default(0)
-  collapsed Boolean  @default(false)
+  color     String  @default("#6366f1") // Hex color for group header
+  sortOrder Int     @default(0)
+  collapsed Boolean @default(false)
 
-  tasks     FlowTask[]
+  tasks FlowTask[]
 
   // Creator (mirrors FlowTask) — used by FLOW_USER scoping
   createdById String?
@@ -1890,33 +1954,33 @@ model FlowTask {
   priority    FlowTaskPriority @default(MEDIUM)
 
   // Assignment (many-to-many)
-  assignees  User[]   @relation("FlowTaskAssignees")
+  assignees User[] @relation("FlowTaskAssignees")
 
   // Grouping
-  groupId    String?
-  group      FlowGroup? @relation(fields: [groupId], references: [id], onDelete: SetNull)
-  sortOrder  Int        @default(0)
+  groupId   String?
+  group     FlowGroup? @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  sortOrder Int        @default(0)
 
   // Dates
-  dueDate    DateTime?
-  startedAt  DateTime?
+  dueDate     DateTime?
+  startedAt   DateTime?
   completedAt DateTime?
 
   // Notes / context
-  notes      String?
+  notes String?
 
   // Link to reservation, asset, client, etc.
-  linkedEntityType String?  // "RESERVATION", "ASSET", "CLIENT", "LEAD"
+  linkedEntityType String? // "RESERVATION", "ASSET", "CLIENT", "LEAD"
   linkedEntityId   String?
 
   // Creator
   createdById String?
   createdBy   User?   @relation("FlowTaskCreator", fields: [createdById], references: [id])
 
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  comments   FlowTaskComment[]
+  comments FlowTaskComment[]
 
   @@index([groupId])
   @@index([status])
@@ -1925,11 +1989,11 @@ model FlowTask {
 }
 
 model FlowTaskComment {
-  id      String   @id @default(cuid())
-  taskId  String
-  task    FlowTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  id       String   @id @default(cuid())
+  taskId   String
+  task     FlowTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
   authorId String
-  author   User    @relation("FlowTaskComments", fields: [authorId], references: [id])
+  author   User     @relation("FlowTaskComments", fields: [authorId], references: [id])
   content  String
 
   createdAt DateTime @default(now())
@@ -1964,8 +2028,8 @@ enum QcResult {
 /// the unit goes — CLOSED_PASS returns it to AVAILABLE, CLOSED_SCRAP retires it.
 /// See src/lib/actions/service.ts, which owns those transitions.
 model WorkOrder {
-  id          String @id @default(cuid())
-  number      String @unique
+  id     String @id @default(cuid())
+  number String @unique
 
   assetUnitId String
   assetUnit   AssetUnit @relation(fields: [assetUnitId], references: [id])
@@ -1979,19 +2043,19 @@ model WorkOrder {
   assignedTechId String?
   assignedTech   User?   @relation("WorkOrderAssignedTech", fields: [assignedTechId], references: [id])
 
-  status WorkOrderStatus @default(OPEN)
+  status   WorkOrderStatus @default(OPEN)
   /// Short description of what is wrong — "GPU 3 dropped off PCIe bus".
-  fault  String
+  fault    String
   /// Whether the client is charged for this work.
-  billable Boolean @default(false)
+  billable Boolean         @default(false)
   notes    String?
 
   /// Written when the work order closes, so the unit keeps its history.
   maintenanceRecordId String?
 
-  openedAt DateTime  @default(now())
-  closedAt DateTime?
-  updatedAt DateTime @updatedAt
+  openedAt  DateTime  @default(now())
+  closedAt  DateTime?
+  updatedAt DateTime  @updatedAt
 
   testRuns QcTestRun[]
 
@@ -2003,12 +2067,12 @@ model WorkOrder {
 /// One bench test against a work order. Filed by hand or posted by a test rig
 /// through the key-authenticated /api/v1/service/qc-runs endpoint.
 model QcTestRun {
-  id          String @id @default(cuid())
+  id          String    @id @default(cuid())
   workOrderId String
   workOrder   WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
 
   testName    String
-  result      QcResult @default(QUEUED)
+  result      QcResult  @default(QUEUED)
   ranAt       DateTime?
   durationSec Int?
   logUrl      String?

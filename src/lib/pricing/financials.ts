@@ -21,6 +21,15 @@ export type FinancialItem = {
   quantity?: number | null
   pricingType: string
   isOneTime?: boolean | null
+  /**
+   * A component whose cost is already in its parent SKU's price.
+   *
+   * It keeps a real rate — that is what the part is worth, and what is wanted
+   * when somebody swaps it for a different one — and contributes nothing.
+   * Deriving from rate × quantity here would charge the client for the base
+   * specification of a machine they are already paying for.
+   */
+  includedInParent?: boolean | null
 }
 
 export type FinancialOrder = {
@@ -31,6 +40,7 @@ export type FinancialOrder = {
 
 /** Line amount for one item over the order's term. Mirrors what the server persists. */
 export function deriveItemAmount(item: FinancialItem, order: FinancialOrder): number {
+  if (item.includedInParent) return 0
   const periods = item.isOneTime
     ? 1
     : calculatePeriods(order.startDate, order.endDate, item.pricingType, order.isRecurring ?? false)

@@ -30,6 +30,8 @@ export type QuoteItem = {
   parentId?: string | null;
   isComponent?: boolean;
   configuredTotal?: number;
+  /** Part of the base price — shown as specification, charged nothing. */
+  includedInParent?: boolean;
 };
 
 export type QuoteCategory = { category: string; items: QuoteItem[] };
@@ -429,12 +431,20 @@ function Lines({ categories }: { categories: QuoteCategory[] }) {
                   {item.isComponent ? "↳ " : ""}
                   {item.name}
                   <span className="ml-2 text-xs text-[#a1a1aa]">
-                    ×{item.quantity} · {money(item.rate)}
-                    {RATE_SUFFIX[item.pricingType] ?? ""}
+                    ×{item.quantity}
+                    {/* The base specification of a configured machine is listed
+                        so the client can see what they are getting, and priced
+                        at nothing because it is already in the parent's rate.
+                        Showing its rate here would read as a charge. */}
+                    {item.includedInParent
+                      ? " · included"
+                      : ` · ${money(item.rate)}${RATE_SUFFIX[item.pricingType] ?? ""}`}
                   </span>
                 </span>
                 <span className="tabular-nums">
-                  {money(item.configuredTotal ?? item.subtotal)}
+                  {item.includedInParent
+                    ? "—"
+                    : money(item.configuredTotal ?? item.subtotal)}
                 </span>
               </li>
             ))}

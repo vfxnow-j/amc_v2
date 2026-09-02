@@ -593,7 +593,7 @@ export async function addOrderLine(
   }
 
   try {
-    await addItemToReservation(
+    const created = await addItemToReservation(
       reservationId,
       line.assetId ?? null,
       line.pricingType,
@@ -603,9 +603,80 @@ export async function addOrderLine(
       undefined,
       line.isOneTime,
     );
+
+    // If the asset is a SKU with a build, its default parts come with it. That
+    // is the whole point of recording a build: the workstation arrives on the
+    // order already configured, instead of somebody rebuilding the same four
+    // rows by hand for the ninth time.
+    let added = 0;
+    const itemId = (created as { id?: string })?.id;
+    if (itemId && line.assetId) {
+      const { expandBuildOntoLine } = await import("@/lib/actions/asset-build");
+      ({ added } = await expandBuildOntoLine(reservationId, itemId));
+      if (added > 0) await repriceOrder(reservationId);
+    }
+
     touch(reservationId);
-    return { status: "ok", message: "Line added; the order was repriced." };
+    return {
+      status: "ok",
+      message:
+        added > 0
+          ? `Line added with its ${added} default ${added === 1 ? "part" : "parts"}; the order was repriced.`
+          : "Line added; the order was repriced.",
+    };
   } catch (error) {
     return { status: "error", message: reasonFrom(error) };
   }
+}
+
+/**
+ * Recompute an order's stored totals from the lines it now has.
+ *
+ * Needed because expanding a build writes rows straight through
+ * `createMany` — no per-row action runs, so nothing repriced. Included parts
+ * carry a real rate and a zero subtotal, so summing subtotals is what respects
+ * them; summing rate × quantity would charge for the base spec.
+ */
+async function repriceOrder(reservationId: string): Promise<void> {
+  const order = await prisma.reservation.findUnique({
+    where: { id: reservationId },
+    select: {
+      discountType: true,
+      discountValue: true,
+      taxRate: true,
+      deliveryCost: true,
+      returnCost: true,
+      rentalCreditAmount: true,
+      packages: { where: { isActive: true }, select: { id: true } },
+    },
+  });
+  if (!order) return;
+
+  const activePackageId = order.packages[0]?.id;
+  const items = await prisma.reservationItem.findMany({
+    where: { reservationId, ...(activePackageId ? { packageId: activePackageId } : {}) },
+    select: { subtotal: true },
+  });
+
+  const subtotal = items.reduce((sum, item) => sum + Number(item.subtotal), 0);
+  const discountValue = Number(order.discountValue ?? 0);
+  let discountAmount = 0;
+  if (order.discountType === "PERCENTAGE" && discountValue > 0) {
+    discountAmount = subtotal * (discountValue / 100);
+  } else if (order.discountType === "FIXED" && discountValue > 0) {
+    discountAmount = Math.min(discountValue, subtotal);
+  }
+  const afterCredit =
+    subtotal - discountAmount - Number(order.rentalCreditAmount ?? 0);
+  const taxAmount = afterCredit * (Number(order.taxRate ?? 0) / 100);
+  const total =
+    afterCredit +
+    taxAmount +
+    Number(order.deliveryCost ?? 0) +
+    Number(order.returnCost ?? 0);
+
+  await prisma.reservation.update({
+    where: { id: reservationId },
+    data: { subtotal, discountAmount, taxAmount, total },
+  });
 }

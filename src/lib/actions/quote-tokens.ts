@@ -129,6 +129,8 @@ export async function getQuoteByToken(token: string) {
     id: string; name: string; quantity: number; pricingType: string;
     rate: number; subtotal: number; assetId: string | null; availableUnits: number; isOneTime: boolean;
     parentId?: string | null; isComponent?: boolean; configuredTotal?: number;
+    // Part of the base price: shown as specification, charged nothing.
+    includedInParent?: boolean;
   }
   const groupByCategory = (items: typeof reservation.items) => {
     // Cloud-host component children (parentId + cloudProductId) are hidden
@@ -168,6 +170,7 @@ export async function getQuoteByToken(token: string) {
         parentId: item.parentId,
         isComponent,
         configuredTotal,
+        includedInParent: (item as { includedInParent?: boolean }).includedInParent ?? false,
       }
     }
     // Order: parents first, each followed by its components; they share the parent's category.
