@@ -1375,6 +1375,10 @@ enum DocumentType {
   PURCHASE_ORDER
   PROPOSAL
   RENTAL_AGREEMENT
+  // v1 raises these against a funding request. The feature itself is not ported
+  // yet (see docs/build-plan.md, Revenue), but the documents travel with every
+  // refresh, so the type has to exist or `db push` cannot drop the enum value.
+  FUNDING_REQUEST
 }
 
 model Document {
