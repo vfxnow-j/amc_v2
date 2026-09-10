@@ -30,6 +30,13 @@ const nextConfig: NextConfig = {
         permanent: true,
       },
       { source: "/dashboard/checkouts/:path*", destination: "/dashboard/reservations", permanent: true },
+      // Rate cards moved to Operate → Pricing, 2026-09-09. The record keeps its
+      // own URL — only the list was absorbed, as a tab.
+      {
+        source: "/dashboard/rate-cards",
+        destination: "/dashboard/pricing?tab=cards",
+        permanent: true,
+      },
     ];
   },
 };

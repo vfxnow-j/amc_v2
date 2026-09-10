@@ -117,6 +117,10 @@ export const NAV_CLUSTERS: NavCluster[] = [
         id: "pricing",
         label: "Pricing",
         href: "/dashboard/pricing",
+        from: [
+          "/dashboard/settings/import/ratecard",
+          "/dashboard/assets/bulk-update",
+        ],
       },
       {
         // Cloud and Services sit in Operate rather than Revenue: they are
@@ -245,17 +249,6 @@ export const NAV_CLUSTERS: NavCluster[] = [
         label: "Leases",
         href: "/dashboard/leases",
         from: ["/dashboard/leases"],
-      },
-      {
-        // v1 only has the rate-card importer; the list itself is new. Bulk rate
-        // updates move here from Assets, where they don't belong.
-        id: "rate-cards",
-        label: "Rate cards",
-        href: "/dashboard/rate-cards",
-        from: [
-          "/dashboard/settings/import/ratecard",
-          "/dashboard/assets/bulk-update",
-        ],
       },
       {
         id: "purchase-orders",
