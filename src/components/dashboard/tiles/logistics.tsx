@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { MoveArrow } from "@/components/move-arrow";
 import { Tile, TileHeader } from "@/components/dashboard/tile";
 import {
   Empty,
@@ -108,8 +109,12 @@ export async function UntrackedShipmentsTile() {
                       · {METHOD_LABEL[leg.method]}
                     </span>
                   </span>
-                  <span className="text-detail text-ink-muted">
-                    {leg.direction === "out" ? "↗ out" : "↘ back"}
+                  <span className="flex items-center gap-1 text-detail text-ink-muted">
+                    <MoveArrow
+                      direction={leg.direction === "out" ? "out" : "back"}
+                      labelled={false}
+                    />
+                    {leg.direction === "out" ? "out" : "back"}
                   </span>
                   <span
                     className={`text-right text-detail tabular-nums ${

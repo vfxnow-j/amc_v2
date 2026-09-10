@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 import Link from "next/link";
+import { MoveArrow } from "@/components/move-arrow";
 import { PageHeader } from "@/components/shell/page-header";
 import {
   IncomingCard,
@@ -52,9 +53,10 @@ function DayCell({ day, today }: { day: CalendarDay; today: Date }) {
               <Link
                 href={`/dashboard/orders/${order.id}`}
                 title={`Out: ${order.reservationNumber} · ${order.clientName}`}
-                className="block truncate rounded-[4px] bg-accent-tint px-1 text-micro text-accent-on-tint hover:underline"
+                className="flex items-center gap-1 truncate rounded-[4px] bg-accent-tint px-1 text-micro text-accent-on-tint hover:underline"
               >
-                ↗ {order.clientName}
+                <MoveArrow direction="out" />
+                <span className="truncate">{order.clientName}</span>
               </Link>
             </li>
           ))}
@@ -63,9 +65,10 @@ function DayCell({ day, today }: { day: CalendarDay; today: Date }) {
               <Link
                 href={`/dashboard/orders/${order.id}`}
                 title={`Back: ${order.reservationNumber} · ${order.clientName}`}
-                className="block truncate rounded-[4px] bg-sunken px-1 text-micro text-ink-muted hover:underline"
+                className="flex items-center gap-1 truncate rounded-[4px] bg-sunken px-1 text-micro text-ink-muted hover:underline"
               >
-                ↘ {order.clientName}
+                <MoveArrow direction="back" />
+                <span className="truncate">{order.clientName}</span>
               </Link>
             </li>
           ))}

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Tile, TileHeader } from "@/components/dashboard/tile";
 import { Empty, Excludes } from "@/components/dashboard/tiles/parts";
 import { getCalendarMonth, type CalendarDay } from "@/lib/queries/operate";
+import { MoveArrow } from "@/components/move-arrow";
 
 /**
  * This week, in and out — the Calendar's month grid at one week's zoom.
@@ -138,13 +139,14 @@ function DayColumn({ day, now }: { day: CalendarDay; now: Date }) {
           title={`${direction === "out" ? "Out" : "Back"}: ${
             order.reservationNumber
           } · ${order.clientName}`}
-          className={`block truncate rounded-[4px] px-1 text-micro hover:underline ${
+          className={`flex items-center gap-1 truncate rounded-[4px] px-1 text-micro hover:underline ${
             direction === "out"
               ? "bg-accent-tint text-accent-on-tint"
               : "bg-sunken text-ink-muted"
           }`}
         >
-          {direction === "out" ? "↗" : "↘"} {order.clientName}
+          <MoveArrow direction={direction === "out" ? "out" : "back"} />
+          <span className="truncate">{order.clientName}</span>
         </Link>
       ))}
 
