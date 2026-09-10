@@ -555,8 +555,118 @@
   );
 }
 
+
+/* ---------------------------------------------------------------------------
+   Tile accents — a colour a person picks for one tile.
+
+   Distinct from `data-tile` above, which is one decision about every tile at
+   once. This is per tile, set on the tile element, and it is why the values are
+   fixed hues rather than mixes of `--color-accent-500`: the point is to tell
+   two tiles apart, and mixing the theme's own accent makes twelve shades of one
+   colour that all look the same at a glance.
+
+   Twelve hues, and no free hex field anywhere — the owner's call, and it is
+   what keeps this legible. Each carries four roles, mode-aware through
+   `light-dark()` exactly like the semantic layer above, so a tile keeps its
+   identity in both modes and across all themes without anyone re-picking.
+
+   Contrast was computed, not eyeballed: `--tile-accent-text` on
+   `--tile-accent-tint` is at worst **5.28:1 in light and 5.82:1 in dark**,
+   against a 4.5:1 requirement. Any hue added here must clear the same bar.
+
+   A tile with no accent inherits nothing and renders exactly as it does today.
+   --------------------------------------------------------------------------- */
+
+[data-accent="slate"] {
+  --tile-accent-tint: light-dark(#f0f1f2, #232527);
+  --tile-accent-text: light-dark(#3d454f, #abb1ba);
+  --tile-accent-line: light-dark(#d7dadd, #404347);
+  --tile-accent-solid: light-dark(#5a6472, #818a97);
+}
+
+[data-accent="blue"] {
+  --tile-accent-tint: light-dark(#eaf0f8, #182432);
+  --tile-accent-text: light-dark(#184374, #8ab0db);
+  --tile-accent-line: light-dark(#cad9ea, #314256);
+  --tile-accent-solid: light-dark(#2762a5, #5388c5);
+}
+
+[data-accent="indigo"] {
+  --tile-accent-tint: light-dark(#eceaf8, #1d1a30);
+  --tile-accent-text: light-dark(#281e6f, #988fd6);
+  --tile-accent-line: light-dark(#d0cce8, #373354);
+  --tile-accent-solid: light-dark(#3d2e9e, #675abf);
+}
+
+[data-accent="violet"] {
+  --tile-accent-tint: light-dark(#f1ebf7, #261b2f);
+  --tile-accent-text: light-dark(#49216b, #b592d3);
+  --tile-accent-line: light-dark(#dbcde7, #453453);
+  --tile-accent-solid: light-dark(#693399, #8f5eba);
+}
+
+[data-accent="magenta"] {
+  --tile-accent-tint: light-dark(#f7ebf3, #301a28);
+  --tile-accent-text: light-dark(#6c2053, #d491be);
+  --tile-accent-line: light-dark(#e7cddf, #533449);
+  --tile-accent-solid: light-dark(#9b3178, #bc5d9c);
+}
+
+[data-accent="rose"] {
+  --tile-accent-tint: light-dark(#f8eaed, #31191e);
+  --tile-accent-text: light-dark(#721a2c, #da8b9b);
+  --tile-accent-line: light-dark(#eacad1, #563139);
+  --tile-accent-solid: light-dark(#a32941, #c3556b);
+}
+
+[data-accent="red"] {
+  --tile-accent-tint: light-dark(#f9ebe9, #321a18);
+  --tile-accent-text: light-dark(#762016, #dd9188);
+  --tile-accent-line: light-dark(#ebcdc9, #573430);
+  --tile-accent-solid: light-dark(#a83124, #c85d51);
+}
+
+[data-accent="amber"] {
+  --tile-accent-tint: light-dark(#faf3e8, #342916);
+  --tile-accent-text: light-dark(#7d550f, #e3c082);
+  --tile-accent-line: light-dark(#eddfc7, #5a4a2d);
+  --tile-accent-solid: light-dark(#b37a19, #d19f47);
+}
+
+[data-accent="lime"] {
+  --tile-accent-tint: light-dark(#f4f8ea, #29301a);
+  --tile-accent-text: light-dark(#566f1e, #c1d68f);
+  --tile-accent-line: light-dark(#e0e8cc, #4a5433);
+  --tile-accent-solid: light-dark(#7c9e2e, #a0bf5a);
+}
+
+[data-accent="green"] {
+  --tile-accent-tint: light-dark(#eaf8f0, #1a3023);
+  --tile-accent-text: light-dark(#1e6f3f, #8fd6ad);
+  --tile-accent-line: light-dark(#cce8d8, #335441);
+  --tile-accent-solid: light-dark(#2e9e5d, #5abf84);
+}
+
+[data-accent="teal"] {
+  --tile-accent-tint: light-dark(#eaf8f6, #1a302e);
+  --tile-accent-text: light-dark(#1e6f67, #8fd6cf);
+  --tile-accent-line: light-dark(#cce8e5, #335451);
+  --tile-accent-solid: light-dark(#2e9e93, #5abfb5);
+}
+
+[data-accent="cyan"] {
+  --tile-accent-tint: light-dark(#eaf5f8, #182d32);
+  --tile-accent-text: light-dark(#186274, #8acbdb);
+  --tile-accent-line: light-dark(#cae4ea, #314f56);
+  --tile-accent-solid: light-dark(#278ca5, #53aec5);
+}
+
 /* Expose the semantic layer as Tailwind utilities (bg-panel, text-ink-muted…). */
 @theme inline {
+  --color-tile-accent-tint: var(--tile-accent-tint);
+  --color-tile-accent-text: var(--tile-accent-text);
+  --color-tile-accent-line: var(--tile-accent-line);
+  --color-tile-accent-solid: var(--tile-accent-solid);
   --color-ground: var(--ground);
   --color-panel: var(--panel);
   --color-sunken: var(--sunken);
