@@ -40,6 +40,18 @@ model User {
   colorMode String?
   themeName String?
 
+  // Which dashboard this user is looking at, and three appearance axes beyond
+  // colorMode/themeName above. Validated in lib/theme rather than by an enum,
+  // for the same reason that block gives: a seventh shade should be two CSS
+  // lines and not a migration.
+  //
+  // dashboardView is deliberately NOT a foreign key. A template an admin
+  // deletes must degrade to the fallback view, not cascade into user rows.
+  dashboardView String?
+  navShade      String?
+  groundShade   String?
+  tileStyle     String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -63,6 +75,7 @@ model User {
   flowTaskComments     FlowTaskComment[]  @relation("FlowTaskComments")
   workOrdersOpened     WorkOrder[]        @relation("WorkOrderOpenedBy")
   workOrdersAssigned   WorkOrder[]        @relation("WorkOrderAssignedTech")
+  dashboardLayouts     DashboardLayout[]
 
   @@map("users")
 }
@@ -625,6 +638,15 @@ model Client {
   // Verification opt-outs (admin-configurable)
   skipIdRequirement  Boolean @default(false)
   skipCoiRequirement Boolean @default(false)
+
+  // Set when this client was materialised only to hold a quote for someone who
+  // has not onboarded yet; cleared when onboarding lands. A thin flagged Client
+  // rather than a nullable Reservation.clientId, because that FK is included
+  // non-optionally by getQuoteByToken, every PDF builder, sendQuoteLinkEmail
+  // and the invoice path — making it nullable would turn one schema line into
+  // hundreds of `?.` and silent nulls in documents that go out to clients.
+  // Only ever set forward, so existing rows need no backfill.
+  prospectAt DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1830,8 +1852,8 @@ model Service {
   unit        String      @default("Flat") // "Flat", "Per Hour", "Per Day", "Per Session"
   kind        ServiceKind @default(OTHER)
   active      Boolean     @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
 
   items ReservationItem[]
 
@@ -2101,4 +2123,46 @@ model QcTestRun {
   @@index([workOrderId])
   @@index([result])
   @@map("qc_test_runs")
+}
+
+// A company-level dashboard shape, defined by an admin. A table rather than a
+// Setting row so that two admins editing different templates is not
+// last-write-wins over the whole set, which is what one JSON blob under one key
+// would give.
+//
+// `tiles` is never trusted on read: every read goes through zod, unknown tile
+// ids are dropped and geometry is clamped. `access` empty means every role, and
+// role-gating is enforced again at render — never only here, and never only in
+// the picker.
+model DashboardTemplate {
+  id        String     @id @default(cuid())
+  key       String     @unique
+  label     String
+  tiles     Json
+  access    UserRole[] @default([])
+  sortOrder Int        @default(0)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  @@map("dashboard_templates")
+}
+
+// One user's reshaped copy of one template. No row means "the template as-is",
+// so nothing is seeded here and a user who has never moved a tile has no row.
+model DashboardLayout {
+  id String @id @default(cuid())
+
+  userId      String
+  // Plain string, not an FK, for the same reason as User.dashboardView: a
+  // deleted template should orphan a layout harmlessly rather than cascade.
+  templateKey String
+  tiles       Json
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, templateKey])
+  @@map("dashboard_layouts")
 }
