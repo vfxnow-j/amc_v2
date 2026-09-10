@@ -73,14 +73,6 @@ export const SETTINGS_PAGES: SettingsPage[] = [
     group: "The catalog",
   },
   {
-    id: "cloud-products",
-    label: "Cloud pricing",
-    href: "/dashboard/settings/cloud-products",
-    blurb: "Cost and margin behind every line on a cloud order.",
-    access: "everyone",
-    group: "The catalog",
-  },
-  {
     id: "documents",
     label: "Documents",
     href: "/dashboard/settings/documents",

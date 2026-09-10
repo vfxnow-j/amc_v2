@@ -229,48 +229,6 @@ export async function getPackages({ page = 1 }: { page?: number } = {}) {
   };
 }
 
-/* ── Cloud services ─────────────────────────────────────────────────────── */
-
-export async function getCloudProducts() {
-  const records = await prisma.cloudProduct.findMany({
-    orderBy: [{ category: "asc" }, { sortOrder: "asc" }, { name: "asc" }],
-    select: {
-      id: true,
-      category: true,
-      name: true,
-      description: true,
-      costMonthly: true,
-      sellMonthly: true,
-      marginPercent: true,
-      active: true,
-      _count: { select: { reservationItems: true } },
-    },
-  });
-
-  return records.map((record) => {
-    const cost = Number(record.costMonthly);
-    const margin = Number(record.marginPercent);
-    // Sell prices are overrides; null means "derive from cost + margin", which
-    // is the rule the pricing code applies, not a guess made here.
-    const sell =
-      record.sellMonthly === null
-        ? cost * (1 + margin / 100)
-        : Number(record.sellMonthly);
-    return {
-      id: record.id,
-      category: record.category,
-      name: record.name,
-      description: record.description,
-      costMonthly: cost,
-      sellMonthly: sell,
-      derived: record.sellMonthly === null,
-      marginPercent: margin,
-      active: record.active,
-      timesOrdered: record._count.reservationItems,
-    };
-  });
-}
-
 /* ── Services ───────────────────────────────────────────────────────────── */
 
 export async function getServices() {

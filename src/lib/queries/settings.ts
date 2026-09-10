@@ -36,8 +36,6 @@ export async function getSettingsState(): Promise<SettingsState> {
     apiKeys,
     activeKeys,
     categories,
-    cloudProducts,
-    activeCloud,
     documents,
     trashed,
     auditEvents,
@@ -52,8 +50,6 @@ export async function getSettingsState(): Promise<SettingsState> {
     prisma.apiKey.count(),
     prisma.apiKey.count({ where: { isActive: true } }),
     prisma.assetCategory.count(),
-    prisma.cloudProduct.count(),
-    prisma.cloudProduct.count({ where: { active: true } }),
     prisma.document.count({ where: { deletedAt: null } }),
     prisma.document.count({ where: { deletedAt: { not: null } } }),
     prisma.auditLog.count(),
@@ -89,9 +85,6 @@ export async function getSettingsState(): Promise<SettingsState> {
       ? `${activeKeys} live of ${apiKeys}`
       : "None issued yet",
     categories: `${categories} in use`,
-    "cloud-products": cloudProducts
-      ? `${activeCloud} sellable of ${cloudProducts}`
-      : "No pricing set",
     documents: `${documents} on file${trashed ? ` · ${trashed} in trash` : ""}`,
     "audit-log": lastAudit
       ? `${auditEvents.toLocaleString("en-US")} events · last ${relativeDay(lastAudit.createdAt)}`

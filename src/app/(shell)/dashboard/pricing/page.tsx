@@ -1,6 +1,5 @@
 import { Suspense } from "react";
 import Link from "next/link";
-import { FilterTabs, FilterTabsSkeleton } from "@/components/list/filter-tabs";
 import { ListSearch } from "@/components/list/list-search";
 import {
   ListTable,
@@ -9,9 +8,8 @@ import {
 } from "@/components/list/list-table";
 import { PageHeader } from "@/components/shell/page-header";
 import { PricingFeedback } from "@/components/pricing/pricing-feedback";
+import { PricingTabs } from "@/components/pricing/pricing-tabs";
 import { RateCell } from "@/components/pricing/rate-cell";
-import { getRateCards } from "@/lib/queries/accounting";
-import { dayYear } from "@/lib/format";
 import {
   getPricingHeaderStats,
   getPricingList,
@@ -20,18 +18,6 @@ import {
 } from "@/lib/queries/pricing";
 
 export const metadata = { title: "Pricing" };
-
-const TABS = ["catalogue", "cards"] as const;
-type Tab = (typeof TABS)[number];
-
-const TAB_LABEL: Record<Tab, string> = {
-  catalogue: "Catalogue",
-  cards: "Rate cards",
-};
-
-function isTab(value: unknown): value is Tab {
-  return TABS.includes(value as Tab);
-}
 
 /** Model · Category · Fleet · Daily · Weekly · Monthly · Sale */
 const COLUMNS: Column[] = [
@@ -134,59 +120,6 @@ async function CatalogueTable({ search, page }: { search: string; page: number }
   );
 }
 
-/** Rate card · Note · Rates · Categories · Updated */
-const CARD_COLUMNS: Column[] = [
-  { key: "name", label: "Rate card", width: "minmax(0,1.2fr)" },
-  { key: "description", label: "Note", width: "minmax(0,1.6fr)" },
-  { key: "rates", label: "Rates", width: "70px", align: "right" },
-  { key: "categories", label: "Categories", width: "92px", align: "right" },
-  { key: "updated", label: "Updated", width: "96px" },
-];
-
-async function CardsTable() {
-  const cards = await getRateCards();
-
-  return (
-    <ListTable
-      columns={CARD_COLUMNS}
-      total={cards.length}
-      empty={
-        <>
-          No rate cards. A card states what a whole category should cost, and
-          the record compares it against what the models in that category
-          actually charge — nothing prices off a card on its own.
-        </>
-      }
-      rows={cards.map((card) => ({
-        id: card.id,
-        href: `/dashboard/rate-cards/${card.id}`,
-        cells: {
-          name: (
-            <span className="font-bold">
-              {card.name}
-              {card.isDefault ? (
-                <span className="font-normal text-ink-faint"> · default</span>
-              ) : null}
-            </span>
-          ),
-          description: (
-            <span className="text-ink-muted">{card.description ?? "—"}</span>
-          ),
-          rates: card.rateCount || <span className="text-ink-faint">—</span>,
-          categories: card.categoryCount || (
-            <span className="text-ink-faint">—</span>
-          ),
-          updated: (
-            <span className="tabular-nums text-ink-muted">
-              {dayYear(card.updatedAt)}
-            </span>
-          ),
-        },
-      }))}
-    />
-  );
-}
-
 /**
  * Operate → Pricing.
  *
@@ -222,10 +155,9 @@ async function CardsTable() {
 export default async function PricingPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tab?: string; q?: string; page?: string }>;
+  searchParams: Promise<{ q?: string; page?: string }>;
 }) {
   const params = await searchParams;
-  const tab: Tab = isTab(params.tab) ? params.tab : "catalogue";
   const search = params.q?.trim() ?? "";
   const page = Math.max(1, Number(params.page) || 1);
 
@@ -239,39 +171,16 @@ export default async function PricingPage({
             <HeaderBlurb />
           </Suspense>
         }
-        actions={
-          tab === "catalogue" ? (
-            <ListSearch placeholder="Search models, makers, categories" />
-          ) : null
-        }
+        actions={<ListSearch placeholder="Search models, makers, categories" />}
       />
 
-      <div className="flex flex-wrap items-center gap-2">
-        <Suspense fallback={<FilterTabsSkeleton width={200} />}>
-          <FilterTabs
-            param="tab"
-            value={tab}
-            fallback="catalogue"
-            label="Pricing views"
-            options={TABS.map((option) => ({
-              value: option,
-              label: TAB_LABEL[option],
-            }))}
-          />
-        </Suspense>
-      </div>
+      <PricingTabs current="catalogue" />
 
-      {tab === "catalogue" ? (
-        <PricingFeedback>
-          <Suspense key={`${search}:${page}`} fallback={<ListTableSkeleton />}>
-            <CatalogueTable search={search} page={page} />
-          </Suspense>
-        </PricingFeedback>
-      ) : (
-        <Suspense fallback={<ListTableSkeleton />}>
-          <CardsTable />
+      <PricingFeedback>
+        <Suspense key={`${search}:${page}`} fallback={<ListTableSkeleton />}>
+          <CatalogueTable search={search} page={page} />
         </Suspense>
-      )}
+      </PricingFeedback>
     </>
   );
 }

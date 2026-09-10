@@ -120,16 +120,8 @@ export const NAV_CLUSTERS: NavCluster[] = [
         from: [
           "/dashboard/settings/import/ratecard",
           "/dashboard/assets/bulk-update",
+          "/dashboard/cloud",
         ],
-      },
-      {
-        // Cloud and Services sit in Operate rather than Revenue: they are
-        // things the team runs and provisions day to day, and the money they
-        // make surfaces through Invoices like everything else.
-        id: "cloud",
-        label: "Cloud services",
-        href: "/dashboard/cloud",
-        from: ["/dashboard/cloud"],
       },
       {
         id: "services",

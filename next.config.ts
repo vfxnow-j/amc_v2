@@ -34,9 +34,18 @@ const nextConfig: NextConfig = {
       // own URL — only the list was absorbed, as a tab.
       {
         source: "/dashboard/rate-cards",
-        destination: "/dashboard/pricing?tab=cards",
+        destination: "/dashboard/pricing/cards",
         permanent: true,
       },
+      // Cloud pricing left Settings for Operate → Pricing, and the read-only
+      // Cloud services list was retired with it — browsing a price list on one
+      // screen and changing it on another was never worth two screens.
+      {
+        source: "/dashboard/settings/cloud-products",
+        destination: "/dashboard/pricing/cloud",
+        permanent: true,
+      },
+      { source: "/dashboard/cloud", destination: "/dashboard/pricing/cloud", permanent: true },
     ];
   },
 };

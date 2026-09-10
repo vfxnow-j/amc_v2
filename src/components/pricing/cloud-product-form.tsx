@@ -107,7 +107,7 @@ export function CloudProductForm({
       try {
         if (product) await updateCloudProduct(product.id, payload);
         else await createCloudProduct(payload);
-        router.push("/dashboard/settings/cloud-products");
+        router.push("/dashboard/pricing/cloud");
         router.refresh();
       } catch (cause) {
         setError(cause instanceof Error ? cause.message : "Could not save.");
@@ -121,7 +121,7 @@ export function CloudProductForm({
     startTransition(async () => {
       try {
         await deleteCloudProduct(product.id);
-        router.push("/dashboard/settings/cloud-products");
+        router.push("/dashboard/pricing/cloud");
         router.refresh();
       } catch (cause) {
         setError(cause instanceof Error ? cause.message : "Could not delete.");
@@ -275,7 +275,7 @@ export function CloudProductForm({
         </button>
         {product ? (
           <Link
-            href="/dashboard/settings/cloud-products"
+            href="/dashboard/pricing/cloud"
             className="rounded-pill bg-sunken px-3 py-[6px] text-pill text-ink-muted hover:bg-row-hover hover:text-ink"
           >
             Cancel

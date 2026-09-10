@@ -69,7 +69,8 @@ export async function createCloudProduct(data: CloudProductFormData) {
     },
   })
 
-  revalidatePath('/dashboard/settings/cloud-products')
+  revalidatePath('/dashboard/pricing/cloud')
+  revalidatePath('/dashboard/pricing')
   return serialize(product)
 }
 
@@ -97,8 +98,9 @@ export async function updateCloudProduct(id: string, data: Partial<CloudProductF
     },
   })
 
-  revalidatePath('/dashboard/settings/cloud-products')
-  revalidatePath(`/dashboard/settings/cloud-products/${id}`)
+  revalidatePath('/dashboard/pricing/cloud')
+  revalidatePath('/dashboard/pricing')
+  revalidatePath(`/dashboard/pricing/cloud/${id}`)
   return serialize(product)
 }
 
@@ -110,12 +112,14 @@ export async function deleteCloudProduct(id: string) {
   const refs = await prisma.reservationItem.count({ where: { cloudProductId: id } })
   if (refs > 0) {
     await prisma.cloudProduct.update({ where: { id }, data: { active: false } })
-    revalidatePath('/dashboard/settings/cloud-products')
+    revalidatePath('/dashboard/pricing/cloud')
+  revalidatePath('/dashboard/pricing')
     return { success: true, softDeleted: true }
   }
 
   await prisma.cloudProduct.delete({ where: { id } })
-  revalidatePath('/dashboard/settings/cloud-products')
+  revalidatePath('/dashboard/pricing/cloud')
+  revalidatePath('/dashboard/pricing')
   return { success: true, softDeleted: false }
 }
 

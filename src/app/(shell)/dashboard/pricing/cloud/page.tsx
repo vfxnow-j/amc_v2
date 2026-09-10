@@ -7,8 +7,9 @@ import {
   type Column,
 } from "@/components/list/list-table";
 import { Card, CardEmpty } from "@/components/record/record-card";
-import { CloudProductForm } from "@/components/settings/cloud-product-form";
-import { SettingsHeader } from "@/components/settings/settings-chrome";
+import { PageHeader } from "@/components/shell/page-header";
+import { PricingTabs } from "@/components/pricing/pricing-tabs";
+import { CloudProductForm } from "@/components/pricing/cloud-product-form";
 import { CLOUD_CATEGORIES, cloudCategoryLabel } from "@/lib/cloud-products";
 import { moneyExact } from "@/lib/format";
 import { getCloudProductRows } from "@/lib/queries/settings";
@@ -25,11 +26,21 @@ const COLUMNS: Column[] = [
   { key: "month", label: "Cost / mo", width: "92px", align: "right" },
   { key: "margin", label: "Margin", width: "72px", align: "right" },
   { key: "sell", label: "Sell / mo", width: "104px", align: "right" },
+  // Carried over from the retired Cloud services list, which was the only place
+  // this figure was ever shown.
+  { key: "ordered", label: "Ordered", width: "76px", align: "right" },
   { key: "state", label: "State", width: "88px" },
 ];
 
 /**
- * Settings → Cloud pricing.
+ * Operate → Pricing → Cloud. Moved out of Settings, 2026-09-09.
+ *
+ * It was only ever in Settings because Settings was the one place in v2 that
+ * could write anything. It is not configuration: these are the prices the
+ * business charges for cloud, and they belong beside the prices it charges for
+ * hardware. Operate → Cloud services, which showed the same rows read-only, is
+ * retired — there is no reason to browse a price list on one screen and change
+ * it on another.
  *
  * The cost basis and margin behind every line of a cloud order. Sixty-two
  * products across eight categories, which is why the category strip is here
@@ -58,14 +69,19 @@ export default async function CloudProductsPage({
 
   return (
     <>
-      <SettingsHeader
-        id="cloud-products"
-        actions={
-          <Suspense fallback={null}>
-            <CategoryTabs view={view} />
-          </Suspense>
-        }
+      <PageHeader
+        eyebrow="Operate · Pricing"
+        title="Cloud"
+        blurb="The cost basis and margin behind every line of a cloud order"
       />
+
+      <PricingTabs current="cloud" />
+
+      <div className="flex flex-wrap items-center gap-2">
+        <Suspense fallback={null}>
+          <CategoryTabs view={view} />
+        </Suspense>
+      </div>
 
       <div className="grid min-h-0 flex-1 items-start gap-3 lg:grid-cols-[minmax(0,340px)_1fr]">
         <Suspense fallback={null}>
@@ -198,7 +214,7 @@ async function Table({
         return {
           id: row.id,
           href: canEdit
-            ? `/dashboard/settings/cloud-products?${new URLSearchParams({
+            ? `/dashboard/pricing/cloud?${new URLSearchParams({
                 ...(view === "all" ? {} : { view }),
                 edit: row.id,
               }).toString()}`
@@ -234,6 +250,11 @@ async function Table({
                   <span className="text-ink-faint"> ·d</span>
                 ) : null}
               </span>
+            ),
+            ordered: row.usedOnOrders ? (
+              <span className="text-ink-muted">{row.usedOnOrders}</span>
+            ) : (
+              <span className="text-ink-faint">—</span>
             ),
             state: row.active ? (
               <span className="text-ink-muted">Sellable</span>
