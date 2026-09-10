@@ -1,0 +1,102 @@
+/* Edit mode: what `react-grid-layout` looks like in this app.
+ *
+ * Loaded only from `canvas.tsx`, which is only reached through `next/dynamic`,
+ * which is only rendered under `?edit=1`. Nothing here is on the reading path.
+ *
+ * **RGL's own stylesheet ships hardcoded colours** — a literal `background:
+ * red` on the drag placeholder and `rgba(0, 0, 0, .4)` on the resize grips —
+ * which is a fixed pair of decisions taken by somebody who could not know about
+ * six themes and two modes. Every one of them is overridden below in terms of
+ * the token layer, so the canvas repaints with the rest of the app and there is
+ * no raw hex anywhere in this feature.
+ *
+ * The geometry rule this file exists to hold: **a tile must occupy exactly the
+ * same box in edit mode as it does in read mode.** So the edit chrome does not
+ * take space — no header bar pushing the content down, no border shrinking it.
+ * The controls float over the tile and the outline is drawn inside its own
+ * edge. Somebody reshaping a dashboard is arranging what they will look at
+ * afterwards, and if the arrangement changes on the way out, they were
+ * arranging something else.
+ */
+
+/* ── The drop shadow of a drag ───────────────────────────────────────────── */
+
+.react-grid-item.react-grid-placeholder {
+  background: var(--accent-solid);
+  opacity: 0.16;
+  border-radius: var(--radius-card);
+}
+
+/* ── The resize grips ────────────────────────────────────────────────────── */
+
+.react-grid-item > .react-resizable-handle::after {
+  border-right-color: var(--ink-muted);
+  border-bottom-color: var(--ink-muted);
+}
+
+/* Bigger than the 5px chevron RGL draws, because this is the control people go
+   looking for and a 5px target is a control you find by accident. */
+.react-grid-item > .react-resizable-handle {
+  width: 26px;
+  height: 26px;
+}
+
+.react-grid-item > .react-resizable-handle::after {
+  right: 6px;
+  bottom: 6px;
+  width: 8px;
+  height: 8px;
+}
+
+/* ── One tile, being edited ──────────────────────────────────────────────── */
+
+.tile-frame {
+  cursor: grab;
+  border-radius: var(--radius-card);
+  /* Inside its own edge, so the outline costs the tile no width. */
+  outline: 1px dashed color-mix(in srgb, var(--ink-muted) 55%, transparent);
+  outline-offset: -1px;
+}
+
+.tile-frame:hover {
+  outline-color: var(--accent-solid);
+}
+
+.react-grid-item.react-draggable-dragging .tile-frame,
+.tile-frame:active {
+  cursor: grabbing;
+}
+
+.react-grid-item.react-draggable-dragging > .tile-frame,
+.react-grid-item.resizing > .tile-frame {
+  outline-color: var(--accent-solid);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--scrim) 22%, transparent);
+}
+
+/* The real tile, at exactly the size it will be when the editor closes.
+   `pointer-events: none` because every one of these is full of links to
+   records, and a dashboard you cannot drag without navigating away from is not
+   a dashboard you can arrange. */
+.tile-frame-body {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: var(--radius-card);
+  pointer-events: none;
+  user-select: none;
+}
+
+.tile-frame-body > * {
+  height: 100%;
+}
+
+/* Floating, never in flow — see the geometry rule at the top of this file. */
+.tile-frame-tools {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}

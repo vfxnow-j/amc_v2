@@ -1,11 +1,24 @@
 import { Suspense } from "react";
-import { PageHeader } from "@/components/shell/page-header";
+import { redirect } from "next/navigation";
 import { ActionBar } from "@/components/dashboard/action-bar";
+import {
+  DashboardGrid,
+  DashboardGridEmpty,
+} from "@/components/dashboard/dashboard-grid";
+import { DashboardEditor } from "@/components/dashboard/dashboard-editor";
+import {
+  CustomiseButton,
+  DashboardViewPicker,
+} from "@/components/dashboard/dashboard-view-picker";
 import { renderTile } from "@/components/dashboard/tiles/registry";
 import { RangeControl } from "@/components/overview/range-control";
+import { PageHeader } from "@/components/shell/page-header";
+import { tilesFor } from "@/lib/dashboard/catalog";
+import { getDashboardScreen } from "@/lib/dashboard/store";
 import { moneyCompact } from "@/lib/format";
 import { getHeaderStats } from "@/lib/queries/overview";
 import { isRange, type Range } from "@/lib/queries/range";
+import { getSessionUser } from "@/lib/roles";
 
 export const metadata = { title: "Dashboard" };
 
@@ -30,32 +43,50 @@ async function HeaderBlurb() {
  * looking for once a month; they are the ones you want answered while you are
  * looking at everything else.
  *
- * Reading order is deliberate, top to bottom: how we are trading (KPIs), where
- * that money comes from (revenue by order type), what the fleet is doing
- * (earning most / never booked), and what needs a person (due back, in service,
- * decisions).
+ * **The layout is no longer written here.** The reading order that used to be
+ * spelled out in JSX is now a `DashboardTemplate` row an administrator
+ * maintains, and each person's own arrangement of it is a `DashboardLayout`
+ * row. This file resolves which of those applies, maps each tile id through the
+ * registry, and hands the finished nodes to whichever view is asked for:
  *
- * Every card has its own Suspense boundary. The revenue strip runs an accrual
- * calculation across every recurring order and the fleet cards group the whole
- * order book — none of them may hold up the KPIs, and none of them holds up
- * each other.
+ * - **read** — `DashboardGrid`, a Server Component that emits plain CSS Grid.
+ *   No `react-grid-layout`, no measurement, no hydration; the grid arrives
+ *   drawn. Below 1024px the same DOM stacks in reading order.
+ * - **edit** (`?edit=1`) — `DashboardEditor`, which lazy-loads the drag canvas
+ *   into its own chunk.
  *
- * The cards are no longer named here. Each one is a tile id resolved through
- * `components/dashboard/tiles/registry`, which owns the boundary as well as
- * the component; the layout below is still hand-written, and stays that way
- * until stored layouts land. That indirection is the whole point of the
- * split — this page will shortly read a list of ids off a `DashboardLayout`
- * row instead of spelling seven of them out, and nothing else has to change
- * for it to.
+ * Every tile still has its own Suspense boundary, owned by the registry: the
+ * revenue strip runs an accrual calculation across every recurring order and
+ * the fleet tiles group the whole order book, and none of them may hold up the
+ * headline figures or each other. That is why the nodes below are built before
+ * the branch and handed to both views — they are already streaming.
+ *
+ * Three parameters, all in the URL and all shareable: `range` (the header's
+ * segmented control), `view` (which dashboard), `edit` (handles on or off).
  */
 export default async function DashboardPage({
   searchParams,
 }: {
-  searchParams: Promise<{ range?: string }>;
+  searchParams: Promise<{ range?: string; view?: string; edit?: string }>;
 }) {
-  const { range: requested } = await searchParams;
-  const range: Range = isRange(requested) ? requested : "month";
+  const user = await getSessionUser();
+  if (!user) redirect("/login");
+
+  const params = await searchParams;
+  const range: Range = isRange(params.range) ? params.range : "month";
   const context = { range };
+
+  const screen = await getDashboardScreen(user.id, user.role, params.view);
+  const editing = params.edit === "1";
+
+  // Rendered once and shared by both views. `renderTile` returns the tile
+  // already wrapped in its Suspense boundary, so this is a list of streaming
+  // nodes rather than a list of awaited results — the branch below costs
+  // nothing and the editor is never waiting on a query.
+  const items = screen.tiles.map((tile) => ({
+    tile,
+    node: renderTile(tile.id, context),
+  }));
 
   return (
     <>
@@ -67,29 +98,42 @@ export default async function DashboardPage({
             <HeaderBlurb />
           </Suspense>
         }
-        actions={<RangeControl range={range} />}
+        actions={
+          editing ? (
+            <RangeControl range={range} />
+          ) : (
+            <>
+              <DashboardViewPicker
+                views={screen.views.map(({ key, label }) => ({ key, label }))}
+                current={screen.view.key}
+              />
+              <RangeControl range={range} />
+              <CustomiseButton />
+            </>
+          )
+        }
       />
 
-      <ActionBar />
+      {/* The action bar is what you came to *start*; in edit mode you came to
+          rearrange, and four buttons you cannot press would be noise. */}
+      {editing ? null : <ActionBar />}
 
-      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
-        {renderTile("kpis", context)}
-        {renderTile("revenue-by-type", context)}
-
-        <div className="grid gap-3 xl:grid-cols-2">
-          {renderTile("top-items", context)}
-          {renderTile("idle-items", context)}
+      {editing ? (
+        <DashboardEditor
+          viewKey={screen.view.key}
+          viewLabel={screen.view.label}
+          initial={screen.tiles}
+          items={items.map(({ tile, node }) => ({ id: tile.id, node }))}
+          available={tilesFor(user.role)}
+          reshaped={screen.reshaped}
+        />
+      ) : items.length === 0 ? (
+        <DashboardGridEmpty canEdit />
+      ) : (
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <DashboardGrid items={items} />
         </div>
-
-        <div className="grid gap-3 lg:grid-cols-[1.5fr_1fr]">
-          {renderTile("due-back", context)}
-
-          <div className="flex flex-col gap-3">
-            {renderTile("maintenance", context)}
-            {renderTile("decisions", context)}
-          </div>
-        </div>
-      </div>
+      )}
     </>
   );
 }
