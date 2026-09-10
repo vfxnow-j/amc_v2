@@ -165,3 +165,121 @@ export async function scanOrderBrief(
     outstanding: Math.max(0, progress.ordered - outNow),
   };
 }
+
+/* ── Returns ────────────────────────────────────────────────────────────── */
+
+export type ReturnCandidate = {
+  orderId: string;
+  number: string;
+  clientName: string;
+  /** Units of this order still with the client. */
+  stillOut: number;
+  dueBack: string | null;
+  /** Days past the due date; 0 when it is not late. */
+  daysLate: number;
+};
+
+export type ReturnDiscovery =
+  | { kind: "none"; barcode: string; known: boolean }
+  | { kind: "one"; barcode: string; unitName: string; order: ReturnCandidate }
+  | { kind: "many"; barcode: string; unitName: string; orders: ReturnCandidate[] };
+
+/**
+ * The first scan of a return, which has to work out which order it belongs to.
+ *
+ * `scanUnitIn` already does half of this in its `wrong-order` branch — it looks
+ * up where a unit actually is when the order you named is not it. This hoists
+ * that lookup to the front so the person never has to name an order at all: the
+ * unit in their hand says which one it is.
+ *
+ * Reservation-less checkouts are deliberately not handled. `Checkout.reservationId`
+ * is nullable, so a unit *can* be out with no order behind it — but there are
+ * none in this database (336 open checkouts, all with an order), and building a
+ * branch for a case with no data means shipping a path nobody can test. If
+ * walk-up loans ever start, this is where they would attach.
+ */
+export async function findOpenReturnsForCode(
+  code: string,
+): Promise<ReturnDiscovery> {
+  const auth = await requireEditor();
+  const barcode = code.trim();
+  if (!auth.authorized) return { kind: "none", barcode, known: false };
+
+  const unit = await prisma.assetUnit.findFirst({
+    where: { OR: [{ barcode }, { serialNumber: barcode }] },
+    select: { id: true, asset: { select: { name: true } } },
+  });
+  if (!unit) return { kind: "none", barcode, known: false };
+
+  const open = await prisma.reservationItemUnit.findMany({
+    where: {
+      assetUnitId: unit.id,
+      checkedOutAt: { not: null },
+      checkedInAt: null,
+    },
+    select: {
+      reservationItem: {
+        select: {
+          reservationId: true,
+          reservation: {
+            select: {
+              id: true,
+              reservationNumber: true,
+              endDate: true,
+              client: { select: { name: true } },
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (open.length === 0) {
+    return { kind: "none", barcode, known: true };
+  }
+
+  // One unit can in principle appear against two orders if data drifted. Group
+  // rather than assume, and let a person pick — guessing here would check the
+  // unit in against the wrong client's job.
+  const byOrder = new Map<string, (typeof open)[number]["reservationItem"]["reservation"]>();
+  for (const row of open) {
+    const order = row.reservationItem.reservation;
+    if (order) byOrder.set(order.id, order);
+  }
+
+  const now = Date.now();
+  const orders: ReturnCandidate[] = [];
+  for (const order of byOrder.values()) {
+    const stillOut = await prisma.reservationItemUnit.count({
+      where: {
+        reservationItem: { reservationId: order.id },
+        checkedOutAt: { not: null },
+        checkedInAt: null,
+      },
+    });
+    const due = order.endDate;
+    orders.push({
+      orderId: order.id,
+      number: order.reservationNumber,
+      clientName: order.client.name,
+      stillOut,
+      dueBack: due ? due.toISOString() : null,
+      daysLate: due
+        ? Math.max(0, Math.floor((now - due.getTime()) / 86_400_000))
+        : 0,
+    });
+  }
+
+  const unitName = unit.asset.name;
+  if (orders.length === 1) {
+    return { kind: "one", barcode, unitName, order: orders[0] };
+  }
+  return { kind: "many", barcode, unitName, orders };
+}
+
+/** What is still out against one order, for the review step. */
+export async function returnProgress(reservationId: string) {
+  const auth = await requireEditor();
+  if (!auth.authorized) return null;
+  return scanOrderBrief(reservationId);
+}

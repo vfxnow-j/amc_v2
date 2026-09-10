@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { CheckoutMode } from "@/components/scan/checkout-mode";
+import { ReturnMode } from "@/components/scan/return-mode";
 import { ScanField } from "@/components/scan/scan-field";
 import { ScanLog, type ScanEntry } from "@/components/scan/scan-log";
 import type { Tone } from "@/lib/scan/audio";
@@ -17,11 +18,13 @@ import type { AssetStatus } from "@/generated/prisma/client";
  * navigation part-way through would remount the surface and throw away the
  * receipt — and, once writes land, whatever is still in the queue.
  *
- * Two modes so far. **Check asset** identifies a unit and writes nothing — the
+ * Three modes so far. **Check asset** identifies a unit and writes nothing — the
  * behaviour the retired Mobile scan screen had, rebuilt on the queueing field.
- * **Check out** scans units onto one order. Return and scan-list follow; the
- * picker shows only what exists, because a disabled tab promising a feature is
- * worse than an honest short list.
+ * **Check out** scans units onto one order, picked and confirmed first.
+ * **Return** goes the other way and needs no order at all: the first item
+ * scanned says which job it belongs to. Scan lists follow; the picker shows
+ * only what exists, because a disabled tab promising a feature is worse than an
+ * honest short list.
  *
  * Switching mode is client state, not a link. `FilterTabs` navigates, and a
  * navigation part-way through a session would remount the surface and throw
@@ -227,6 +230,7 @@ function CheckAssetMode({ initialCode }: { initialCode?: string }) {
 const MODES = [
   { id: "check", label: "Check asset", blurb: "What is it, whose is it, when is it due back" },
   { id: "out", label: "Check out", blurb: "Scan units onto an order" },
+  { id: "in", label: "Return", blurb: "Scan kit back — the first item finds the order" },
 ] as const;
 
 type Mode = (typeof MODES)[number]["id"];
@@ -266,7 +270,13 @@ export function ScanSession({ initialCode }: { initialCode?: string }) {
       {/* Both are mounted-on-demand rather than hidden: an unmounted mode
           cannot hold a stale order, and a mode that is not on screen must not
           be listening for scans. */}
-      {mode === "check" ? <CheckAssetMode initialCode={initialCode} /> : <CheckoutMode />}
+      {mode === "check" ? (
+        <CheckAssetMode initialCode={initialCode} />
+      ) : mode === "out" ? (
+        <CheckoutMode />
+      ) : (
+        <ReturnMode />
+      )}
     </div>
   );
 }
