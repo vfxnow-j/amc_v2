@@ -24,6 +24,9 @@ async function justcallFetch(endpoint: string, options: RequestInit = {}) {
   }
 
   const response = await fetch(`https://api.justcall.io/v1${endpoint}`, {
+    // Bounded for the same reason HubSpot's calls are: a click-to-call that
+    // hangs is a person watching a button spin with nothing to cancel.
+    signal: AbortSignal.timeout(8_000),
     ...options,
     headers: {
       'Content-Type': 'application/json',
@@ -59,24 +62,71 @@ export async function getCallHistory(phone: string) {
 }
 
 /**
- * Verify JustCall webhook signature.
+ * Verifying that a call event really came from JustCall.
+ *
+ * v1's version had a real bug: `crypto.timingSafeEqual` **throws** when the two
+ * buffers are different lengths, and a wrong-length signature is precisely what
+ * an attacker — or a misconfigured header — sends. v1 caught nothing, so the
+ * route's try/catch turned it into a 500: an unauthenticated caller could make
+ * this endpoint error at will, and the logs blamed the server. Length is
+ * checked first here and a mismatch is a plain `false`.
+ *
+ * Two ways in, both keyed on the same `justcall_webhook_secret` row:
+ *
+ *  - **A signature** over the exact body — HMAC-SHA256, hex or base64,
+ *    whichever the sender used. This is the one to prefer.
+ *  - **A shared secret in a header**, because JustCall's webhook configuration
+ *    does not offer request signing on every plan, and the alternative to
+ *    accepting a header is an endpoint nobody can turn on. Same discipline as
+ *    the Zapier route: a header, never a query string.
+ *
+ * With no secret stored, both refuse, and the route is inert.
  */
-export async function verifyWebhookSignature(
-  payload: string,
-  signature: string
-): Promise<boolean> {
+
+export type JustCallVerdict =
+  | { ok: true; via: 'signature' | 'shared-secret' }
+  | { ok: false; reason: 'unconfigured' | 'unsigned' | 'mismatch' }
+
+function sameDigest(given: string, expected: string): boolean {
+  const a = Buffer.from(given)
+  const b = Buffer.from(expected)
+  if (a.length !== b.length) return false
+  try {
+    return crypto.timingSafeEqual(a, b)
+  } catch {
+    return false
+  }
+}
+
+export async function verifyJustCallRequest(input: {
+  body: string
+  signature?: string | null
+  sharedSecret?: string | null
+}): Promise<JustCallVerdict> {
   const config = await getConfig()
-  if (!config.webhookSecret) return false
+  if (!config.webhookSecret) return { ok: false, reason: 'unconfigured' }
 
-  const expected = crypto
-    .createHmac('sha256', config.webhookSecret)
-    .update(payload)
-    .digest('hex')
+  const signature = input.signature?.trim()
+  if (signature) {
+    const hmac = crypto.createHmac('sha256', config.webhookSecret).update(input.body)
+    const hex = hmac.digest('hex')
+    const base64 = crypto
+      .createHmac('sha256', config.webhookSecret)
+      .update(input.body)
+      .digest('base64')
 
-  return crypto.timingSafeEqual(
-    Buffer.from(signature),
-    Buffer.from(expected)
-  )
+    if (sameDigest(signature.toLowerCase(), hex) || sameDigest(signature, base64)) {
+      return { ok: true, via: 'signature' }
+    }
+    return { ok: false, reason: 'mismatch' }
+  }
+
+  const shared = input.sharedSecret?.trim()
+  if (!shared) return { ok: false, reason: 'unsigned' }
+
+  return sameDigest(shared, config.webhookSecret)
+    ? { ok: true, via: 'shared-secret' }
+    : { ok: false, reason: 'mismatch' }
 }
 
 /**

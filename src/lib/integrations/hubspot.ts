@@ -34,6 +34,16 @@ async function getConfig() {
   }
 }
 
+/**
+ * How long any one HubSpot call may take.
+ *
+ * Every caller here is a side effect of something that has already been
+ * written — a lead exists, an order moved — so the worst case must be bounded.
+ * Without this, `fetch` waits on the OS default and a HubSpot outage becomes a
+ * hung save on somebody's screen.
+ */
+const HUBSPOT_TIMEOUT_MS = 8_000
+
 async function hubspotFetch(endpoint: string, options: RequestInit = {}) {
   const config = await getConfig()
   if (!config.accessToken) {
@@ -41,6 +51,7 @@ async function hubspotFetch(endpoint: string, options: RequestInit = {}) {
   }
 
   const response = await fetch(`https://api.hubapi.com${endpoint}`, {
+    signal: AbortSignal.timeout(HUBSPOT_TIMEOUT_MS),
     ...options,
     headers: {
       'Content-Type': 'application/json',
@@ -101,6 +112,60 @@ export async function syncContactToHubSpot(lead: {
     })
 
     return result.id as string
+  }
+}
+
+/**
+ * The outbound half, made safe to call from a path that must not fail.
+ *
+ * `syncContactToHubSpot` throws — the token can be missing, HubSpot can be
+ * down, the API can refuse the properties — and creating a lead must not
+ * depend on any of that. A lead is somebody who rang; it exists whether or not
+ * a CRM in another company's datacentre agrees. So this never throws, never
+ * retries, and answers with what happened.
+ *
+ * **Gated twice, and both gates are configuration.** `hubspot_enabled` has to
+ * be on and `hubspot_access_token` has to be set, and with either missing this
+ * returns before it opens a socket. That matters more than usual here: whether
+ * v2 should be writing to the live HubSpot at all is an open decision, and
+ * until somebody makes it, the answer this gives is "disabled", instantly,
+ * with no side effect anywhere.
+ *
+ * The third gate is judgement rather than configuration: a contact with no
+ * email and no phone is a name in a CRM that nobody can ever act on, and
+ * pushing those out fills a real sales pipeline with noise that has to be
+ * cleaned up by hand. Those stay here until somebody adds a way to reach them.
+ */
+export type OutboundContactSync =
+  | { synced: true; contactId: string; created: boolean }
+  | { synced: false; reason: 'disabled' | 'unreachable' | 'nothing-to-send' }
+
+export async function syncLeadContactSafely(lead: {
+  id: string
+  name: string
+  email?: string | null
+  phone?: string | null
+  companyName?: string | null
+  hubspotContactId?: string | null
+}): Promise<OutboundContactSync> {
+  const config = await getConfig()
+  if (!config.enabled || !config.accessToken) return { synced: false, reason: 'disabled' }
+  if (!lead.email && !lead.phone) return { synced: false, reason: 'nothing-to-send' }
+
+  const hadContact = !!lead.hubspotContactId
+
+  try {
+    const contactId = await syncContactToHubSpot(lead)
+    if (!contactId) return { synced: false, reason: 'disabled' }
+    return { synced: true, contactId, created: !hadContact }
+  } catch (error) {
+    // The message, never the lead: what is useful in a log here is "HubSpot
+    // said 429", and what is not is somebody's phone number.
+    console.error(
+      'HubSpot contact sync failed:',
+      error instanceof Error ? error.message : 'unknown error'
+    )
+    return { synced: false, reason: 'unreachable' }
   }
 }
 
@@ -303,28 +368,109 @@ export async function syncReservationDeal(reservation: {
 }
 
 /**
- * Verify HubSpot webhook signature (v3).
+ * Verifying that a request really came from HubSpot.
+ *
+ * v1 carried one function here that read the **v3** header and then checked it
+ * against the **v2** algorithm — a plain SHA-256 of secret+method+url+body,
+ * hex-encoded. No v3 signature has ever matched that, so had v1's HubSpot
+ * webhook ever been pointed at a v3 app it would have refused every request
+ * HubSpot sent. It was never configured, so nobody found out. All three of
+ * HubSpot's schemes are implemented here instead:
+ *
+ *  - **v1** — `X-HubSpot-Signature`, sha256(secret + body), hex. No method, no
+ *    url, no timestamp: a signature that is identical every time the same body
+ *    is sent, so it is accepted only when nothing better was offered.
+ *  - **v2** — `X-HubSpot-Signature` with `…-Version: v2`, sha256(secret +
+ *    method + url + body), hex.
+ *  - **v3** — `X-HubSpot-Signature-v3`, base64 HMAC-SHA256 over method + url +
+ *    body + timestamp, keyed on the secret, with `X-HubSpot-Request-Timestamp`
+ *    and a five-minute window. This is the only one with replay protection,
+ *    and the only one to configure a new app with.
+ *
+ * **The url is the awkward part.** HubSpot signs the URL it called — public
+ * scheme, public host, query string and all — and behind a reverse proxy
+ * `request.url` is the internal one it was rewritten to. So the caller passes
+ * every URL this request could plausibly have arrived as and each is tried;
+ * a wrong guess costs one hash. `verifyHubSpotRequest` does the assembling.
  */
-export async function verifyWebhookSignature(
-  payload: string,
-  signature: string,
-  url: string,
-  method: string
-): Promise<boolean> {
-  const config = await getConfig()
-  if (!config.webhookSecret) return false
 
-  const source = config.webhookSecret + method + url + payload
-  const expected = crypto.createHash('sha256').update(source).digest('hex')
+/** Five minutes, HubSpot's own replay window for v3. */
+const V3_MAX_AGE_MS = 5 * 60 * 1000
 
+export type SignatureVerdict =
+  | { ok: true; scheme: 'v1' | 'v2' | 'v3' }
+  | { ok: false; reason: 'unconfigured' | 'unsigned' | 'stale' | 'mismatch' }
+
+/** Constant-time where it can be; false rather than a throw on a length mismatch. */
+function sameDigest(given: string, expected: string): boolean {
+  const a = Buffer.from(given)
+  const b = Buffer.from(expected)
+  if (a.length !== b.length) return false
   try {
-    return crypto.timingSafeEqual(
-      Buffer.from(signature),
-      Buffer.from(expected)
-    )
+    return crypto.timingSafeEqual(a, b)
   } catch {
     return false
   }
+}
+
+export async function verifyHubSpotRequest(input: {
+  method: string
+  /** Every URL this request could have arrived as, most likely first. */
+  urls: string[]
+  body: string
+  headers: {
+    v3?: string | null
+    v2OrV1?: string | null
+    version?: string | null
+    timestamp?: string | null
+  }
+}): Promise<SignatureVerdict> {
+  const config = await getConfig()
+  if (!config.webhookSecret) return { ok: false, reason: 'unconfigured' }
+
+  const secret = config.webhookSecret
+  const urls = input.urls.filter(Boolean)
+
+  const v3 = input.headers.v3?.trim()
+  if (v3) {
+    const timestamp = Number(input.headers.timestamp)
+    if (!Number.isFinite(timestamp)) return { ok: false, reason: 'unsigned' }
+    // A replayed request is a real attack on a webhook that creates records.
+    if (Math.abs(Date.now() - timestamp) > V3_MAX_AGE_MS) return { ok: false, reason: 'stale' }
+
+    for (const url of urls) {
+      const expected = crypto
+        .createHmac('sha256', secret)
+        .update(`${input.method}${url}${input.body}${timestamp}`)
+        .digest('base64')
+      if (sameDigest(v3, expected)) return { ok: true, scheme: 'v3' }
+    }
+    return { ok: false, reason: 'mismatch' }
+  }
+
+  const legacy = input.headers.v2OrV1?.trim()
+  if (!legacy) return { ok: false, reason: 'unsigned' }
+
+  const version = input.headers.version?.trim().toLowerCase()
+  if (version !== 'v1') {
+    for (const url of urls) {
+      const expected = crypto
+        .createHash('sha256')
+        .update(secret + input.method + url + input.body)
+        .digest('hex')
+      if (sameDigest(legacy, expected)) return { ok: true, scheme: 'v2' }
+    }
+  }
+
+  // Only where the app is explicitly still on v1: an unversioned header is v2
+  // by convention, and accepting a replayable signature by default would make
+  // the newer schemes' protection optional.
+  if (version === 'v1') {
+    const expected = crypto.createHash('sha256').update(secret + input.body).digest('hex')
+    if (sameDigest(legacy, expected)) return { ok: true, scheme: 'v1' }
+  }
+
+  return { ok: false, reason: 'mismatch' }
 }
 
 /**
