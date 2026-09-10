@@ -63,7 +63,12 @@ export type TileId =
   // New-query wave: logistics, over existing columns and no new schema.
   | "untracked-shipments"
   | "delivery-mix"
-  | "shipping-margin";
+  | "shipping-margin"
+  // New-query wave: money aged, margin on the sale book, and the bench.
+  | "ar-aging"
+  | "sale-margin"
+  | "bench-load"
+  | "calendar-strip";
 
 /* ── Shape ───────────────────────────────────────────────────────────────── */
 
@@ -397,6 +402,71 @@ export const TILE_CATALOG: Record<TileId, TileMeta> = {
       default: { w: 5, h: 6 },
       min: { w: 4, h: 4 },
       max: { w: 12, h: 10 },
+    },
+    access: "everyone",
+    readsRange: false,
+  },
+
+  /* ── Money aged, margin, the bench, the week ─────────────────────────── */
+
+  "ar-aging": {
+    id: "ar-aging",
+    title: "Money owed",
+    blurb: "What is outstanding, how late it is, and what is still in draft.",
+    category: "Money in and out",
+    size: {
+      default: { w: 5, h: 7 },
+      min: { w: 4, h: 5 },
+      max: { w: 12, h: 10 },
+    },
+    access: "everyone",
+    readsRange: false,
+  },
+  "sale-margin": {
+    id: "sale-margin",
+    title: "Margin on the sale book",
+    blurb:
+      "What the sale book makes on what it sells. Rentals have no cost of goods.",
+    category: "Money in and out",
+    size: {
+      default: { w: 5, h: 6 },
+      min: { w: 4, h: 4 },
+      max: { w: 12, h: 10 },
+    },
+    /**
+     * The one admin-only tile, and the reason is the figure rather than the
+     * screen. Revenue is already on the dashboard for everyone — the KPI row
+     * has shown it since the Overview. What a deal *costs* is the number a
+     * business does not put on a shared wall display, and the picker offering
+     * it to a VIEWER would be a policy decision made silently in a refactor.
+     * Gated at render as well as in the picker, per `canSeeTile`.
+     */
+    access: "admin",
+    readsRange: false,
+  },
+  "bench-load": {
+    id: "bench-load",
+    title: "On the bench",
+    blurb:
+      "Who is carrying the service work, and what is off the shelf with nobody on it.",
+    category: "Needs a person",
+    size: {
+      default: { w: 5, h: 6 },
+      min: { w: 4, h: 4 },
+      max: { w: 12, h: 12 },
+    },
+    access: "everyone",
+    readsRange: false,
+  },
+  "calendar-strip": {
+    id: "calendar-strip",
+    title: "This week",
+    blurb: "What goes out and what comes back, day by day, for the week you're in.",
+    category: "Needs a person",
+    size: {
+      default: { w: 12, h: 4 },
+      min: { w: 6, h: 3 },
+      max: { w: 12, h: 7 },
     },
     access: "everyone",
     readsRange: false,

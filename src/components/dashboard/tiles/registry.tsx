@@ -9,6 +9,8 @@ import {
   CardSkeleton,
   MaintenanceCard,
 } from "@/components/dashboard/maintenance-card";
+import { BenchLoadTile } from "@/components/dashboard/tiles/bench";
+import { CalendarStripTile } from "@/components/dashboard/tiles/calendar-strip";
 import { DataFlagsTile } from "@/components/dashboard/tiles/flags";
 import { RateHealthTile } from "@/components/dashboard/tiles/fleet";
 import {
@@ -16,6 +18,10 @@ import {
   ShippingMarginTile,
   UntrackedShipmentsTile,
 } from "@/components/dashboard/tiles/logistics";
+import {
+  ArAgingTile,
+  SaleMarginTile,
+} from "@/components/dashboard/tiles/money";
 import { PurchaseOrdersTile } from "@/components/dashboard/tiles/purchasing";
 import {
   RecurringHealthTile,
@@ -223,6 +229,29 @@ export const TILE_REGISTRY: Record<TileId, TileEntry> = {
     meta: TILE_CATALOG["shipping-margin"],
     Component: ShippingMarginTile,
     fallback: <CardSkeleton rows={3} />,
+  },
+
+  /* ── Money aged, margin, the bench, the week ─────────────────────────── */
+
+  "ar-aging": {
+    meta: TILE_CATALOG["ar-aging"],
+    Component: ArAgingTile,
+    fallback: <CardSkeleton rows={5} />,
+  },
+  "sale-margin": {
+    meta: TILE_CATALOG["sale-margin"],
+    Component: SaleMarginTile,
+    fallback: <CardSkeleton rows={3} />,
+  },
+  "bench-load": {
+    meta: TILE_CATALOG["bench-load"],
+    Component: BenchLoadTile,
+    fallback: <CardSkeleton rows={4} />,
+  },
+  "calendar-strip": {
+    meta: TILE_CATALOG["calendar-strip"],
+    Component: CalendarStripTile,
+    fallback: <CardSkeleton rows={2} />,
   },
 };
 
