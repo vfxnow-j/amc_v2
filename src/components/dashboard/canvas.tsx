@@ -8,6 +8,8 @@ import GridLayout, {
   type LayoutItem,
 } from "react-grid-layout";
 import { Notice } from "@/components/feedback/notice";
+import { TileAccentPicker } from "@/components/dashboard/tile-accent-picker";
+import type { TileAccent } from "@/lib/dashboard/accents";
 import {
   resetDashboardLayout,
   saveDashboardLayout,
@@ -23,6 +25,7 @@ import {
   appendTile,
   byReadingOrder,
   serializeTiles,
+  setTileAccent,
   tilesFingerprint,
   type PlacedTile,
 } from "@/lib/dashboard/layout";
@@ -30,6 +33,7 @@ import { cn } from "@/lib/utils";
 
 import "react-grid-layout/css/styles.css";
 import "./canvas.css";
+import "./tile-accent.css";
 
 /**
  * The dashboard, with handles on it.
@@ -55,7 +59,9 @@ import "./canvas.css";
  *
  * Save is explicit. There is no autosave, no debounce and no "saving…" that
  * happens while you are still deciding: you leave with the shape you chose or
- * you leave with the one you had.
+ * you leave with the one you had. **A tile's colour rides that same save**: it
+ * is part of the shape you are composing, so Discard throws it away with
+ * everything else and there is no second little write to reason about.
  */
 
 /** Below this the canvas stops pretending — see the note by `narrow` below. */
@@ -149,19 +155,25 @@ export default function DashboardCanvas({
    * thing that would show it.
    */
   function onLayoutChange(next: Layout) {
-    const updated = next
-      .map((item) => ({
-        id: item.i as TileId,
-        x: item.x,
-        y: item.y,
-        w: item.w,
-        h: item.h,
-      }))
-      .sort(byReadingOrder);
+    setTiles((current) => {
+      // RGL knows about boxes and has never heard of the colour, so the accent
+      // is carried across from the tile of the same id rather than read off the
+      // layout item — otherwise every drag would strip it.
+      const accents = new Map(current.map((tile) => [tile.id, tile.accent]));
 
-    setTiles((current) =>
-      tilesFingerprint(current) === tilesFingerprint(updated) ? current : updated,
-    );
+      const updated = next
+        .map((item) => {
+          const id = item.i as TileId;
+          const accent = accents.get(id);
+          const box = { id, x: item.x, y: item.y, w: item.w, h: item.h };
+          return accent ? { ...box, accent } : box;
+        })
+        .sort(byReadingOrder);
+
+      return tilesFingerprint(current) === tilesFingerprint(updated)
+        ? current
+        : updated;
+    });
   }
 
   function add(id: TileId) {
@@ -172,6 +184,11 @@ export default function DashboardCanvas({
   function remove(id: TileId) {
     setError("");
     setTiles((current) => current.filter((tile) => tile.id !== id));
+  }
+
+  function colour(id: TileId, accent: TileAccent | undefined) {
+    setError("");
+    setTiles((current) => setTileAccent(current, id, accent));
   }
 
   function save() {
@@ -209,6 +226,8 @@ export default function DashboardCanvas({
       key={tile.id}
       meta={tileMeta(tile.id)}
       node={rendered.get(tile.id)}
+      accent={tile.accent}
+      onAccent={(accent) => colour(tile.id, accent)}
       onRemove={() => remove(tile.id)}
     />
   ));
@@ -238,8 +257,8 @@ export default function DashboardCanvas({
         <Notice tone="ok">
           This window is narrower than {DRAG_FLOOR}px, where the dashboard
           collapses to one column in reading order — so there is nothing to drag
-          here. Adding and removing tiles still saves. Widen the window to
-          rearrange them.
+          here. Adding, removing and colouring tiles still save. Widen the
+          window to rearrange them.
         </Notice>
       ) : null}
 
@@ -251,6 +270,8 @@ export default function DashboardCanvas({
                 key={tile.id}
                 meta={tileMeta(tile.id)}
                 node={rendered.get(tile.id)}
+                accent={tile.accent}
+                onAccent={(accent) => colour(tile.id, accent)}
                 onRemove={() => remove(tile.id)}
                 stacked
               />
@@ -270,7 +291,10 @@ export default function DashboardCanvas({
               // where it renders once the editor closes.
               containerPadding: [0, 0],
             }}
-            dragConfig={{ cancel: "button" }}
+            // The colour menu is cancelled as well as the buttons inside it: a
+            // press landing on the menu's own padding would otherwise drag the
+            // tile out from under the swatches.
+            dragConfig={{ cancel: "button,.tile-accent-menu" }}
             resizeConfig={{ handles: ["se", "e", "s"] }}
           >
             {frames}
@@ -447,6 +471,8 @@ type TileFrameProps = React.ComponentProps<"div"> & {
   meta: TileMeta;
   /** The server-rendered tile. Absent for a tile added this session. */
   node?: React.ReactNode;
+  accent?: TileAccent;
+  onAccent: (accent: TileAccent | undefined) => void;
   onRemove: () => void;
   /** Narrow mode: in flow at content height, rather than absolutely placed. */
   stacked?: boolean;
@@ -460,19 +486,35 @@ type TileFrameProps = React.ComponentProps<"div"> & {
  * and is the resize grips, which is why it is rendered last and why nothing
  * else is ever passed as children. The tile itself comes in as `node` — a prop,
  * not a child, so that a Server Component node is never the thing being cloned.
+ *
+ * `data-accent` goes here rather than on the tile inside, for the same reason
+ * the read grid puts it on the cell: the tile is a Server Component nobody may
+ * reach into, and the frame is the one element per tile that both views own.
+ * `tile-accent.css` styles `.tile-frame` and `.tile-cell` identically, so the
+ * colour does not change when the editor opens.
  */
 function TileFrame({
   meta,
   node,
+  accent,
+  onAccent,
   onRemove,
   stacked,
   className,
+  style,
   children,
   ...rest
 }: TileFrameProps) {
+  const [menuOpen, setMenuOpen] = useState(false);
+
   return (
     <div
       {...rest}
+      // Raised only while its colour menu is open. RGL positions every item
+      // absolutely in DOM order, so without this the menu would be painted over
+      // by whichever tile happens to come after this one.
+      style={menuOpen ? { ...style, zIndex: 3 } : style}
+      data-accent={accent}
       className={cn(
         "tile-frame",
         stacked && "relative min-h-[120px]",
@@ -480,6 +522,12 @@ function TileFrame({
       )}
     >
       <div className="tile-frame-tools">
+        <TileAccentPicker
+          value={accent}
+          tileTitle={meta.title}
+          onChange={onAccent}
+          onOpenChange={setMenuOpen}
+        />
         <button
           type="button"
           onClick={onRemove}
