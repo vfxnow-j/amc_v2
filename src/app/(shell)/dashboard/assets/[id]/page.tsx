@@ -96,7 +96,9 @@ export default async function AssetRecordPage({ params }: Params) {
               </span>
             ) : null}
             <Link
-              href={`/dashboard/units?q=${encodeURIComponent(asset.name)}`}
+              // The asset's id, not its name: this is "the units of this
+              // asset", and a name search is a different, larger set.
+              href={`/dashboard/units?asset=${asset.id}`}
               className="rounded-pill bg-accent-solid px-4 py-[6px] text-pill text-accent-on-solid transition-colors hover:bg-accent-800"
             >
               Its units
@@ -132,7 +134,7 @@ export default async function AssetRecordPage({ params }: Params) {
           </Suspense>
 
           <Suspense fallback={<CardSkeleton title="Units" rows={12} />}>
-            <AssetUnitsCard id={id} assetName={asset.name} />
+            <AssetUnitsCard id={id} />
           </Suspense>
         </div>
 

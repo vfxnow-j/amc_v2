@@ -162,10 +162,26 @@ const UNIT_VIEW_STATUS: Record<UnitView, AssetStatus[] | null> = {
   all: null,
 };
 
-function unitWhere(view: UnitView, search: string): Prisma.AssetUnitWhereInput {
+/**
+ * Narrowing the unit list by a record rather than by a string.
+ *
+ * `location` and `asset` carry an id, so "the units at VFXnow LA" and "the units
+ * of this asset" are the same set however the asset is spelled — the asset
+ * record used to reach its own units through `?q=<name>`, which quietly meant
+ * "any unit whose asset name contains this text" and picked up siblings.
+ */
+export type UnitFilters = { locationId?: string; assetId?: string };
+
+function unitWhere(
+  view: UnitView,
+  search: string,
+  filters: UnitFilters = {},
+): Prisma.AssetUnitWhereInput {
   const statuses = UNIT_VIEW_STATUS[view];
   const clauses: Prisma.AssetUnitWhereInput[] = [];
   if (statuses) clauses.push({ status: { in: statuses } });
+  if (filters.locationId) clauses.push({ locationId: filters.locationId });
+  if (filters.assetId) clauses.push({ assetId: filters.assetId });
   if (search) {
     const contains = { contains: search, mode: "insensitive" } as const;
     clauses.push({
@@ -184,18 +200,18 @@ export type UnitRow = {
   id: string;
   barcode: string;
   serialNumber: string | null;
-  assetName: string;
+  asset: { id: string; name: string };
   status: AssetStatus;
-  locationName: string | null;
+  location: { id: string; name: string } | null;
   /** Who has it right now, from the open checkout. Null when it's on the shelf. */
-  holder: string | null;
+  holder: { id: string; name: string } | null;
   revenue: number;
 };
 
-export async function getUnitViewCounts(search = "") {
+export async function getUnitViewCounts(search = "", filters: UnitFilters = {}) {
   const counts = await Promise.all(
     UNIT_VIEWS.map((view) =>
-      prisma.assetUnit.count({ where: unitWhere(view, search) }),
+      prisma.assetUnit.count({ where: unitWhere(view, search, filters) }),
     ),
   );
   return Object.fromEntries(
@@ -203,12 +219,42 @@ export async function getUnitViewCounts(search = "") {
   ) as Record<UnitView, number>;
 }
 
+/**
+ * The names behind a filter's ids, for the strip that says what is being shown.
+ *
+ * Null when the id matches nothing, which the screen says out loud rather than
+ * showing an empty list with no explanation — a stale link is a different thing
+ * from a location that has been emptied.
+ */
+export async function getUnitFilterNames(filters: UnitFilters) {
+  const [location, asset] = await Promise.all([
+    filters.locationId
+      ? prisma.location.findUnique({
+          where: { id: filters.locationId },
+          select: { id: true, name: true },
+        })
+      : null,
+    filters.assetId
+      ? prisma.asset.findUnique({
+          where: { id: filters.assetId },
+          select: { id: true, name: true },
+        })
+      : null,
+  ]);
+  return { location, asset };
+}
+
 export async function getUnitList({
   view = "in-fleet",
   search = "",
   page = 1,
-}: { view?: UnitView; search?: string; page?: number } = {}) {
-  const where = unitWhere(view, search);
+  ...filters
+}: {
+  view?: UnitView;
+  search?: string;
+  page?: number;
+} & UnitFilters = {}) {
+  const where = unitWhere(view, search, filters);
 
   const [records, total] = await Promise.all([
     prisma.assetUnit.findMany({
@@ -222,15 +268,15 @@ export async function getUnitList({
         serialNumber: true,
         status: true,
         totalRevenue: true,
-        asset: { select: { name: true } },
-        location: { select: { name: true } },
+        asset: { select: { id: true, name: true } },
+        location: { select: { id: true, name: true } },
         checkouts: {
           // The open checkout is the truth about custody — `AssetUnit.status`
           // only reflects it. See lib/inventory/availability.ts.
           where: OPEN_CHECKOUT,
           orderBy: { checkoutDate: "desc" },
           take: 1,
-          select: { client: { select: { name: true } } },
+          select: { client: { select: { id: true, name: true } } },
         },
       },
     }),
@@ -241,10 +287,12 @@ export async function getUnitList({
     id: record.id,
     barcode: record.barcode,
     serialNumber: record.serialNumber,
-    assetName: record.asset.name,
+    // Ids alongside the names: every one of these three is a record in this app,
+    // and the list is where somebody stands when they want to open one.
+    asset: record.asset,
     status: record.status,
-    locationName: record.location?.name ?? null,
-    holder: record.checkouts[0]?.client?.name ?? null,
+    location: record.location,
+    holder: record.checkouts[0]?.client ?? null,
     revenue: Number(record.totalRevenue),
   }));
 

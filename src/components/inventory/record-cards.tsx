@@ -292,13 +292,7 @@ export async function DepreciationCard({
  * The physical units. Rows open the unit record — the answer to "which one, and
  * where is it" is one level down, not on this card.
  */
-export async function AssetUnitsCard({
-  id,
-  assetName,
-}: {
-  id: string;
-  assetName: string;
-}) {
+export async function AssetUnitsCard({ id }: { id: string }) {
   const { rows, total, gone } = await getAssetUnits(id);
 
   if (total === 0) {
@@ -324,7 +318,10 @@ export async function AssetUnitsCard({
       action={
         total > rows.length ? (
           <Link
-            href={`/dashboard/units?q=${encodeURIComponent(assetName)}`}
+            // By id. `?q=<name>` matched any unit whose asset name merely
+            // contained this one's, so an asset called "RTX 5090" answered for
+            // "RTX 5090 FE" as well.
+            href={`/dashboard/units?asset=${id}`}
             className="text-detail text-accent-text hover:underline"
           >
             All in Units →
