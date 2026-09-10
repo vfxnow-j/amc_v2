@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { CheckoutMode } from "@/components/scan/checkout-mode";
+import { ListMode } from "@/components/scan/list-mode";
 import { ReturnMode } from "@/components/scan/return-mode";
 import { ScanField } from "@/components/scan/scan-field";
 import { ScanLog, type ScanEntry } from "@/components/scan/scan-log";
@@ -22,9 +23,8 @@ import type { AssetStatus } from "@/generated/prisma/client";
  * behaviour the retired Mobile scan screen had, rebuilt on the queueing field.
  * **Check out** scans units onto one order, picked and confirmed first.
  * **Return** goes the other way and needs no order at all: the first item
- * scanned says which job it belongs to. Scan lists follow; the picker shows
- * only what exists, because a disabled tab promising a feature is worse than an
- * honest short list.
+ * scanned says which job it belongs to. **Scan list** builds a saved list of
+ * units and can run one change across every model on it.
  *
  * Switching mode is client state, not a link. `FilterTabs` navigates, and a
  * navigation part-way through a session would remount the surface and throw
@@ -231,6 +231,7 @@ const MODES = [
   { id: "check", label: "Check asset", blurb: "What is it, whose is it, when is it due back" },
   { id: "out", label: "Check out", blurb: "Scan units onto an order" },
   { id: "in", label: "Return", blurb: "Scan kit back — the first item finds the order" },
+  { id: "list", label: "Scan list", blurb: "Build a saved list, then act on all of it" },
 ] as const;
 
 type Mode = (typeof MODES)[number]["id"];
@@ -274,8 +275,10 @@ export function ScanSession({ initialCode }: { initialCode?: string }) {
         <CheckAssetMode initialCode={initialCode} />
       ) : mode === "out" ? (
         <CheckoutMode />
-      ) : (
+      ) : mode === "in" ? (
         <ReturnMode />
+      ) : (
+        <ListMode />
       )}
     </div>
   );
