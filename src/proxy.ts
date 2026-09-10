@@ -76,16 +76,21 @@ export default auth((req) => {
 });
 
 /**
- * `api/v1/webhooks` is excluded, and not because the proxy would reject those
- * requests — `KEYED_PREFIXES` already waves `/api/v1` straight through. It is
- * excluded because a *matched* route has its body cloned and buffered so it
- * can be read twice, capped at 10 MB (`proxyClientMaxBodySize`), and past that
- * cap Next truncates the buffer and logs a warning rather than failing the
- * request. The handler would then parse half a document and refuse it as
- * malformed, with the sender told only that its submission was invalid. A
- * webhook body that nothing here reads before the handler does has no reason
- * to be buffered at all.
+ * `api/v1` is excluded, and not because the proxy would reject those requests
+ * — `KEYED_PREFIXES` already waves the whole prefix straight through, so this
+ * changes no decision the proxy makes. It is excluded because a *matched*
+ * route has its body cloned and buffered so it can be read twice, capped at
+ * 10 MB (`proxyClientMaxBodySize`), and past that cap Next truncates the
+ * buffer and logs a warning rather than failing the request. The handler would
+ * then parse half a document and refuse it as malformed, with the sender told
+ * only that its submission was invalid. A key-authenticated body that nothing
+ * here reads before the handler does has no reason to be buffered at all.
+ *
+ * This was `api/v1/webhooks` when the Zapier route landed. Widening it to the
+ * whole of `api/v1` retires a trap rather than adding a line per route: every
+ * future integration endpoint is covered on the day it is written, instead of
+ * on the day somebody works out why a large submission arrived truncated.
  */
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|brand/|api/v1/webhooks).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|brand/|api/v1).*)"],
 };
