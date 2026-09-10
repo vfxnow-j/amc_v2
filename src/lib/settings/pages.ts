@@ -25,6 +25,7 @@ export type SettingsAccess = "everyone" | "admin";
 
 export type SettingsGroup =
   | "People and access"
+  | "The workspace"
   | "The catalog"
   | "Records"
   | "Connections";
@@ -63,6 +64,19 @@ export const SETTINGS_PAGES: SettingsPage[] = [
     blurb: "Keys that let a machine call the API without a session.",
     access: "admin",
     group: "People and access",
+  },
+  {
+    // Not "The catalog", which is about assets, and not "People and access",
+    // which is about permission. This is the shape of the app itself: what
+    // everybody's dashboard starts as. The group is new and has one member
+    // today, which is the honest filing — the alternative was putting the
+    // company's dashboard views under a heading about asset grouping.
+    id: "dashboards",
+    label: "Dashboards",
+    href: "/dashboard/settings/dashboards",
+    blurb: "The dashboard views everyone starts from, and what is on each.",
+    access: "admin",
+    group: "The workspace",
   },
   {
     id: "categories",
@@ -128,6 +142,7 @@ export const SETTINGS_PAGES: SettingsPage[] = [
 
 export const SETTINGS_GROUPS: SettingsGroup[] = [
   "People and access",
+  "The workspace",
   "The catalog",
   "Records",
   "Connections",
