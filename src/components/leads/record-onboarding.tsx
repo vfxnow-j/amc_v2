@@ -11,11 +11,11 @@ import { recordOnboarding, type RecordOnboardingOutcome } from "@/lib/actions/le
  * The form came back. Somebody types what it said.
  *
  * This is the load-bearing half of the onboarding loop, not a fallback for the
- * webhook. Outbound email is off on this instance and the Zapier secret is
- * blank, so the form link is passed on by hand and the answers come back by
- * hand — over the phone, in a reply, as a PDF attachment. Without this button
- * nothing ever clears `prospectAt`, which means the quote being held can never
- * be approved and never be sent: the prospect path would be a one-way door.
+ * webhook. Outbound email is off on this instance and no Zap points at it, so
+ * the form link is passed on by hand and the answers come back by hand — over
+ * the phone, in a reply, as a PDF attachment. Without this button nothing ever
+ * clears `prospectAt`, which means the quote being held can never be approved
+ * and never be sent: the prospect path would be a one-way door.
  *
  * It is deliberately a small form and not a copy of the client record. What it
  * asks for is what an onboarding form asks for, and every field is optional,
@@ -80,7 +80,9 @@ function Outcome({ result, onClose }: { result: Applied; onClose: () => void }) 
               {applied.requirements.types.join(", ")}
             </span>
             . A 30-day upload link was minted for them — it is the only copy,
-            and nothing was emailed.
+            and nothing was emailed. The page it opens is not built yet, so
+            collect these the way you do now; the link is here so it does not
+            have to be reissued when it is.
           </p>
           <code className="block break-all rounded-row bg-panel/60 p-2 text-[11px] select-all">
             {applied.requirements.url}
