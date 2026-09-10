@@ -108,6 +108,17 @@ export const NAV_CLUSTERS: NavCluster[] = [
         href: "/dashboard/packages",
       },
       {
+        // New in v2. Until this screen there was nowhere in the app to change
+        // what a model charges: the rates live on `Asset`, the asset record
+        // shows them read-only, and `setLineRate` only ever fixed one line of
+        // one order. Rate cards move here from Accounting to sit beside them —
+        // pricing is a decision the business makes, not a thing the books
+        // record.
+        id: "pricing",
+        label: "Pricing",
+        href: "/dashboard/pricing",
+      },
+      {
         // Cloud and Services sit in Operate rather than Revenue: they are
         // things the team runs and provisions day to day, and the money they
         // make surfaces through Invoices like everything else.
