@@ -96,6 +96,23 @@ export type OrderLifecycle = {
     /** No scannable lines at all — a services-only or cloud order. */
     nothingToScan: boolean;
   };
+  /**
+   * What the client has not produced yet — a signed agreement, ID, insurance.
+   *
+   * **A warning, never a gate**, and the reason is arithmetic rather than
+   * principle: `skipIdRequirement` and `skipCoiRequirement` both default false,
+   * so all 94 accounts restored from v1 read as outstanding on both. A hard
+   * refusal here would have flipped every legacy customer to blocked overnight
+   * on the day this shipped, for a rule none of them had ever been asked to
+   * meet. So the dialogs say it plainly and ask the person to acknowledge it —
+   * the same shape as `approveOrder`'s short-stock tick, which is this app's
+   * established way of putting a judgement call in front of somebody without
+   * taking it away from them.
+   *
+   * Phrased as things missing rather than booleans, because the two dialogs
+   * only ever want to read them out in a sentence.
+   */
+  requirements: string[];
 };
 
 export async function getOrderLifecycle(
@@ -121,7 +138,17 @@ export async function getOrderLifecycle(
         actionRequiredNote: true,
         preparedBy: { select: { id: true, name: true } },
         client: {
-          select: { id: true, name: true, email: true, paymentTerms: true },
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            paymentTerms: true,
+            agreementSignedAt: true,
+            idVerifiedAt: true,
+            coiVerifiedAt: true,
+            skipIdRequirement: true,
+            skipCoiRequirement: true,
+          },
         },
         billingCycleType: true,
         billingCycleDay: true,
@@ -193,10 +220,16 @@ export async function getOrderLifecycle(
       lost: order.lostAt,
     },
     lostReason: order.lostReason,
+    requirements: outstandingRequirements(order.client),
     actionRequired: order.actionRequired,
     actionRequiredNote: order.actionRequiredNote,
     preparedBy: order.preparedBy,
-    client: order.client,
+    client: {
+      id: order.client.id,
+      name: order.client.name,
+      email: order.client.email,
+      paymentTerms: order.client.paymentTerms,
+    },
     billing: {
       cycleType: order.billingCycleType,
       cycleDay: order.billingCycleDay,
@@ -243,6 +276,29 @@ export async function getOrderLifecycle(
       nothingToScan: scannable.length === 0,
     },
   };
+}
+
+/**
+ * The account's paperwork, read as a list of what is missing.
+ *
+ * A waived requirement counts as settled — that is the whole point of the skip
+ * columns — and a waiver is a decision somebody recorded, so it is not repeated
+ * back as a warning every time an order moves.
+ */
+function outstandingRequirements(client: {
+  agreementSignedAt: Date | null;
+  idVerifiedAt: Date | null;
+  coiVerifiedAt: Date | null;
+  skipIdRequirement: boolean;
+  skipCoiRequirement: boolean;
+}): string[] {
+  const missing: string[] = [];
+  if (!client.agreementSignedAt) missing.push("a signed rental agreement");
+  if (!client.idVerifiedAt && !client.skipIdRequirement) missing.push("photo ID");
+  if (!client.coiVerifiedAt && !client.skipCoiRequirement) {
+    missing.push("a certificate of insurance");
+  }
+  return missing;
 }
 
 /** Who can be handed an order to prepare. */

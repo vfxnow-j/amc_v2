@@ -63,6 +63,15 @@ export type OrderActionsProps = {
     unitsOutstanding: number;
     nothingToScan: boolean;
   };
+  /**
+   * What the client has not produced — agreement, ID, insurance.
+   *
+   * Warned about on approve and on ship, never enforced. Both skip columns
+   * default false, so every one of the 94 accounts restored from v1 reads as
+   * outstanding; a hard gate would have blocked the entire back catalogue on
+   * the morning this shipped. See `getOrderLifecycle`.
+   */
+  requirements: string[];
 };
 
 export function OrderActions(props: OrderActionsProps) {
@@ -171,6 +180,66 @@ type DialogProps = OrderActionsProps & {
   run: (work: () => Promise<StageOutcome>) => void;
   onClose: () => void;
 };
+
+/**
+ * The client's paperwork, said out loud before the order moves.
+ *
+ * **Warn, don't block.** `skipIdRequirement` and `skipCoiRequirement` both
+ * default false and nothing has ever set them, so all 94 accounts restored from
+ * v1 read as outstanding on ID and insurance — and none of them has been asked
+ * for either. A hard refusal would have turned every legacy customer into a
+ * blocked one on the morning this shipped, which is not a rule being enforced,
+ * it is an outage.
+ *
+ * So the dialog states it and asks for a tick. The shape is `ApproveDialog`'s
+ * own short-stock checkbox, which is how this app already puts a commercial
+ * judgement in front of a person without taking the judgement away from them:
+ * the box is unticked, the sentence says what is missing by name, and confirming
+ * without reading it is not possible.
+ */
+function RequirementsWarning({
+  missing,
+  acknowledged,
+  onAcknowledge,
+  moving,
+}: {
+  missing: string[];
+  acknowledged: boolean;
+  onAcknowledge: (next: boolean) => void;
+  /** What is about to happen, in the second person: "approve", "ship". */
+  moving: string;
+}) {
+  if (missing.length === 0) return null;
+
+  return (
+    <div className="mb-3">
+      <Notice tone="error" className="mb-2">
+        This account has not given us {readOut(missing)}.
+      </Notice>
+      <label className="flex items-start gap-2">
+        <input
+          type="checkbox"
+          checked={acknowledged}
+          onChange={(event) => onAcknowledge(event.target.checked)}
+          className="mt-[3px] size-4 flex-none accent-[var(--color-accent-solid)]"
+        />
+        <span className="text-detail text-ink">
+          I know, and I am going to {moving} it anyway
+          <span className="block text-micro text-ink-faint">
+            The account record can ask them for it — the Requirements card there
+            mints a link they upload on, and it does not need them to log in.
+          </span>
+        </span>
+      </label>
+    </div>
+  );
+}
+
+/** "a, b and c" — a warning is read as a sentence, not as a list. */
+function readOut(items: string[]): string {
+  if (items.length === 1) return items[0];
+  return `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+}
 
 // ---------------------------------------------------------------------------
 // Send quote
@@ -410,10 +479,20 @@ function PrepareDialog({ id, clientEmail, staff, busy, run, onClose }: DialogPro
  * cloud order bills without anything shipping — so activation stays a decision,
  * with its terms confirmed in its own dialog.
  */
-function ShipDialog({ id, clientEmail, handover, busy, run, onClose }: DialogProps) {
+function ShipDialog({
+  id,
+  clientEmail,
+  handover,
+  requirements,
+  busy,
+  run,
+  onClose,
+}: DialogProps) {
   const [notify, setNotify] = useState(!!clientEmail);
   const [email, setEmail] = useState(clientEmail ?? "");
+  const [acknowledged, setAcknowledged] = useState(false);
   const blocked = handover.unitsOutstanding > 0;
+  const unacknowledged = requirements.length > 0 && !acknowledged;
 
   return (
     <Modal
@@ -425,7 +504,7 @@ function ShipDialog({ id, clientEmail, handover, busy, run, onClose }: DialogPro
         <>
           <ModalCancel />
           <ModalConfirm
-            disabled={busy || blocked || (notify && !email.trim())}
+            disabled={busy || blocked || unacknowledged || (notify && !email.trim())}
             onClick={() => run(() => shipOrder(id, { notifyEmail: notify ? email : undefined }))}
           >
             {busy ? "Marking…" : "Mark shipped"}
@@ -433,6 +512,13 @@ function ShipDialog({ id, clientEmail, handover, busy, run, onClose }: DialogPro
         </>
       }
     >
+      <RequirementsWarning
+        missing={requirements}
+        acknowledged={acknowledged}
+        onAcknowledge={setAcknowledged}
+        moving="ship"
+      />
+
       {blocked ? (
         <Notice tone="error">
           {handover.unitsOutstanding}{" "}
@@ -550,8 +636,10 @@ function ActivateDialog({ id, terms, total, clientPaymentTerms, type, busy, run,
 // The rest — one confirmation each
 // ---------------------------------------------------------------------------
 
-function ApproveDialog({ id, busy, run, onClose }: DialogProps) {
+function ApproveDialog({ id, requirements, busy, run, onClose }: DialogProps) {
   const [force, setForce] = useState(false);
+  const [acknowledged, setAcknowledged] = useState(false);
+  const unacknowledged = requirements.length > 0 && !acknowledged;
   return (
     <Modal
       open
@@ -561,12 +649,22 @@ function ApproveDialog({ id, busy, run, onClose }: DialogProps) {
       footer={
         <>
           <ModalCancel />
-          <ModalConfirm disabled={busy} onClick={() => run(() => approveOrder(id, force))}>
+          <ModalConfirm
+            disabled={busy || unacknowledged}
+            onClick={() => run(() => approveOrder(id, force))}
+          >
             {busy ? "Approving…" : "Approve"}
           </ModalConfirm>
         </>
       }
     >
+      <RequirementsWarning
+        missing={requirements}
+        acknowledged={acknowledged}
+        onAcknowledge={setAcknowledged}
+        moving="approve"
+      />
+
       <label className="flex items-start gap-2">
         <input
           type="checkbox"
