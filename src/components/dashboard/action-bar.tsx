@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { QuickQuoteButton } from "@/components/quotes/quick-quote-button";
+import { OnboardButton } from "@/components/leads/onboard-button";
 
 /**
  * The four things people come to the dashboard to start.
@@ -12,22 +14,20 @@ import Link from "next/link";
  * you go and do, not a place in the information architecture — and the rail is
  * organised by where records live.
  *
- * Two are still to come. Quick Quote (a priced scope against a client or a
- * prospect) and Onboard (an email address, and the onboarding link sent to it)
- * are Track D; when they land they replace the two placeholders below with
- * `<QuickQuoteButton />` and `<OnboardButton />` — client components, since
- * both open a dialog. Nothing else here changes. They are rendered as disabled
- * rather than omitted deliberately: the shape of the bar is the design, and
- * shipping it three-quarters empty and then rearranging it later is worse than
- * showing what is coming.
+ * Quick quote and Onboard were placeholders here until Track D landed. Both are
+ * Client Components, because both open a dialog, and both take their own look
+ * from this file rather than knowing about it: the bar decides how its buttons
+ * look, and the same components render elsewhere at other sizes.
+ *
+ * Onboard is labelled with the short verb here and reads "Request onboarding"
+ * on a lead record, where there is room and the longer phrase is the clearer
+ * one. Deliberately not the same string in both places.
  */
 
 const PRIMARY =
   "rounded-pill bg-accent-solid px-4 py-2 text-pill text-accent-on-solid transition-colors hover:bg-accent-800";
 const SECONDARY =
   "rounded-pill bg-panel px-4 py-2 text-pill text-ink shadow-sm transition-colors hover:bg-row-hover";
-const PENDING =
-  "cursor-not-allowed rounded-pill bg-panel px-4 py-2 text-pill text-ink-faint shadow-sm";
 
 export function ActionBar() {
   return (
@@ -36,13 +36,9 @@ export function ActionBar() {
         New order
       </Link>
 
-      <button type="button" disabled className={PENDING} title="Coming soon">
-        Quick quote
-      </button>
+      <QuickQuoteButton className={SECONDARY} />
 
-      <button type="button" disabled className={PENDING} title="Coming soon">
-        Onboard
-      </button>
+      <OnboardButton label="Onboard" className={SECONDARY} />
 
       <Link href="/dashboard/scan" className={SECONDARY}>
         Scan
