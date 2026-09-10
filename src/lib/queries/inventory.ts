@@ -254,6 +254,51 @@ export async function getUnitList({
 /* ── Locations & transfers ──────────────────────────────────────────────── */
 
 /**
+ * A pile of units broken down the way the whole Inventory cluster breaks them
+ * down. One function, because the locations list and the location record show
+ * the same numbers about the same location, and a record that disagrees with
+ * the list it was opened from is worse than no record at all.
+ *
+ * Takes the rows of a `groupBy` over status rather than running its own query,
+ * so the list can tally every location from one scan and the record can tally
+ * one location from a scoped scan, and both go through the same arithmetic.
+ */
+export type UnitTally = {
+  /** Every unit filed here, retired and sold included. */
+  total: number;
+  /** Capacity that could still earn — `IN_FLEET`, so not retired or sold. */
+  inFleet: number;
+  /** AVAILABLE only: the one bookable definition. */
+  free: number;
+  out: number;
+  reserved: number;
+  service: number;
+  retired: number;
+  sold: number;
+};
+
+export function tallyUnits(
+  groups: { status: AssetStatus; _count: number }[],
+): UnitTally {
+  const count = (status: AssetStatus) =>
+    groups.find((group) => group.status === status)?._count ?? 0;
+
+  return {
+    total: groups.reduce((sum, group) => sum + group._count, 0),
+    inFleet: groups
+      .filter((group) => IN_FLEET.includes(group.status))
+      .reduce((sum, group) => sum + group._count, 0),
+    free: count("AVAILABLE"),
+    out: count("CHECKED_OUT"),
+    reserved: count("RESERVED"),
+    service: count("MAINTENANCE"),
+    retired: count("RETIRED"),
+    sold: count("SOLD"),
+  };
+}
+
+
+/**
  * The locations, counted the way the rest of Inventory counts.
  *
  * `_count.assetUnits` counts everything ever put at a location, retired and sold
@@ -280,26 +325,14 @@ export async function getLocations() {
     }),
   ]);
 
-  return records.map((record) => {
-    const mine = groups.filter((group) => group.locationId === record.id);
-    const count = (status: AssetStatus) =>
-      mine.find((group) => group.status === status)?._count ?? 0;
-
-    return {
-      id: record.id,
-      name: record.name,
-      address: record.address,
-      parentName: record.parentLocation?.name ?? null,
-      total: mine.reduce((sum, group) => sum + group._count, 0),
-      inFleet: mine
-        .filter((group) => IN_FLEET.includes(group.status))
-        .reduce((sum, group) => sum + group._count, 0),
-      // AVAILABLE only, the one bookable definition.
-      free: count("AVAILABLE"),
-      out: count("CHECKED_OUT"),
-      service: count("MAINTENANCE"),
-    };
-  });
+  return records.map((record) => ({
+    id: record.id,
+    name: record.name,
+    address: record.address,
+    parentName: record.parentLocation?.name ?? null,
+    // The same arithmetic the location record runs, from `tallyUnits`.
+    ...tallyUnits(groups.filter((group) => group.locationId === record.id)),
+  }));
 }
 
 /**
@@ -315,20 +348,24 @@ export async function getRecentTransfers(take = 12) {
       id: true,
       transferDate: true,
       assetUnit: {
-        select: { barcode: true, asset: { select: { name: true } } },
+        select: {
+          id: true,
+          barcode: true,
+          asset: { select: { id: true, name: true } },
+        },
       },
-      fromLocation: { select: { name: true } },
-      toLocation: { select: { name: true } },
+      fromLocation: { select: { id: true, name: true } },
+      toLocation: { select: { id: true, name: true } },
     },
   });
 
   return records.map((record) => ({
     id: record.id,
     date: record.transferDate,
-    barcode: record.assetUnit.barcode,
-    assetName: record.assetUnit.asset.name,
-    from: record.fromLocation.name,
-    to: record.toLocation.name,
+    unit: { id: record.assetUnit.id, barcode: record.assetUnit.barcode },
+    asset: record.assetUnit.asset,
+    from: record.fromLocation,
+    to: record.toLocation,
   }));
 }
 

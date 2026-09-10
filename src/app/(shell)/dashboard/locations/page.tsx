@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 import {
+  CellLink,
   ListTable,
   ListTableSkeleton,
   type Column,
@@ -81,6 +82,9 @@ async function Locations() {
       }
       rows={locations.map((location) => ({
         id: location.id,
+        // The row that reads "0 free" is the one worth acting on, and until the
+        // location record existed it was a dead end.
+        href: `/dashboard/locations/${location.id}`,
         cells: {
           name: <span className="font-bold">{location.name}</span>,
           parent: (
@@ -132,6 +136,9 @@ async function Transfers() {
       }
       rows={transfers.map((transfer) => ({
         id: transfer.id,
+        // No row link: a transfer has no record of its own, and the four things
+        // it names — the unit, what it is, and the two shelves — are four
+        // different destinations with no primary one among them.
         cells: {
           date: (
             <span className="tabular-nums text-ink-muted">
@@ -139,11 +146,27 @@ async function Transfers() {
             </span>
           ),
           unit: (
-            <span className="font-bold tabular-nums">{transfer.barcode}</span>
+            <CellLink href={`/dashboard/units/${transfer.unit.id}`}>
+              <span className="font-bold tabular-nums">
+                {transfer.unit.barcode}
+              </span>
+            </CellLink>
           ),
-          asset: transfer.assetName,
-          from: <span className="text-ink-muted">{transfer.from}</span>,
-          to: transfer.to,
+          asset: (
+            <CellLink href={`/dashboard/assets/${transfer.asset.id}`}>
+              {transfer.asset.name}
+            </CellLink>
+          ),
+          from: (
+            <CellLink href={`/dashboard/locations/${transfer.from.id}`}>
+              {transfer.from.name}
+            </CellLink>
+          ),
+          to: (
+            <CellLink href={`/dashboard/locations/${transfer.to.id}`}>
+              {transfer.to.name}
+            </CellLink>
+          ),
         },
       }))}
     />

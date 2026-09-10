@@ -90,7 +90,12 @@ export async function FleetStrip({ id }: { id: string }) {
   );
 }
 
-function Tally({
+/**
+ * One number in a strip, with its name over it. Exported because the location
+ * record leads with the same breakdown of the same units, and two strips that
+ * are meant to read identically should not be typed twice.
+ */
+export function Tally({
   label,
   value,
   accent,

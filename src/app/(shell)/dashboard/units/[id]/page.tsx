@@ -104,7 +104,7 @@ export default async function UnitRecordPage({ params }: Params) {
           <Suspense
             fallback={<CardSkeleton title="Location & transfers" rows={3} />}
           >
-            <TransfersCard id={id} locationName={unit.location?.name ?? null} />
+            <TransfersCard id={id} location={unit.location} />
           </Suspense>
         </div>
 
@@ -152,7 +152,16 @@ function Whereabouts({ unit }: { unit: Unit }) {
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         <Field label="Status">{UNIT_STATUS_LABEL[unit.status]}</Field>
         <Field label="Location">
-          {unit.location?.name ?? <Unset>Unlocated</Unset>}
+          {unit.location ? (
+            <Link
+              href={`/dashboard/locations/${unit.location.id}`}
+              className="text-accent-text hover:underline"
+            >
+              {unit.location.name}
+            </Link>
+          ) : (
+            <Unset>Unlocated</Unset>
+          )}
         </Field>
         <Field label="With">
           {unit.holder ? (

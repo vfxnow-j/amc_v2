@@ -13,6 +13,13 @@ import Link from "next/link";
  * Deliberately a server component: rows carry rendered `ReactNode` cells and the
  * pagination takes an href builder, both of which stop working the moment this
  * crosses to the client. Nothing here needs to.
+ *
+ * A row with an `href` is still clickable edge to edge, but the anchor is on the
+ * identity cell and reaches the rest of the row through `before:absolute`. That
+ * is what lets a cell further along carry its own link — the Units list sends
+ * the row to the unit and the Location cell to the location — without nesting
+ * anchors, which is invalid HTML the parser unpicks on its own. Cell links go
+ * through `CellLink` so they land above the overlay.
  */
 
 export type Column = {
@@ -123,14 +130,30 @@ export function ListTable({
 
       <ul className="flex min-h-0 flex-1 flex-col gap-[2px] overflow-y-auto px-2">
         {rows.map((row, index) => {
-          const cells = columns.map((column) => (
-            <span
-              key={column.key}
-              className={`truncate ${column.align === "right" ? "text-right tabular-nums" : ""}`}
-            >
-              {row.cells[column.key]}
-            </span>
-          ));
+          const cells = columns.map((column, position) => {
+            const content = row.cells[column.key];
+            return (
+              <span
+                key={column.key}
+                className={`truncate ${column.align === "right" ? "text-right tabular-nums" : ""}`}
+              >
+                {/* The row's own link lives on the identity cell and stretches
+                    over the whole row from there, so a cell further along can
+                    carry its own link without nesting one anchor inside
+                    another — which the HTML parser silently unpicks. */}
+                {row.href && position === 0 ? (
+                  <Link
+                    href={row.href}
+                    className="before:absolute before:inset-0 before:rounded-row before:content-['']"
+                  >
+                    {content}
+                  </Link>
+                ) : (
+                  content
+                )}
+              </span>
+            );
+          });
 
           const tone = row.flagged
             ? "bg-accent-tint"
@@ -139,23 +162,17 @@ export function ListTable({
               : "";
 
           return (
-            <li key={row.id}>
-              {row.href ? (
-                <Link
-                  href={row.href}
-                  className={`grid items-center gap-2 rounded-row p-2 transition-colors duration-[160ms] ${tone} hover:bg-row-hover`}
-                  style={{ gridTemplateColumns: tracks }}
-                >
-                  {cells}
-                </Link>
-              ) : (
-                <div
-                  className={`grid items-center gap-2 rounded-row p-2 ${tone}`}
-                  style={{ gridTemplateColumns: tracks }}
-                >
-                  {cells}
-                </div>
-              )}
+            <li key={row.id} className={row.href ? "group relative" : undefined}>
+              <div
+                className={`grid items-center gap-2 rounded-row p-2 ${tone} ${
+                  row.href
+                    ? "transition-colors duration-[160ms] group-hover:bg-row-hover"
+                    : ""
+                }`}
+                style={{ gridTemplateColumns: tracks }}
+              >
+                {cells}
+              </div>
             </li>
           );
         })}
@@ -205,6 +222,34 @@ function PageLink({
   if (disabled) return <span className="opacity-40">{children}</span>;
   return (
     <Link href={href} className="text-accent-text hover:underline">
+      {children}
+    </Link>
+  );
+}
+
+/**
+ * A link inside a cell, for the rest of the row.
+ *
+ * The identity cell already carries the row's link, stretched over the whole
+ * row by a pseudo-element. A second anchor in a later cell has to sit above that
+ * overlay to be clickable at all, which is what `relative` buys — every cell
+ * link goes through here so no screen has to remember that.
+ *
+ * Deliberately quiet: it inherits the cell's own color and underlines on hover
+ * rather than taking accent. In these lists accent already means *notice this* —
+ * a location with nothing free, a unit in service — and spending it on "this is
+ * a link" in three columns of every row would drown the one signal that is
+ * supposed to stop a reader.
+ */
+export function CellLink({
+  href,
+  children,
+}: {
+  href: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <Link href={href} className="relative hover:underline">
       {children}
     </Link>
   );

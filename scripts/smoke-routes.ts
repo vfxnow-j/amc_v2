@@ -126,6 +126,20 @@ const RECORD_ROUTES: {
     find: () => firstId(() => prisma.vendor.findFirst({ select: { id: true } })),
   },
   {
+    // A location holding units where there is one: an empty shelf exercises
+    // none of the cards, and every card on this screen is a query about units.
+    // Falls back to any location so a fresh database still proves the route.
+    label: "location record",
+    path: (id) => `/dashboard/locations/${id}`,
+    find: () =>
+      firstId(async () =>
+        (await prisma.location.findFirst({
+          where: { assetUnits: { some: {} } },
+          select: { id: true },
+        })) ?? prisma.location.findFirst({ select: { id: true } }),
+      ),
+  },
+  {
     label: "purchase order record",
     path: (id) => `/dashboard/purchase-orders/${id}`,
     find: () => firstId(() => prisma.purchaseOrder.findFirst({ select: { id: true } })),

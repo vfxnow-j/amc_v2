@@ -322,10 +322,10 @@ export async function CoverageCard({ id }: { id: string }) {
  */
 export async function TransfersCard({
   id,
-  locationName,
+  location,
 }: {
   id: string;
-  locationName: string | null;
+  location: { id: string; name: string } | null;
 }) {
   const { rows, total } = await getUnitTransfers(id);
 
@@ -336,12 +336,21 @@ export async function TransfersCard({
     >
       <div className="px-4 pb-3">
         <Field label="Sits at">
-          {locationName ?? <Unset>No location set</Unset>}
+          {location ? (
+            <Link
+              href={`/dashboard/locations/${location.id}`}
+              className="text-accent-text hover:underline"
+            >
+              {location.name}
+            </Link>
+          ) : (
+            <Unset>No location set</Unset>
+          )}
         </Field>
       </div>
       {total === 0 ? (
         <p className="px-4 pb-4 text-detail text-balance text-ink-muted">
-          {locationName
+          {location
             ? "This unit has never been moved between locations. A transfer is recorded when it physically moves; it is not an approval step."
             : "This unit has no location and has never been transferred, so nothing on the record says where it lives when it is not with a client."}
         </p>
@@ -356,9 +365,22 @@ export async function TransfersCard({
                 {dayYear(row.transferDate)}
               </span>
               <span className="truncate text-ink-muted">
-                {row.fromLocation.name}
+                <Link
+                  href={`/dashboard/locations/${row.fromLocation.id}`}
+                  className="hover:underline"
+                >
+                  {row.fromLocation.name}
+                </Link>
               </span>
-              <span className="truncate">→ {row.toLocation.name}</span>
+              <span className="truncate">
+                →{" "}
+                <Link
+                  href={`/dashboard/locations/${row.toLocation.id}`}
+                  className="text-accent-text hover:underline"
+                >
+                  {row.toLocation.name}
+                </Link>
+              </span>
             </li>
           ))}
         </ul>
