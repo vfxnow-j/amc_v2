@@ -16,8 +16,11 @@ import {
   InvoicesCard,
   OrdersCard,
 } from "@/components/clients/record-cards";
+import { RequirementsCard } from "@/components/clients/requirements-card";
 import { dayYear } from "@/lib/format";
 import { getClientHeader } from "@/lib/queries/client-record";
+import { readTemplateMeta } from "@/lib/requirements/store";
+import { getSessionUser } from "@/lib/roles";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -41,8 +44,17 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
  */
 export default async function ClientRecordPage({ params }: Params) {
   const { id } = await params;
-  const client = await getClientHeader(id);
+  const [client, viewer, template] = await Promise.all([
+    getClientHeader(id),
+    getSessionUser(),
+    // Read here rather than inside the card: the card is a client component and
+    // cannot reach the document store, and whether a template exists changes
+    // what the "ask for documents" dialog is allowed to promise.
+    readTemplateMeta(),
+  ]);
   if (!client) notFound();
+
+  const role = viewer?.role;
 
   return (
     <>
@@ -80,7 +92,22 @@ export default async function ClientRecordPage({ params }: Params) {
             <CreditCard id={id} terms={client.paymentTerms} />
           </Suspense>
 
-          <Requirements client={client} />
+          <RequirementsCard
+            clientId={client.id}
+            clientName={client.name}
+            clientEmail={client.email}
+            agreementSignedAt={client.agreementSignedAt}
+            agreementSignerName={client.agreementSignerName}
+            idVerifiedAt={client.idVerifiedAt}
+            coiVerifiedAt={client.coiVerifiedAt}
+            skipIdRequirement={client.skipIdRequirement}
+            skipCoiRequirement={client.skipCoiRequirement}
+            hasTemplate={!!template}
+            canRequest={
+              role === "SUPER_ADMIN" || role === "ADMIN" || role === "STAFF"
+            }
+            canWaive={role === "SUPER_ADMIN" || role === "ADMIN"}
+          />
 
           <Card title="Details">
             <div className="grid grid-cols-2 gap-3 px-4 pb-4">
@@ -132,78 +159,5 @@ export default async function ClientRecordPage({ params }: Params) {
         </div>
       </div>
     </>
-  );
-}
-
-/**
- * The three things that gate shipping to an account: a signed rental agreement,
- * ID, and a certificate of insurance.
- *
- * Each can be waived per-account (`skipIdRequirement`, `skipCoiRequirement`),
- * and a waived requirement is shown as waived rather than as met — they are
- * different facts, and collapsing them would hide who decided what.
- */
-function Requirements({
-  client,
-}: {
-  client: NonNullable<Awaited<ReturnType<typeof getClientHeader>>>;
-}) {
-  const rows = [
-    {
-      label: "Rental agreement",
-      at: client.agreementSignedAt,
-      by: client.agreementSignerName,
-      waived: false,
-    },
-    {
-      label: "ID verified",
-      at: client.idVerifiedAt,
-      by: null,
-      waived: client.skipIdRequirement,
-    },
-    {
-      label: "Insurance (COI)",
-      at: client.coiVerifiedAt,
-      by: null,
-      waived: client.skipCoiRequirement,
-    },
-  ];
-
-  const outstanding = rows.filter((row) => !row.at && !row.waived).length;
-
-  return (
-    <Card
-      title="Requirements"
-      meta={
-        outstanding === 0
-          ? "all settled"
-          : `${outstanding} outstanding`
-      }
-    >
-      <ul className="flex flex-col gap-px px-2 pb-3">
-        {rows.map((row) => (
-          <li
-            key={row.label}
-            className="grid grid-cols-[1fr_auto] items-baseline gap-2 rounded-row px-2 py-[6px] text-detail"
-          >
-            <span className="truncate">
-              {row.label}
-              {row.by ? (
-                <span className="text-ink-faint"> · {row.by}</span>
-              ) : null}
-            </span>
-            {row.at ? (
-              <span className="tabular-nums text-ink-muted">
-                {dayYear(row.at)}
-              </span>
-            ) : row.waived ? (
-              <span className="text-ink-faint">Waived</span>
-            ) : (
-              <span className="font-bold text-destructive">Outstanding</span>
-            )}
-          </li>
-        ))}
-      </ul>
-    </Card>
   );
 }
