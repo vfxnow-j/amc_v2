@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { CheckoutMode } from "@/components/scan/checkout-mode";
 import { ScanField } from "@/components/scan/scan-field";
 import { ScanLog, type ScanEntry } from "@/components/scan/scan-log";
 import type { Tone } from "@/lib/scan/audio";
@@ -16,12 +17,15 @@ import type { AssetStatus } from "@/generated/prisma/client";
  * navigation part-way through would remount the surface and throw away the
  * receipt — and, once writes land, whatever is still in the queue.
  *
- * Today it does one thing: identify a unit. That is the behaviour the retired
- * Mobile scan screen had, rebuilt on the queueing field so the rename could not
- * regress it and so the modes that write have something proven to stand on.
- * Check-out, return and scan-list are the rest of the track, and the picker
- * shows only what exists — a disabled tab promising a feature is worse than an
- * honest three-item list.
+ * Two modes so far. **Check asset** identifies a unit and writes nothing — the
+ * behaviour the retired Mobile scan screen had, rebuilt on the queueing field.
+ * **Check out** scans units onto one order. Return and scan-list follow; the
+ * picker shows only what exists, because a disabled tab promising a feature is
+ * worse than an honest short list.
+ *
+ * Switching mode is client state, not a link. `FilterTabs` navigates, and a
+ * navigation part-way through a session would remount the surface and throw
+ * away both the receipt and whatever is still in the queue.
  */
 
 type Unit = {
@@ -51,7 +55,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-export function ScanSession({ initialCode }: { initialCode?: string }) {
+function CheckAssetMode({ initialCode }: { initialCode?: string }) {
   const [entries, setEntries] = useState<ScanEntry[]>([]);
   const [unit, setUnit] = useState<Unit | null>(null);
   const [pending, setPending] = useState(0);
@@ -216,6 +220,53 @@ export function ScanSession({ initialCode }: { initialCode?: string }) {
           </div>
         </section>
       </div>
+    </div>
+  );
+}
+
+const MODES = [
+  { id: "check", label: "Check asset", blurb: "What is it, whose is it, when is it due back" },
+  { id: "out", label: "Check out", blurb: "Scan units onto an order" },
+] as const;
+
+type Mode = (typeof MODES)[number]["id"];
+
+export function ScanSession({ initialCode }: { initialCode?: string }) {
+  // A deep link carries a code, and a code is a lookup — so a ?code= link opens
+  // on the mode that answers it.
+  const [mode, setMode] = useState<Mode>("check");
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-3">
+      <nav
+        aria-label="Scan modes"
+        className="flex flex-wrap items-center gap-1 self-start rounded-pill bg-segmented-track p-1"
+      >
+        {MODES.map((option) => {
+          const active = option.id === mode;
+          return (
+            <button
+              key={option.id}
+              type="button"
+              onClick={() => setMode(option.id)}
+              aria-current={active ? "true" : undefined}
+              title={option.blurb}
+              className={`rounded-pill px-3 py-1 text-pill transition-colors duration-[160ms] ${
+                active
+                  ? "bg-segmented-thumb font-bold text-ink shadow-sm"
+                  : "text-ink-muted hover:text-ink"
+              }`}
+            >
+              {option.label}
+            </button>
+          );
+        })}
+      </nav>
+
+      {/* Both are mounted-on-demand rather than hidden: an unmounted mode
+          cannot hold a stale order, and a mode that is not on screen must not
+          be listening for scans. */}
+      {mode === "check" ? <CheckAssetMode initialCode={initialCode} /> : <CheckoutMode />}
     </div>
   );
 }

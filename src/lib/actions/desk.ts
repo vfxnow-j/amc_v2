@@ -23,7 +23,8 @@ import type { OverScanResolution, OverScanConflict } from "@/lib/reservations/ov
 export type ScanOutcome =
   | { status: "ok"; message: string }
   | { status: "error"; message: string }
-  | { status: "conflict"; conflict: OverScanConflict };
+  | { status: "conflict"; conflict: OverScanConflict }
+  | { status: "not-on-order"; assetName: string; barcode: string };
 
 /**
  * Scan a unit out against an order.
@@ -36,6 +37,7 @@ export async function scanUnitOut(
   reservationId: string,
   barcode: string,
   resolution?: OverScanResolution,
+  options: { allowNewAssetLine?: boolean } = {},
 ): Promise<ScanOutcome> {
   const trimmed = barcode.trim();
   if (!trimmed) {
@@ -46,6 +48,18 @@ export async function scanUnitOut(
   // before a unit can be checked out against it.
   if (resolution === "new-line") {
     return splitOntoNewLine(reservationId, trimmed);
+  }
+
+  // `checkoutByBarcode` creates a priced line for an asset the order never
+  // ordered, silently, at the asset's general rate. On the order record that is
+  // tolerable — you are looking at the order and can see the line appear. On a
+  // standalone scan surface it is not: one wrong box off a pallet puts a
+  // charged line on a client's order with nobody asked, which is the same class
+  // of failure the over-scan guard exists to stop. So the bulk surface opts
+  // out, checks first, and asks.
+  if (options.allowNewAssetLine === false) {
+    const stray = await strayAsset(reservationId, trimmed);
+    if (stray) return stray;
   }
 
   const result = await checkoutByBarcode(reservationId, trimmed, {
@@ -62,6 +76,37 @@ export async function scanUnitOut(
   }
 
   return { status: "error", message: result.error };
+}
+
+/**
+ * Is this unit's asset on the order at all?
+ *
+ * One cheap lookup before the ported action gets a chance to invent a line for
+ * it. Returns the outcome to hand back, or null when the asset is genuinely on
+ * the order and the scan should proceed normally.
+ *
+ * Deliberately not a refusal the caller can override with a flag: the answer is
+ * a question for a person — put it back, or open the order and add it there,
+ * where the rate is a decision rather than a lookup.
+ */
+async function strayAsset(
+  reservationId: string,
+  barcode: string,
+): Promise<ScanOutcome | null> {
+  const unit = await prisma.assetUnit.findFirst({
+    where: { OR: [{ barcode }, { serialNumber: barcode }] },
+    select: { assetId: true, asset: { select: { name: true } } },
+  });
+  // An unknown barcode is the ported action's error to report, not this one's —
+  // it says so more precisely than "not on the order" would.
+  if (!unit) return null;
+
+  const onOrder = await prisma.reservationItem.count({
+    where: { reservationId, assetId: unit.assetId },
+  });
+  if (onOrder > 0) return null;
+
+  return { status: "not-on-order", assetName: unit.asset.name, barcode };
 }
 
 /**

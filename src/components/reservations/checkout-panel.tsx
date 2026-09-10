@@ -3,17 +3,11 @@
 import { useRef, useState, useTransition } from "react";
 import { ScanLine } from "lucide-react";
 import { scanUnitOut, type ScanOutcome } from "@/lib/actions/desk";
-import {
-  overScanPrompt,
-  type OverScanConflict,
-  type OverScanResolution,
+import { OverScanPrompt } from "@/components/scan/over-scan-prompt";
+import type {
+  OverScanConflict,
+  OverScanResolution,
 } from "@/lib/reservations/over-scan";
-
-const MONEY = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-  maximumFractionDigits: 2,
-});
 
 type Entry = { id: number; tone: "ok" | "error"; message: string };
 
@@ -47,6 +41,13 @@ export function CheckoutPanel({ reservationId }: { reservationId: string }) {
       setConflict(outcome.conflict);
       return;
     }
+    if (outcome.status === "not-on-order") {
+      // The record never opts out of the ad-hoc line, so this cannot reach
+      // here — the union is shared with the scan surface, which does.
+      record("error", `${outcome.assetName} is not on this order.`);
+      inputRef.current?.focus();
+      return;
+    }
     record(outcome.status === "ok" ? "ok" : "error", outcome.message);
     inputRef.current?.focus();
   }
@@ -69,7 +70,6 @@ export function CheckoutPanel({ reservationId }: { reservationId: string }) {
     });
   }
 
-  const prompt = conflict ? overScanPrompt(conflict) : null;
 
   return (
     <section className="flex flex-col overflow-hidden rounded-card bg-panel pt-[14px] shadow-sm">
@@ -104,54 +104,18 @@ export function CheckoutPanel({ reservationId }: { reservationId: string }) {
         </label>
       </form>
 
-      {prompt && conflict ? (
-        <div
-          role="alertdialog"
-          aria-label={prompt.title}
-          className="mx-4 mt-3 rounded-bubble bg-accent-tint p-3"
-        >
-          <p className="text-card-title text-accent-on-tint">{prompt.title}</p>
-          <p className="mt-1 text-detail text-accent-on-tint">{prompt.detail}</p>
-
-          <div className="mt-3 flex flex-col gap-2">
-            {prompt.options.map((option) => (
-              <button
-                key={option.resolution}
-                type="button"
-                disabled={busy}
-                onClick={() => resolve(option.resolution)}
-                className="rounded-well bg-panel px-3 py-2 text-left transition-colors hover:bg-row-hover disabled:opacity-60"
-              >
-                <span className="block text-body font-bold">
-                  {option.label}
-                  {option.resolution === "expand" ? (
-                    <span className="font-normal text-ink-muted">
-                      {" "}
-                      · +{MONEY.format(conflict.rate)}/
-                      {conflict.pricingType.toLowerCase()}
-                    </span>
-                  ) : null}
-                </span>
-                <span className="block text-detail text-ink-muted">
-                  {option.detail}
-                </span>
-              </button>
-            ))}
-          </div>
-
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => {
-              setConflict(null);
-              record("error", `${pendingBarcode} was not checked out.`);
-              inputRef.current?.focus();
-            }}
-            className="mt-2 text-detail text-accent-on-tint underline-offset-2 hover:underline"
-          >
-            Don&rsquo;t check it out
-          </button>
-        </div>
+      {conflict ? (
+        <OverScanPrompt
+          conflict={conflict}
+          busy={busy}
+          onResolve={resolve}
+          onDismiss={() => {
+            setConflict(null);
+            record("error", `${pendingBarcode} was not checked out.`);
+            inputRef.current?.focus();
+          }}
+          className="mx-4 mt-3"
+        />
       ) : null}
 
       {log.length > 0 ? (
