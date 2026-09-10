@@ -156,9 +156,11 @@ export function NavPanel({
   }, [clusters, openCluster, pageLinks, paletteOpen, pathname]);
 
   return (
+    // bg-nav, not bg-panel: --nav-surface is --panel until the `data-nav` axis
+    // moves it. See "Appearance axes" in globals.css.
     <div
       ref={railRef}
-      className="flex w-64 flex-none flex-col rounded-card bg-panel px-[10px] py-[14px] shadow-sm"
+      className="flex w-64 flex-none flex-col rounded-card bg-nav px-[10px] py-[14px] shadow-sm"
     >
       <BrandLockup />
       <NavSearch ref={searchRef} onOpen={() => setPaletteOpen(true)} />

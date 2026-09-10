@@ -3,13 +3,9 @@
 import { useTransition } from "react";
 import { useAppearance } from "@/components/theme/theme-provider";
 import { saveAppearance } from "@/lib/actions/appearance";
-import type { ColorMode } from "@/lib/theme";
+import { axisById } from "@/lib/theme";
 
-const OPTIONS: { value: ColorMode; label: string }[] = [
-  { value: "light", label: "Light" },
-  { value: "system", label: "System" },
-  { value: "dark", label: "Dark" },
-];
+const MODE = axisById("mode");
 
 /**
  * Segmented pill control, per the "Segmented pill controls" spec: a sunken
@@ -31,11 +27,11 @@ const OPTIONS: { value: ColorMode; label: string }[] = [
  * error.
  */
 export function ModeToggle() {
-  const { mode, setMode } = useAppearance();
+  const { values, set } = useAppearance();
   const [, startTransition] = useTransition();
 
-  function choose(next: ColorMode) {
-    setMode(next);
+  function choose(next: string) {
+    set("mode", next);
     startTransition(async () => {
       try {
         await saveAppearance({ mode: next });
@@ -51,8 +47,8 @@ export function ModeToggle() {
       aria-label="Color mode"
       className="inline-flex gap-px rounded-pill bg-segmented-track p-[3px]"
     >
-      {OPTIONS.map((option) => {
-        const selected = mode === option.value;
+      {MODE.options.map((option) => {
+        const selected = values.mode === option.value;
         return (
           <button
             key={option.value}

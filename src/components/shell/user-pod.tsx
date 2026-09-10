@@ -18,7 +18,6 @@ import { useAppearance } from "@/components/theme/theme-provider";
 import { saveAppearance } from "@/lib/actions/appearance";
 import { signOutAction } from "@/lib/actions/session";
 import { SETTINGS_PAGE } from "@/lib/nav/clusters";
-import { isColorMode } from "@/lib/theme";
 import type { SessionUser } from "@/lib/roles";
 
 /**
@@ -48,7 +47,7 @@ export function UserPod({
   user: SessionUser;
   bell?: React.ReactNode;
 }) {
-  const { mode, setMode } = useAppearance();
+  const { values, set } = useAppearance();
   const [, startTransition] = useTransition();
 
   /**
@@ -58,8 +57,7 @@ export function UserPod({
    * not worth an error state inside a dropdown.
    */
   function chooseMode(value: string) {
-    if (!isColorMode(value)) return;
-    setMode(value);
+    set("mode", value);
     startTransition(async () => {
       try {
         await saveAppearance({ mode: value });
@@ -115,7 +113,7 @@ export function UserPod({
               Theme
             </DropdownMenuLabel>
             <DropdownMenuRadioGroup
-              value={mode}
+              value={values.mode}
               onValueChange={chooseMode}
             >
               <DropdownMenuRadioItem value="light">Light</DropdownMenuRadioItem>

@@ -9,24 +9,19 @@ import {
   useSyncExternalStore,
 } from "react";
 import { createThemeStore, type ThemeStore } from "@/lib/theme-store";
-import {
-  DEFAULT_THEME,
-  MODE_ATTRIBUTE,
-  THEME_ATTRIBUTE,
-  type ColorMode,
-  type ThemeId,
-} from "@/lib/theme";
+import { attributeValue, AXES, type AppearanceValues } from "@/lib/theme";
 
 const ThemeContext = createContext<ThemeStore | null>(null);
 
 /**
- * Publishes the appearance store and keeps `data-mode` and `data-theme` on
- * <html> in step with it.
+ * Publishes the appearance store and keeps every axis attribute on <html> in
+ * step with it — `data-mode`, `data-theme`, `data-surface`, `data-nav`,
+ * `data-tile`, and whatever is added to `AXES` next.
  *
- * Both attributes are already correct before hydration — ThemeScript resolves
- * them in <head>, ahead of any React code — so the effects below are only there
- * to carry later changes (a user switching mode or theme, the OS flipping while
- * the mode is 'system') back out to the DOM.
+ * All of them are already correct before hydration — ThemeScript resolves them
+ * in <head>, ahead of any React code — so the effect below is only there to
+ * carry later changes (a user switching a control, the OS flipping while the
+ * mode is 'system') back out to the DOM.
  *
  * The defaults come from the server: the User record's stored choices, or the
  * role default and the house theme. Writing a change back to the User row is
@@ -35,15 +30,13 @@ const ThemeContext = createContext<ThemeStore | null>(null);
  */
 export function ThemeProvider({
   children,
-  defaultMode = "system",
-  defaultTheme = DEFAULT_THEME,
+  appearance,
 }: {
   children: React.ReactNode;
-  defaultMode?: ColorMode;
-  defaultTheme?: ThemeId;
+  appearance: AppearanceValues;
 }) {
-  const [store] = useState(() => createThemeStore(defaultMode, defaultTheme));
-  const { resolved, theme } = useSyncExternalStore(
+  const [store] = useState(() => createThemeStore(appearance));
+  const { values } = useSyncExternalStore(
     store.subscribe,
     store.getSnapshot,
     store.getServerSnapshot,
@@ -51,17 +44,13 @@ export function ThemeProvider({
 
   useEffect(() => {
     const root = document.documentElement;
-    if (root.getAttribute(MODE_ATTRIBUTE) !== resolved) {
-      root.setAttribute(MODE_ATTRIBUTE, resolved);
+    for (const axis of AXES) {
+      const next = attributeValue(axis, values[axis.id]);
+      if (root.getAttribute(axis.attribute) !== next) {
+        root.setAttribute(axis.attribute, next);
+      }
     }
-  }, [resolved]);
-
-  useEffect(() => {
-    const root = document.documentElement;
-    if (root.getAttribute(THEME_ATTRIBUTE) !== theme) {
-      root.setAttribute(THEME_ATTRIBUTE, theme);
-    }
-  }, [theme]);
+  }, [values]);
 
   return <ThemeContext value={store}>{children}</ThemeContext>;
 }
@@ -78,8 +67,5 @@ export function useAppearance() {
     store.getServerSnapshot,
   );
 
-  return useMemo(
-    () => ({ ...state, setMode: store.setMode, setTheme: store.setTheme }),
-    [state, store],
-  );
+  return useMemo(() => ({ ...state, set: store.set }), [state, store]);
 }

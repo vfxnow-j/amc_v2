@@ -1,30 +1,27 @@
 import {
-  DEFAULT_THEME,
-  isColorMode,
-  isThemeId,
-  MODE_STORAGE_KEY,
-  resolveMode,
-  THEME_STORAGE_KEY,
-  type ColorMode,
+  attributeValue,
+  AXES,
+  axisById,
+  isAxisValue,
+  normalizeAppearance,
+  type AppearanceValues,
+  type AxisId,
   type ResolvedMode,
-  type ThemeId,
 } from "@/lib/theme";
 
 export type AppearanceState = {
-  /** What the user chose — may be 'system'. */
-  mode: ColorMode;
-  /** What is actually on screen. */
+  /** What the user chose, per axis. The mode may still be 'system'. */
+  values: AppearanceValues;
+  /** What the mode actually resolved to, which is what is on screen. */
   resolved: ResolvedMode;
-  /** Which of the six themes is loaded. Independent of the mode. */
-  theme: ThemeId;
 };
 
 export type ThemeStore = {
   subscribe: (onChange: () => void) => () => void;
   getSnapshot: () => AppearanceState;
   getServerSnapshot: () => AppearanceState;
-  setMode: (mode: ColorMode) => void;
-  setTheme: (theme: ThemeId) => void;
+  /** Apply and mirror one axis. Persisting to the row is the caller's job. */
+  set: (axis: AxisId, value: string) => void;
 };
 
 /**
@@ -35,31 +32,41 @@ export type ThemeStore = {
  * renders read the real choice (no flash, no `mounted` flag), and OS or
  * cross-tab changes push straight through.
  *
+ * Every axis is handled by walking `AXES` — there is no `mode` or `theme` named
+ * anywhere below. That is not tidiness: the pre-paint script has to inline its
+ * own copy of this logic, and the two agreeing on which values are valid is the
+ * difference between a clean load and a frame of the wrong theme. They agree
+ * because they read the same list.
+ *
  * The defaults are the server-side values — the User record's choices, or the
  * role default (dark for STAFF, light for admin and finance) and the house
  * theme — used until the browser has stored a choice. Persisting a change back
  * to the server is the caller's job: this store owns the mirror and the paint,
  * and knows nothing about actions.
  */
-export function createThemeStore(
-  defaultMode: ColorMode,
-  defaultTheme: ThemeId = DEFAULT_THEME,
-): ThemeStore {
-  const serverState: AppearanceState = {
-    mode: defaultMode,
-    resolved: resolveMode(defaultMode),
-    theme: defaultTheme,
-  };
+export function createThemeStore(defaults: AppearanceValues): ThemeStore {
+  const modeAxis = axisById("mode");
+
+  function stateOf(values: AppearanceValues): AppearanceState {
+    return {
+      values,
+      resolved: attributeValue(modeAxis, values.mode) as ResolvedMode,
+    };
+  }
+
+  // `resolved` on the server is whatever resolveMode() says without a window,
+  // which is 'light'; the pre-paint script has already put the real answer on
+  // <html>, so this only has to match what the server rendered.
+  const serverState = stateOf(defaults);
 
   // useSyncExternalStore compares snapshots by identity, so the same object is
   // handed back until one of the values actually changes.
   let cache: AppearanceState = serverState;
   const listeners = new Set<() => void>();
   let media: MediaQueryList | null = null;
-  // This session's choices, so both still switch when storage is blocked.
-  // Storage wins when readable, so another tab's change still lands here.
-  let chosenMode: ColorMode | null = null;
-  let chosenTheme: ThemeId | null = null;
+  // This session's choices, so every axis still switches when storage is
+  // blocked. Storage wins when readable, so another tab's change still lands.
+  const chosen: Partial<AppearanceValues> = {};
 
   function mediaQuery() {
     media ??= window.matchMedia("(prefers-color-scheme: dark)");
@@ -67,18 +74,18 @@ export function createThemeStore(
   }
 
   function read(): AppearanceState {
-    let mode = chosenMode ?? defaultMode;
-    let theme = chosenTheme ?? defaultTheme;
-    try {
-      const storedMode = localStorage.getItem(MODE_STORAGE_KEY);
-      if (isColorMode(storedMode)) mode = storedMode;
-      const storedTheme = localStorage.getItem(THEME_STORAGE_KEY);
-      if (isThemeId(storedTheme)) theme = storedTheme;
-    } catch {
-      // Storage unavailable (private mode, blocked cookies) — fall back to the
-      // server-supplied defaults.
+    const stored: Partial<Record<AxisId, unknown>> = {};
+    for (const axis of AXES) {
+      stored[axis.id] = chosen[axis.id];
+      try {
+        const value = localStorage.getItem(axis.storageKey);
+        if (isAxisValue(axis, value)) stored[axis.id] = value;
+      } catch {
+        // Storage unavailable (private mode, blocked cookies) — the session
+        // choice, then the server-supplied default, carry it.
+      }
     }
-    return { mode, resolved: resolveMode(mode), theme };
+    return stateOf(normalizeAppearance(stored, defaults));
   }
 
   function notify() {
@@ -103,35 +110,24 @@ export function createThemeStore(
 
     getSnapshot() {
       const next = read();
-      if (
-        next.mode !== cache.mode ||
+      const changed =
         next.resolved !== cache.resolved ||
-        next.theme !== cache.theme
-      ) {
-        cache = next;
-      }
+        AXES.some((axis) => next.values[axis.id] !== cache.values[axis.id]);
+      if (changed) cache = next;
       return cache;
     },
 
     getServerSnapshot: () => serverState,
 
-    setMode(mode) {
-      chosenMode = mode;
+    set(axis, value) {
+      const definition = axisById(axis);
+      if (!isAxisValue(definition, value)) return;
+      chosen[axis] = value;
       try {
-        localStorage.setItem(MODE_STORAGE_KEY, mode);
+        localStorage.setItem(definition.storageKey, value);
       } catch {
-        // Non-fatal: `chosenMode` keeps it applied for this session, and the
+        // Non-fatal: `chosen` keeps it applied for this session, and the
         // server-side choice restores it on the next load.
-      }
-      notify();
-    },
-
-    setTheme(theme) {
-      chosenTheme = theme;
-      try {
-        localStorage.setItem(THEME_STORAGE_KEY, theme);
-      } catch {
-        // As above.
       }
       notify();
     },

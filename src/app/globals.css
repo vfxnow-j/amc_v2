@@ -2,10 +2,18 @@
 /* Keyframes for the Radix-driven enter/exit animations in components/ui. */
 @import "tw-animate-css";
 
-/* Two independent attributes on <html>, and they mean different things:
+/* Five independent attributes on <html>, and they mean different things:
 
-     data-mode="light|dark"   how bright the app is
-     data-theme="vfxnow|…"    which of the six themes is loaded
+     data-mode="light|dark"      how bright the app is
+     data-theme="vfxnow|…"       which of the six themes is loaded
+     data-surface="soft|…"       how far the page sits below its panels
+     data-nav="panel|…"          what the rail is made of
+     data-tile="panel|…"         what a dashboard tile is made of
+
+   The first two are the whole look; the last three are grain, and every value
+   they can take is a stop on the current theme's own ramp (or a mix of two of
+   them), which is why they cost six themes × two modes nothing — see the
+   appearance-axes block below the roles.
 
    `dark:` keys off the resolved mode, not prefers-color-scheme, which would
    ignore an explicit choice. The media arm is the no-JS fallback, for when
@@ -149,7 +157,14 @@
      wrap the colour, e.g.
        0 1px 2px light-dark(color-mix(… 14%, transparent), transparent)
      — which is a visible change in dark mode and so is left as a call to
-     make deliberately.                                                    */
+     make deliberately.
+
+     One argument against it, added when the appearance axes landed: on dark,
+     `data-surface="flat"` deliberately closes the gap between the ground and
+     the panels, and what is then left to separate a card from the page is this
+     shadow. Killing it in dark would take that option from a quiet look to an
+     invisible one. If the shadow is ever dropped in dark, `flat` needs a
+     hairline instead.                                                     */
   --shadow-sm: 0 1px 2px
     color-mix(in srgb, var(--color-surface-13) 14%, transparent);
   --shadow-lg: 0 12px 32px
@@ -423,11 +438,13 @@
     var(--color-surface-9)
   );
 
-  /* The dashboard tile surface. Written in terms of --panel rather than a ramp
-     stop, so it is the panel colour in both modes and in all six themes and
-     needs no dark counterpart. It exists at all so the tile style axis that is
-     coming (a `data-tile` attribute) is one line here rather than a rewrite of
-     every card — see components/dashboard/tile.tsx. */
+  /* The two surfaces a user can move: the rail and the dashboard tile. Both
+     are --panel by default, so out of the box the rail is a card and a tile is
+     a card, exactly as they were before the axes existed. They are named roles
+     rather than `bg-panel` at the call site purely so `data-nav` and
+     `data-tile` are one line each below instead of a find-and-replace — see
+     components/shell/nav-panel.tsx and components/dashboard/tile.tsx. */
+  --nav-surface: var(--panel);
   --tile-surface: var(--panel);
 
   /* Modal backdrop. The theme's darkest surface, so it reads as the app
@@ -450,6 +467,94 @@
   --row-hover: light-dark(var(--color-surface-3), var(--color-surface-10));
 }
 
+/* ---------------------------------------------------------------------------
+   Appearance axes — grain, on top of the two choices that are the look.
+
+   Mode says how bright the app is and theme says what colour it is. These three
+   say how it is *built*: how far the page sits below its panels, and what the
+   rail and the dashboard tiles are made of. They are deliberately a smaller
+   kind of choice, and they are deliberately cheap.
+
+   Cheap because of one rule, which is the whole design: **every value is a stop
+   on the current theme's own ramp, or a mix of two of them.** Nothing here
+   names a colour. So the axes cost the other five themes nothing, they cost a
+   seventh theme nothing, and legibility is not something that had to be checked
+   across 6 themes × 2 modes × 11 values — the stops that carry text were
+   already checked at 4.5:1 when the ramps were generated, and a value that can
+   only ever land on one of them cannot fail differently here.
+
+   The one place that rule bends is `data-surface="deep"` in dark mode: the
+   ground already sits on the darkest stop, so there is nothing further down the
+   ramp to move to, and the dark arm mixes toward black instead. It can only
+   ever darken a surface whose ink is near-white, so contrast against --ink
+   improves rather than degrades. It is the only non-ramp colour in this block.
+
+   The axis names in lib/theme and the column names on User do not match
+   (`surface` is stored as `groundShade`); that mapping is data in lib/theme,
+   which is the point of that file.
+--------------------------------------------------------------------------- */
+
+/* -- data-surface: how far the page sits below its panels ------------------ */
+
+/* One stop nearer the panels — a quieter page, cards defined by their edge
+   rather than by the gap around them. Dark has no stop between the ground and
+   the panel, so it takes the midpoint of the two. */
+:root[data-surface="flat"] {
+  --ground: light-dark(
+    var(--color-surface-1),
+    color-mix(in srgb, var(--color-surface-13) 50%, var(--color-surface-12))
+  );
+}
+
+/* One stop further away — cards lift off the page. See the note above about
+   the dark arm. */
+:root[data-surface="deep"] {
+  --ground: light-dark(
+    var(--color-surface-3),
+    color-mix(in srgb, var(--color-surface-13) 82%, #000)
+  );
+}
+
+/* -- data-nav and data-tile: what the rail and the tiles are made of --------
+   Same four values on purpose. They are the same question asked about two
+   different surfaces, and one vocabulary means somebody who has understood the
+   rail already understands the dashboard.
+
+     panel   a card, and the default
+     flush   the page's own colour — the surface reads as part of the page
+     sunken  a well, the same recess as the search field and the user pod
+     tinted  the theme's accent washed over the panel, at a strength that
+             leaves --ink-muted above 4.5:1 on the result in both modes
+
+   `flush` is written as var(--ground), so it follows data-surface rather than
+   pinning itself to whatever the ground happened to be when it was chosen. */
+
+:root[data-nav="flush"] {
+  --nav-surface: var(--ground);
+}
+:root[data-nav="sunken"] {
+  --nav-surface: var(--sunken);
+}
+:root[data-nav="tinted"] {
+  --nav-surface: light-dark(
+    color-mix(in srgb, var(--color-accent-500) 7%, var(--color-surface-0)),
+    color-mix(in srgb, var(--color-accent-500) 10%, var(--color-surface-12))
+  );
+}
+
+:root[data-tile="flush"] {
+  --tile-surface: var(--ground);
+}
+:root[data-tile="sunken"] {
+  --tile-surface: var(--sunken);
+}
+:root[data-tile="tinted"] {
+  --tile-surface: light-dark(
+    color-mix(in srgb, var(--color-accent-500) 7%, var(--color-surface-0)),
+    color-mix(in srgb, var(--color-accent-500) 10%, var(--color-surface-12))
+  );
+}
+
 /* Expose the semantic layer as Tailwind utilities (bg-panel, text-ink-muted…). */
 @theme inline {
   --color-ground: var(--ground);
@@ -469,6 +574,7 @@
   --color-accent-tint-strong: var(--accent-tint-strong);
   --color-accent-on-tint: var(--accent-on-tint);
 
+  --color-nav: var(--nav-surface);
   --color-tile: var(--tile-surface);
 
   --color-nav-bubble-open: var(--nav-bubble-open);

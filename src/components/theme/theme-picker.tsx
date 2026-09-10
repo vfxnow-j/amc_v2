@@ -3,7 +3,7 @@
 import { useTransition } from "react";
 import { useAppearance } from "@/components/theme/theme-provider";
 import { saveAppearance } from "@/lib/actions/appearance";
-import { THEMES, type ThemeId } from "@/lib/theme";
+import { THEMES } from "@/lib/theme";
 
 /**
  * Picking a theme, in the two shapes the app needs it.
@@ -36,11 +36,11 @@ export function ThemePicker({
   /** Told when the write to the user row failed; the choice still applied. */
   onFail?: (failed: boolean) => void;
 }) {
-  const { resolved, theme, setTheme } = useAppearance();
+  const { resolved, values, set } = useAppearance();
   const [, startTransition] = useTransition();
 
-  function choose(next: ThemeId) {
-    setTheme(next);
+  function choose(next: string) {
+    set("theme", next);
     onFail?.(false);
     startTransition(async () => {
       try {
@@ -60,7 +60,7 @@ export function ThemePicker({
       }
     >
       {THEMES.map((option) => {
-        const selected = theme === option.id;
+        const selected = values.theme === option.id;
         const chip = resolved === "dark" ? option.swatch.dark : option.swatch.light;
 
         const preview = (

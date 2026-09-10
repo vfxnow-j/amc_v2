@@ -1,17 +1,19 @@
 import { prisma } from "@/lib/prisma";
 import { defaultModeFor, type Role } from "@/lib/roles";
 import {
-  DEFAULT_THEME,
-  isColorMode,
-  isThemeId,
-  type ColorMode,
-  type ThemeId,
+  appearanceDefaults,
+  AXES,
+  normalizeAppearance,
+  type AppearanceValues,
+  type AxisId,
 } from "@/lib/theme";
 
-export type Appearance = {
-  mode: ColorMode;
-  theme: ThemeId;
-};
+export type Appearance = AppearanceValues;
+
+/** Every axis's column, so the select widens with the list rather than by hand. */
+const APPEARANCE_SELECT = Object.fromEntries(
+  AXES.map((axis) => [axis.column, true]),
+) as Record<string, true>;
 
 /**
  * What the root layout hands the pre-paint script.
@@ -24,25 +26,28 @@ export type Appearance = {
  *
  * Anything unrecognised — a hand-edited row, a theme renamed out of
  * `lib/theme` — falls back rather than being trusted onto the attribute, where
- * it would select ramps that no longer exist and paint an unstyled app.
+ * it would select ramps that no longer exist and paint an unstyled app. Every
+ * column is nullable and every one of the nine restored users has all five
+ * unset, so "no value" is the ordinary case and not an error.
+ *
+ * The row is read back untyped on purpose: the columns are chosen by walking
+ * `AXES`, so there is no static shape to name, and every value is run through
+ * the same validation as a hand-edited localStorage entry anyway.
  */
 export async function getAppearance(
   userId: string | undefined,
   role: Role | undefined,
 ): Promise<Appearance> {
-  const fallback: Appearance = {
-    mode: defaultModeFor(role),
-    theme: DEFAULT_THEME,
-  };
+  const fallback = appearanceDefaults({ mode: defaultModeFor(role) });
   if (!userId) return fallback;
 
-  const row = await prisma.user.findUnique({
+  const row = (await prisma.user.findUnique({
     where: { id: userId },
-    select: { colorMode: true, themeName: true },
-  });
+    select: APPEARANCE_SELECT,
+  })) as Record<string, unknown> | null;
 
-  return {
-    mode: isColorMode(row?.colorMode) ? row.colorMode : fallback.mode,
-    theme: isThemeId(row?.themeName) ? row.themeName : fallback.theme,
-  };
+  const stored: Partial<Record<AxisId, unknown>> = {};
+  for (const axis of AXES) stored[axis.id] = row?.[axis.column];
+
+  return normalizeAppearance(stored, fallback);
 }

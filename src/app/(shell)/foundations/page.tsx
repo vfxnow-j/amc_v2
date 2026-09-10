@@ -1,4 +1,5 @@
 import { PageHeader } from "@/components/shell/page-header";
+import { AppearanceControls } from "@/components/theme/appearance-controls";
 import { ModeToggle } from "@/components/theme/mode-toggle";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -13,8 +14,10 @@ import { Input } from "@/components/ui/input";
 export const metadata = { title: "Design tokens" };
 
 const SURFACES = [
-  { token: "--ground", swatch: "bg-ground", use: "App background" },
-  { token: "--panel", swatch: "bg-panel", use: "Cards, nav panel" },
+  { token: "--ground", swatch: "bg-ground", use: "App background · data-surface" },
+  { token: "--panel", swatch: "bg-panel", use: "Cards" },
+  { token: "--nav-surface", swatch: "bg-nav", use: "The rail · data-nav" },
+  { token: "--tile-surface", swatch: "bg-tile", use: "Dashboard tiles · data-tile" },
   { token: "--sunken", swatch: "bg-sunken", use: "Search, user pod, wells" },
   { token: "--row-alt", swatch: "bg-row-alt", use: "Table zebra" },
   { token: "--hairline", swatch: "bg-hairline", use: "Dividers" },
@@ -182,6 +185,22 @@ export default function Foundations() {
             <Badge variant="destructive">Overdue</Badge>
           </div>
           <Input className="mt-3" placeholder="Search units by serial…" />
+        </Card>
+
+        <Card title="Appearance axes">
+          <p className="mb-3 text-detail text-ink-faint">
+            The same control as Settings → My profile, put here because this is
+            the page the token layer is checked on. Three of the five move
+            surfaces that are on this screen right now — the page behind these
+            cards, the rail beside them, and the tile shade in the Surfaces card
+            above. Every value they can take is a stop on the current
+            theme&rsquo;s own ramp, so none of it has to be re-checked per
+            theme. It writes to your user row as you click, exactly as the
+            profile screen does.
+          </p>
+          <div className="-mx-[14px] -mb-[14px]">
+            <AppearanceControls />
+          </div>
         </Card>
       </div>
     </>

@@ -4,7 +4,6 @@ import { ThemeProvider } from "@/components/theme/theme-provider";
 import { ThemeScript } from "@/components/theme/theme-script";
 import { getAppearance } from "@/lib/queries/appearance";
 import { getSessionUser } from "@/lib/roles";
-import { THEMES } from "@/lib/theme";
 import "./globals.css";
 
 const schibstedGrotesk = Schibsted_Grotesk({
@@ -29,13 +28,13 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  // The user's stored mode and theme, falling back to the role default —
-  // dark for STAFF, light for admin/finance — and the house palette. The
-  // localStorage mirror the pre-paint script reads wins over these, so a choice
-  // made on this browser lands before the row does. Both places must be given
-  // the same values or the first paint flashes.
+  // The user's stored appearance — mode, theme and the three grain axes —
+  // falling back to the role default (dark for STAFF, light for admin/finance)
+  // and the house palette. The localStorage mirror the pre-paint script reads
+  // wins over these, so a choice made on this browser lands before the row
+  // does. Both places must be given the same values or the first paint flashes.
   const user = await getSessionUser();
-  const { mode, theme } = await getAppearance(user?.id, user?.role);
+  const appearance = await getAppearance(user?.id, user?.role);
 
   return (
     <html
@@ -44,14 +43,10 @@ export default async function RootLayout({
       suppressHydrationWarning
     >
       <head>
-        <ThemeScript
-          defaultMode={mode}
-          defaultTheme={theme}
-          themes={THEMES.map((option) => option.id)}
-        />
+        <ThemeScript appearance={appearance} />
       </head>
       <body className="min-h-full flex flex-col">
-        <ThemeProvider defaultMode={mode} defaultTheme={theme}>
+        <ThemeProvider appearance={appearance}>
           {children}
         </ThemeProvider>
       </body>
