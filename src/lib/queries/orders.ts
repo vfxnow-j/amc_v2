@@ -3,6 +3,7 @@ import type { Prisma, ReservationType } from "@/generated/prisma/client";
 import { getEarnedRevenue } from "@/lib/analytics/earned-revenue";
 import { ORDER_TYPES } from "@/lib/orders/types";
 import { prisma } from "@/lib/prisma";
+import { orderValues, sumOrderValue } from "./order-value";
 import { OPEN_STATUSES } from "@/lib/reservations/status";
 import { windowFor, type Range } from "@/lib/queries/range";
 
@@ -64,22 +65,18 @@ export async function getRevenueByType(
     status: { in: OPEN_STATUSES },
   });
 
+  // Booked is valued from the approved package rather than the stored total —
+  // see `queries/order-value` for the two ways that column is wrong.
   const [earned, ...open] = await Promise.all([
     getEarnedRevenue(from, now),
-    ...ORDER_TYPES.map((type) =>
-      prisma.reservation.aggregate({
-        where: openOfType(type),
-        _sum: { total: true },
-        _count: true,
-      }),
-    ),
+    ...ORDER_TYPES.map((type) => sumOrderValue(openOfType(type))),
   ]);
 
   const types = ORDER_TYPES.map((type, index) => ({
     type,
     earned: earned.byType[type] ?? 0,
-    booked: Number(open[index]._sum.total ?? 0),
-    openCount: open[index]._count,
+    booked: open[index].total,
+    openCount: open[index].count,
   }));
 
   return {
@@ -166,24 +163,13 @@ export const getBillingBook = cache(async function getBillingBook(now = new Date
 
   const [recurringAgg, dueSoon, stalled, oneTimeAgg, oneTimeRows, invoiced, notBilledAgg] =
     await Promise.all([
-      prisma.reservation.aggregate({
-        where: recurring,
-        _sum: { total: true },
-        _count: true,
-      }),
+      sumOrderValue(recurring),
       prisma.reservation.count({
         where: { ...recurring, nextBillingDate: { lte: soon, not: null } },
       }),
       prisma.reservation.count({ where: { ...recurring, nextBillingDate: null } }),
-      prisma.reservation.aggregate({
-        where: oneTime,
-        _sum: { total: true },
-        _count: true,
-      }),
-      prisma.reservation.findMany({
-        where: oneTime,
-        select: { id: true, total: true },
-      }),
+      sumOrderValue(oneTime),
+      orderValues(oneTime),
       prisma.invoice.groupBy({
         by: ["reservationId"],
         where: {
@@ -192,11 +178,7 @@ export const getBillingBook = cache(async function getBillingBook(now = new Date
         },
         _count: true,
       }),
-      prisma.reservation.aggregate({
-        where: { ...committed, notBilled: true },
-        _sum: { total: true },
-        _count: true,
-      }),
+      sumOrderValue({ ...committed, notBilled: true }),
     ]);
 
   const hasInvoice = new Set(invoiced.map((row) => row.reservationId));
@@ -204,20 +186,20 @@ export const getBillingBook = cache(async function getBillingBook(now = new Date
 
   return {
     recurring: {
-      count: recurringAgg._count,
-      value: Number(recurringAgg._sum.total ?? 0),
+      count: recurringAgg.count,
+      value: recurringAgg.total,
       dueSoon,
       stalled,
     },
     oneTime: {
-      count: oneTimeAgg._count,
-      value: Number(oneTimeAgg._sum.total ?? 0),
+      count: oneTimeAgg.count,
+      value: oneTimeAgg.total,
       uninvoiced: bare.length,
-      uninvoicedValue: bare.reduce((sum, row) => sum + Number(row.total), 0),
+      uninvoicedValue: bare.reduce((sum, row) => sum + row.total, 0),
     },
     notBilled: {
-      count: notBilledAgg._count,
-      value: Number(notBilledAgg._sum.total ?? 0),
+      count: notBilledAgg.count,
+      value: notBilledAgg.total,
     },
   };
 });

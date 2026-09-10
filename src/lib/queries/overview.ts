@@ -2,6 +2,7 @@ import { cache } from "react";
 import { endOfDay, startOfDay } from "date-fns";
 import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
+import { sumOrderValue } from "./order-value";
 import { getEarnedRevenue } from "@/lib/analytics/earned-revenue";
 import { getInsightsInternal, type Insight } from "@/lib/analytics/insights";
 import { percentChange } from "@/lib/analytics/statistics";
@@ -161,17 +162,14 @@ export const getKpis = cache(async function getKpis(
 
 /** The header card's one-line context blurb. */
 export async function getHeaderStats() {
-  const [openOrders, booked] = await Promise.all([
-    prisma.reservation.count({
-      where: { status: { in: ["APPROVED", "PREPARING", "SHIPPED", "ACTIVE"] } },
-    }),
-    prisma.reservation.aggregate({
-      _sum: { total: true },
-      where: { status: { in: ["APPROVED", "PREPARING", "SHIPPED", "ACTIVE"] } },
-    }),
-  ]);
+  // Valued from the approved package, not the stored total — see
+  // `queries/order-value`. Nine orders carry a figure that includes a package
+  // the client turned down or that drifted after a line changed.
+  const booked = await sumOrderValue({
+    status: { in: ["APPROVED", "PREPARING", "SHIPPED", "ACTIVE"] },
+  });
 
-  return { openOrders, booked: Number(booked._sum.total ?? 0) };
+  return { openOrders: booked.count, booked: booked.total };
 }
 
 /**
