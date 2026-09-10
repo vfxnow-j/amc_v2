@@ -11,6 +11,11 @@ import {
 } from "@/components/dashboard/maintenance-card";
 import { DataFlagsTile } from "@/components/dashboard/tiles/flags";
 import { RateHealthTile } from "@/components/dashboard/tiles/fleet";
+import {
+  DeliveryMixTile,
+  ShippingMarginTile,
+  UntrackedShipmentsTile,
+} from "@/components/dashboard/tiles/logistics";
 import { PurchaseOrdersTile } from "@/components/dashboard/tiles/purchasing";
 import {
   RecurringHealthTile,
@@ -200,6 +205,24 @@ export const TILE_REGISTRY: Record<TileId, TileEntry> = {
     meta: TILE_CATALOG["data-flags"],
     Component: DataFlagsTile,
     fallback: <CardSkeleton rows={6} />,
+  },
+
+  /* ── Getting it there ────────────────────────────────────────────────── */
+
+  "untracked-shipments": {
+    meta: TILE_CATALOG["untracked-shipments"],
+    Component: UntrackedShipmentsTile,
+    fallback: <CardSkeleton rows={5} />,
+  },
+  "delivery-mix": {
+    meta: TILE_CATALOG["delivery-mix"],
+    Component: DeliveryMixTile,
+    fallback: <CardSkeleton rows={6} />,
+  },
+  "shipping-margin": {
+    meta: TILE_CATALOG["shipping-margin"],
+    Component: ShippingMarginTile,
+    fallback: <CardSkeleton rows={3} />,
   },
 };
 

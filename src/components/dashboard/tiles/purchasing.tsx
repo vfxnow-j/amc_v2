@@ -74,7 +74,9 @@ export async function PurchaseOrdersTile() {
         {money(openValue)} is what has actually been sent to vendors.{" "}
         {counts.draft === 0
           ? "No draft is waiting behind it."
-          : `${countLabel(counts.draft, "draft")} sits behind that figure and is in none of it.`}
+          : `${countLabel(counts.draft, "draft")} ${
+              counts.draft === 1 ? "sits" : "sit"
+            } behind that figure, in none of it.`}
       </Excludes>
     </Tile>
   );

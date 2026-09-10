@@ -59,7 +59,11 @@ export type TileId =
   | "year-to-date"
   | "recurring-health"
   | "rate-health"
-  | "data-flags";
+  | "data-flags"
+  // New-query wave: logistics, over existing columns and no new schema.
+  | "untracked-shipments"
+  | "delivery-mix"
+  | "shipping-margin";
 
 /* ── Shape ───────────────────────────────────────────────────────────────── */
 
@@ -341,6 +345,58 @@ export const TILE_CATALOG: Record<TileId, TileMeta> = {
       default: { w: 5, h: 6 },
       min: { w: 4, h: 4 },
       max: { w: 12, h: 12 },
+    },
+    access: "everyone",
+    readsRange: false,
+  },
+
+  /* ── Getting it there ────────────────────────────────────────────────── */
+
+  /**
+   * The whole Logistics group reads fourteen columns on `Reservation` and adds
+   * no schema. One method, one courier, one tracking number and one cost per
+   * direction per order is everything there is: no parcel record, no weight, no
+   * dimensions, no carrier rate. Every blurb says so, because a tile that
+   * implied otherwise would be read as a shipping system.
+   */
+  "untracked-shipments": {
+    id: "untracked-shipments",
+    title: "Untracked shipments",
+    blurb:
+      "Shipped by courier with no tracking number — nobody can say where the kit is.",
+    category: "Getting it there",
+    size: {
+      default: { w: 6, h: 7 },
+      min: { w: 4, h: 4 },
+      max: { w: 12, h: 12 },
+    },
+    access: "everyone",
+    readsRange: false,
+  },
+  "delivery-mix": {
+    id: "delivery-mix",
+    title: "How the kit moves",
+    blurb:
+      "Van, courier or the client's own hands — and the live orders that say neither.",
+    category: "Getting it there",
+    size: {
+      default: { w: 4, h: 7 },
+      min: { w: 3, h: 5 },
+      max: { w: 12, h: 12 },
+    },
+    access: "everyone",
+    readsRange: false,
+  },
+  "shipping-margin": {
+    id: "shipping-margin",
+    title: "What shipping makes",
+    blurb:
+      "What shipping costs against what it's billed at. Not a rate comparison.",
+    category: "Getting it there",
+    size: {
+      default: { w: 5, h: 6 },
+      min: { w: 4, h: 4 },
+      max: { w: 12, h: 10 },
     },
     access: "everyone",
     readsRange: false,
