@@ -5,15 +5,15 @@
  * - **mode** — light / dark / system. `prefers-color-scheme` decides the first
  *   load before any choice exists, and the app defaults to dark for STAFF
  *   (warehouse lighting) and light for admin and finance.
- * - **theme** — which of the six palettes is loaded. A theme is not an accent:
- *   it sets every surface, every ink and the accent, so it repaints the app
- *   rather than tinting the buttons. Each has a light and a dark face, so six
- *   themes are twelve complete looks and the mode switch still means what it
- *   says.
+ * - **theme** — which of the twelve palettes is loaded. A theme is not an
+ *   accent: it sets every surface, every ink and the accent, so it repaints
+ *   the app rather than tinting the buttons. Each has a light and a dark face,
+ *   so twelve themes are twenty-four complete looks and the mode switch still
+ *   means what it says.
  * - **surface, nav, tile** — grain rather than look: how far the page sits
  *   below its panels, and what the rail and the dashboard tiles are made of.
  *   Every value they can take is a stop on the current theme's own ramp, so
- *   they cost the other five themes nothing and a seventh nothing.
+ *   they cost the other eleven themes nothing and a thirteenth nothing.
  *
  * Each resolves to one attribute on <html> — `data-mode`, `data-theme`,
  * `data-surface`, `data-nav`, `data-tile` — and all five are set before first
@@ -21,7 +21,9 @@
  *
  * The names, keys, columns, options and defaults are one list, `AXES`, at the
  * bottom of this file. Read the note there before adding a sixth: the point of
- * that list is that a sixth is one row rather than an edit in five files.
+ * that list is that a sixth is one row rather than an edit in five files. The
+ * themes are a list for the same reason — going from six to twelve was six
+ * rows here and six blocks of CSS, and touched nothing else.
  *
  * This module is imported by both server and client code and must stay pure —
  * nothing here may reach `lib/prisma`.
@@ -68,19 +70,34 @@ export type Theme = {
 };
 
 /**
- * The six themes.
+ * The twelve themes.
  *
  * Each is two ramps in `globals.css` — fourteen surface stops and nine accent
  * stops — and nothing else. Every role in the app (`--ground`, `--panel`,
  * `--ink`, `--hairline`, the nav bubbles, the focus ring, the wordmark) is
  * mapped from those stops once per mode, so a theme never has to know a role
- * exists and a seventh is two ramps and a row here.
+ * exists and a thirteenth is two ramps and a row here.
  *
- * The surface ramps are generated from the VFXnow ramp's own lightness curve
- * with a hue applied, so all six share a rhythm and differ in colour, and
- * every stop that carries text was checked at 4.5:1 against the surface it
- * sits on in both modes. Two stops needed correcting; both are recorded in the
- * comment above the theme blocks.
+ * Every stop that carries text was checked at 4.5:1 against the surface it
+ * sits on, in both modes, in all twelve. The first six were generated from the
+ * VFXnow ramp's lightness curve with a hue applied and two stops had to be
+ * corrected afterwards; the second six are solved for VFXnow's *luminance*
+ * instead, which is why none of them needed a correction. Worst pairing across
+ * the second six is 5.30:1. See the comment above the theme blocks in
+ * globals.css.
+ *
+ * Order is not alphabetical and not arbitrary: the house palette first, the
+ * neutral second, then round the wheel — blue, indigo, violet, magenta, red,
+ * orange, gold, olive, green, teal — so the picker reads as a spectrum rather
+ * than a list, and two themes that sit next to each other in it are the two
+ * most likely to be confused, where the comparison is easiest to make.
+ *
+ * The swatch colours are the real values the CSS produces: light is
+ * surface-2 / surface-0 / accent-700, dark is surface-13 / surface-12 /
+ * accent-fill, which is exactly what --ground, --panel and --accent-solid
+ * resolve to in each mode. They are copied rather than computed because the
+ * eleven themes you are not on are not loaded, so the picker cannot read them
+ * from a token — if a ramp below changes, these change with it.
  */
 export const THEMES: Theme[] = [
   {
@@ -102,12 +119,75 @@ export const THEMES: Theme[] = [
     },
   },
   {
+    id: "cobalt",
+    label: "Cobalt",
+    blurb: "A working blue — the plainest colour here, and the loudest at small sizes.",
+    swatch: {
+      light: { ground: "#f0f5f9", panel: "#ffffff", accent: "#1157a5" },
+      dark: { ground: "#08121e", panel: "#0f2136", accent: "#2d8dfa" },
+    },
+  },
+  {
     id: "midnight",
     label: "Midnight",
-    blurb: "Deep blue surfaces and indigo. The darkest of the six.",
+    blurb: "Deep blue surfaces and indigo. The darkest of the twelve.",
     swatch: {
       light: { ground: "#f0f1f7", panel: "#ffffff", accent: "#4335a8" },
       dark: { ground: "#090d1b", panel: "#10162f", accent: "#8d84ff" },
+    },
+  },
+  {
+    id: "plum",
+    label: "Plum",
+    blurb: "Purple-shifted greys and violet.",
+    swatch: {
+      light: { ground: "#f5f1f6", panel: "#ffffff", accent: "#6430a6" },
+      dark: { ground: "#150b19", panel: "#25132c", accent: "#9a5cf5" },
+    },
+  },
+  {
+    id: "orchid",
+    label: "Orchid",
+    blurb: "Magenta, and the brightest accent of the twelve on a dark ground.",
+    swatch: {
+      light: { ground: "#f8f2f6", panel: "#ffffff", accent: "#923680" },
+      dark: { ground: "#1b0e16", panel: "#301929", accent: "#e361c9" },
+    },
+  },
+  {
+    id: "garnet",
+    label: "Garnet",
+    blurb: "Wine red. Kept rosier than the overdue red on purpose — see the note in globals.css.",
+    swatch: {
+      light: { ground: "#f8f2f3", panel: "#ffffff", accent: "#a0334d" },
+      dark: { ground: "#1c0f10", panel: "#321a1d", accent: "#fa5f81" },
+    },
+  },
+  {
+    id: "ember",
+    label: "Ember",
+    blurb: "Warm surfaces and orange — the easiest of the twelve in low light.",
+    swatch: {
+      light: { ground: "#f6f3f1", panel: "#ffffff", accent: "#9e4c00" },
+      dark: { ground: "#18110c", panel: "#2a1e15", accent: "#ee7c15" },
+    },
+  },
+  {
+    id: "brass",
+    label: "Brass",
+    blurb: "Gold on warm stone. The lightest accent, and the one the 700 cap was written for.",
+    swatch: {
+      light: { ground: "#f5f4ef", panel: "#ffffff", accent: "#7e5800" },
+      dark: { ground: "#151107", panel: "#27200d", accent: "#e4a931" },
+    },
+  },
+  {
+    id: "olive",
+    label: "Olive",
+    blurb: "Khaki greens. Quieter than Forest, and the least saturated of the coloured six.",
+    swatch: {
+      light: { ground: "#f2f5f1", panel: "#ffffff", accent: "#476630" },
+      dark: { ground: "#0e130a", panel: "#1a2413", accent: "#7faa5e" },
     },
   },
   {
@@ -120,21 +200,12 @@ export const THEMES: Theme[] = [
     },
   },
   {
-    id: "ember",
-    label: "Ember",
-    blurb: "Warm surfaces and orange — easiest of the six in low light.",
+    id: "lagoon",
+    label: "Lagoon",
+    blurb: "Teal on sea greys — the green side of the brand cyan.",
     swatch: {
-      light: { ground: "#f6f3f1", panel: "#ffffff", accent: "#9e4c00" },
-      dark: { ground: "#18110c", panel: "#2a1e15", accent: "#ee7c15" },
-    },
-  },
-  {
-    id: "plum",
-    label: "Plum",
-    blurb: "Purple-shifted greys and violet.",
-    swatch: {
-      light: { ground: "#f5f1f6", panel: "#ffffff", accent: "#6430a6" },
-      dark: { ground: "#150b19", panel: "#25132c", accent: "#9a5cf5" },
+      light: { ground: "#eff5f4", panel: "#ffffff", accent: "#006b62" },
+      dark: { ground: "#051513", panel: "#072523", accent: "#00b5a7" },
     },
   },
 ];
@@ -212,7 +283,8 @@ export type Axis = {
  * The three grain axes are all one CSS rule each, and every value they can take
  * is a stop on the current theme's ramp — see the "Appearance axes" block in
  * globals.css for why that is the whole design rather than an implementation
- * detail. Nothing here names a colour, so a seventh theme gets all three free.
+ * detail. Nothing here names a colour, so a thirteenth theme gets all three
+ * free — the six added in this commit needed no edit in that block at all.
  */
 export const AXES: Axis[] = [
   {
@@ -241,7 +313,7 @@ export const AXES: Axis[] = [
     column: "themeName",
     label: "Theme",
     blurb:
-      "A theme repaints everything — backgrounds, cards, wells, rules, text and the accent — and each one has a light and a dark face, so the setting above still does what it says. Status colors are the exception: overdue, paid and damaged never follow the theme, so red keeps meaning red in all six.",
+      "A theme repaints everything — backgrounds, cards, wells, rules, text and the accent — and each one has a light and a dark face, so the setting above still does what it says. Status colors are the exception: overdue, paid and damaged never follow the theme, so red keeps meaning red in all twelve — including Garnet, where the accent is itself a red and is deliberately rosier than the overdue one.",
     fallback: DEFAULT_THEME,
     options: THEMES.map((theme) => ({
       value: theme.id,

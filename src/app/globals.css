@@ -5,14 +5,14 @@
 /* Five independent attributes on <html>, and they mean different things:
 
      data-mode="light|dark"      how bright the app is
-     data-theme="vfxnow|…"       which of the six themes is loaded
+     data-theme="vfxnow|…"       which of the twelve themes is loaded
      data-surface="soft|…"       how far the page sits below its panels
      data-nav="panel|…"          what the rail is made of
      data-tile="panel|…"         what a dashboard tile is made of
 
    The first two are the whole look; the last three are grain, and every value
    they can take is a stop on the current theme's own ramp (or a mix of two of
-   them), which is why they cost six themes × two modes nothing — see the
+   them), which is why they cost twelve themes × two modes nothing — see the
    appearance-axes block below the roles.
 
    `dark:` keys off the resolved mode, not prefers-color-scheme, which would
@@ -46,8 +46,8 @@
      button, and why adding a seventh is two ramps and a row in lib/theme.
 
      Generated and contrast-checked, not eyeballed: every stop that carries
-     text clears 4.5:1 on the surface it sits on, in both modes, for all six
-     themes. See the note above the theme blocks.                          */
+     text clears 4.5:1 on the surface it sits on, in both modes, for all
+     twelve themes. See the note above the theme blocks.                   */
   --color-surface-0: #ffffff;
   --color-surface-1: #f4f6f8;
   --color-surface-2: #f1f4f6;
@@ -183,23 +183,37 @@
 }
 
 /* ---------------------------------------------------------------------------
-   The other five themes.
+   The other eleven themes.
 
    Each one overrides the two ramps and nothing else. That is the whole trick:
    because every role below is written in terms of --color-surface-N and
    --color-accent-N, a theme block never has to know that --ground or
    --nav-bubble-quiet exist, and the light/dark mapping is written once rather
-   than twelve times.
+   than twenty-four times.
 
-   The surface ramps are generated from the VFXnow ramp's own lightness curve
-   with a hue and saturation applied, so the six themes share a rhythm and
-   differ in colour. Where hue-shifting pushed a text stop under 4.5:1 — green
-   at the same lightness reads brighter than blue — that stop was corrected
-   down and the correction recorded. Two were needed across the six.
+   The first five surface ramps were generated from the VFXnow ramp's own
+   lightness curve with a hue and saturation applied, so they share a rhythm
+   and differ in colour. Where hue-shifting pushed a text stop under 4.5:1 —
+   green at the same lightness reads brighter than blue — that stop was
+   corrected down. Two needed it, both in Forest, which is why Forest is the
+   one theme whose worst pairing (4.86:1) sits below the rest.
+
+   The six added after them — Cobalt, Lagoon, Olive, Brass, Garnet, Orchid —
+   fix that at the source. Rather than copying VFXnow's *lightness* curve and
+   letting the hue move the luminance, each stop is solved for VFXnow's own
+   relative luminance at the new hue, so a hue shift cannot cost contrast and
+   no stop needed correcting afterwards. Their worst pairing is 5.30:1, and
+   every ink role lands within 0.1 of the same number in all six — which is
+   the real reason to do it that way rather than to gain a tenth of a point.
+   The accent ramps are anchored the same way: 100 and 200 are fixed tint
+   luminances, 900 a fixed shadow, 500 is the one free choice per theme, and
+   700 — light mode's link colour and button fill — is capped so it clears
+   4.5:1 on the sunken surface however light the hue naturally wants to be.
+   Gold is the stop that cap exists for.
 
    --color-accent-fill is the darkest accent stop that can still carry the
    theme's own dark ink as glyphs. Midnight's 500 is too dark for that, so it
-   fills with 400; the rest fill with 500.
+   fills with 400; the other eleven fill with 500.
 
    Written as :root[data-theme] rather than a bare attribute selector so a
    theme always outranks the plain :root defaults above.
@@ -353,11 +367,185 @@
   --color-accent-fill: var(--color-accent-500);
 }
 
+/* Cobalt */
+:root[data-theme="cobalt"] {
+  --color-surface-0: #ffffff;
+  --color-surface-1: #f3f6fa;
+  --color-surface-2: #f0f5f9;
+  --color-surface-3: #e6ebf2;
+  --color-surface-4: #d2dbe6;
+  --color-surface-5: #aebccd;
+  --color-surface-6: #8596a9;
+  --color-surface-7: #667688;
+  --color-surface-8: #4e6175;
+  --color-surface-9: #20344a;
+  --color-surface-10: #172e48;
+  --color-surface-11: #142639;
+  --color-surface-12: #0f2136;
+  --color-surface-13: #08121e;
+  --color-accent-100: #ebf3ff;
+  --color-accent-200: #cce3ff;
+  --color-accent-300: #95c3ff;
+  --color-accent-400: #62a7ff;
+  --color-accent-500: #2d8dfa;
+  --color-accent-600: #196fcf;
+  --color-accent-700: #1157a5;
+  --color-accent-800: #0e4582;
+  --color-accent-900: #0e3564;
+  --color-accent: var(--color-accent-500);
+  --color-accent-fill: var(--color-accent-500);
+}
+
+/* Lagoon */
+:root[data-theme="lagoon"] {
+  --color-surface-0: #ffffff;
+  --color-surface-1: #f2f7f6;
+  --color-surface-2: #eff5f4;
+  --color-surface-3: #e4edeb;
+  --color-surface-4: #d0dddb;
+  --color-surface-5: #abbfbc;
+  --color-surface-6: #819996;
+  --color-surface-7: #627876;
+  --color-surface-8: #496461;
+  --color-surface-9: #183735;
+  --color-surface-10: #0b3330;
+  --color-surface-11: #0c2826;
+  --color-surface-12: #072523;
+  --color-surface-13: #051513;
+  --color-accent-100: #dcf8f4;
+  --color-accent-200: #a9eee4;
+  --color-accent-300: #87d8cd;
+  --color-accent-400: #4ac8ba;
+  --color-accent-500: #00b5a7;
+  --color-accent-600: #008b80;
+  --color-accent-700: #006b62;
+  --color-accent-800: #00524b;
+  --color-accent-900: #003d37;
+  --color-accent: var(--color-accent-500);
+  --color-accent-fill: var(--color-accent-500);
+}
+
+/* Olive */
+:root[data-theme="olive"] {
+  --color-surface-0: #ffffff;
+  --color-surface-1: #f5f6f4;
+  --color-surface-2: #f2f5f1;
+  --color-surface-3: #e8ece6;
+  --color-surface-4: #d6dcd3;
+  --color-surface-5: #b5bdb0;
+  --color-surface-6: #8d9787;
+  --color-surface-7: #6d7668;
+  --color-surface-8: #576251;
+  --color-surface-9: #2b3623;
+  --color-surface-10: #24301b;
+  --color-surface-11: #1e2817;
+  --color-surface-12: #1a2413;
+  --color-surface-13: #0e130a;
+  --color-accent-100: #eaf6e2;
+  --color-accent-200: #cde9ba;
+  --color-accent-300: #b4d0a1;
+  --color-accent-400: #96bc7b;
+  --color-accent-500: #7faa5e;
+  --color-accent-600: #5f8442;
+  --color-accent-700: #476630;
+  --color-accent-800: #364d23;
+  --color-accent-900: #283a1b;
+  --color-accent: var(--color-accent-500);
+  --color-accent-fill: var(--color-accent-500);
+}
+
+/* Brass */
+:root[data-theme="brass"] {
+  --color-surface-0: #ffffff;
+  --color-surface-1: #f7f5f2;
+  --color-surface-2: #f5f4ef;
+  --color-surface-3: #edebe4;
+  --color-surface-4: #dedad1;
+  --color-surface-5: #c0bbac;
+  --color-surface-6: #9a9483;
+  --color-surface-7: #7a7463;
+  --color-surface-8: #655f4c;
+  --color-surface-9: #39321d;
+  --color-surface-10: #342c13;
+  --color-surface-11: #2b2412;
+  --color-surface-12: #27200d;
+  --color-surface-13: #151107;
+  --color-accent-100: #fdf1dc;
+  --color-accent-200: #faddad;
+  --color-accent-300: #f1cb8d;
+  --color-accent-400: #ecb95d;
+  --color-accent-500: #e4a931;
+  --color-accent-600: #ac7b00;
+  --color-accent-700: #7e5800;
+  --color-accent-800: #604300;
+  --color-accent-900: #493100;
+  --color-accent: var(--color-accent-500);
+  --color-accent-fill: var(--color-accent-500);
+}
+
+/* Garnet */
+:root[data-theme="garnet"] {
+  --color-surface-0: #ffffff;
+  --color-surface-1: #f9f4f5;
+  --color-surface-2: #f8f2f3;
+  --color-surface-3: #f1e8e9;
+  --color-surface-4: #e5d7d9;
+  --color-surface-5: #cbb6b7;
+  --color-surface-6: #a68e91;
+  --color-surface-7: #856e71;
+  --color-surface-8: #72585b;
+  --color-surface-9: #452b2e;
+  --color-surface-10: #432428;
+  --color-surface-11: #361e21;
+  --color-surface-12: #321a1d;
+  --color-surface-13: #1c0f10;
+  --color-accent-100: #ffeff0;
+  --color-accent-200: #ffd7dc;
+  --color-accent-300: #ffaeba;
+  --color-accent-400: #ff879c;
+  --color-accent-500: #fa5f81;
+  --color-accent-600: #ca4464;
+  --color-accent-700: #a0334d;
+  --color-accent-800: #7d273b;
+  --color-accent-900: #5f1e2d;
+  --color-accent: var(--color-accent-500);
+  --color-accent-fill: var(--color-accent-500);
+}
+
+/* Orchid */
+:root[data-theme="orchid"] {
+  --color-surface-0: #ffffff;
+  --color-surface-1: #f9f4f7;
+  --color-surface-2: #f8f2f6;
+  --color-surface-3: #f1e9ed;
+  --color-surface-4: #e2d7de;
+  --color-surface-5: #c9b6c1;
+  --color-surface-6: #a38e9b;
+  --color-surface-7: #826e7b;
+  --color-surface-8: #6f5866;
+  --color-surface-9: #432a3b;
+  --color-surface-10: #402337;
+  --color-surface-11: #331e2c;
+  --color-surface-12: #301929;
+  --color-surface-13: #1b0e16;
+  --color-accent-100: #ffeefa;
+  --color-accent-200: #ffd5f3;
+  --color-accent-300: #fba9e7;
+  --color-accent-400: #f281d9;
+  --color-accent-500: #e361c9;
+  --color-accent-600: #b847a2;
+  --color-accent-700: #923680;
+  --color-accent-800: #722964;
+  --color-accent-900: #57204c;
+  --color-accent: var(--color-accent-500);
+  --color-accent-fill: var(--color-accent-500);
+}
+
 /* ---------------------------------------------------------------------------
    Roles — the one place a ramp stop becomes a job.
 
-   Written once, in terms of --color-surface-N and --color-accent-N, so all six
-   themes get every role for free and a seventh needs no edit here.
+   Written once, in terms of --color-surface-N and --color-accent-N, so all
+   twelve themes get every role for free and a thirteenth needs no edit here.
 
    Once, not three times. This block used to be :root, then :root[data-mode="dark"]
    repeating every line, then a third copy inside a prefers-color-scheme media
@@ -453,8 +641,13 @@
 
   /* -- status ------------------------------------------------------------
      Deliberately outside the theme. Overdue, paid and damaged must not change
-     meaning because somebody picked Ember — red is red in all six. The dark
-     halves are the same hues lifted for legibility on the dark grounds.    */
+     meaning because somebody picked Ember — red is red in all twelve. Garnet
+     is the hard case: its accent is itself a red, so on that theme a primary
+     button and an overdue badge sit near each other in hue. They are kept
+     apart deliberately — Garnet's accent is rosier (a 700 of #a0334d) than
+     --danger's brick #b42318 — but if the two are ever confused in the field,
+     the fix is Garnet's ramp, not this line. The dark halves are the same
+     hues lifted for legibility on the dark grounds.                        */
   --danger: light-dark(#b42318, #f97066);
   --danger-on: light-dark(#ffffff, var(--color-surface-13));
   --success: light-dark(#067647, #47c67f);
@@ -477,9 +670,9 @@
 
    Cheap because of one rule, which is the whole design: **every value is a stop
    on the current theme's own ramp, or a mix of two of them.** Nothing here
-   names a colour. So the axes cost the other five themes nothing, they cost a
-   seventh theme nothing, and legibility is not something that had to be checked
-   across 6 themes × 2 modes × 11 values — the stops that carry text were
+   names a colour. So the axes cost the other eleven themes nothing, they cost a
+   thirteenth theme nothing, and legibility is not something that had to be
+   checked across 12 themes × 2 modes × 11 values — the stops that carry text were
    already checked at 4.5:1 when the ramps were generated, and a value that can
    only ever land on one of them cannot fail differently here.
 

@@ -1,6 +1,7 @@
 import { PageHeader } from "@/components/shell/page-header";
 import { AppearanceControls } from "@/components/theme/appearance-controls";
 import { ModeToggle } from "@/components/theme/mode-toggle";
+import { THEMES } from "@/lib/theme";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -40,6 +41,25 @@ const TYPE = [
     sample: "Service center",
   },
 ];
+
+/**
+ * Both faces of one theme, side by side, whatever mode the page is in.
+ *
+ * The picker below can only ever show you the mode you are already in, and the
+ * only way to compare twelve themes was to click through twenty-four looks.
+ * These are the same `swatch` values the picker reads — ground, panel and
+ * accent, straight off the ramps in globals.css — so this is a contact sheet of
+ * the palette rather than a second opinion about it.
+ */
+function ThemeFaces({ face }: { face: { ground: string; panel: string; accent: string } }) {
+  return (
+    <span className="flex flex-none overflow-hidden rounded-tile ring-1 ring-hairline ring-inset">
+      <span className="size-5" style={{ background: face.ground }} />
+      <span className="size-5" style={{ background: face.panel }} />
+      <span className="size-5" style={{ background: face.accent }} />
+    </span>
+  );
+}
 
 function Card({
   title,
@@ -186,6 +206,37 @@ export default function Foundations() {
           </div>
           <Input className="mt-3" placeholder="Search units by serial…" />
         </Card>
+
+        <section className="rounded-card bg-panel p-[14px] shadow-sm md:col-span-2">
+          <h2 className="text-card-title mb-3">The twelve themes</h2>
+          <p className="mb-3 text-detail text-ink-faint">
+            Light face then dark face, each one ground · panel · accent. Nothing
+            here reads a token — the eleven themes you are not wearing are not
+            loaded, so these are the literal values from{" "}
+            <code>lib/theme</code>, which are the values the ramps in{" "}
+            <code>globals.css</code> produce. Every ink and accent pairing in
+            all twelve clears 4.5:1 in both modes except VFXnow&rsquo;s own
+            <code> --accent-text</code> on a sunken surface in light, which is
+            the brand cyan and predates the check.
+          </p>
+          <ul className="grid gap-[2px] sm:grid-cols-2">
+            {THEMES.map((theme) => (
+              <li
+                key={theme.id}
+                className="flex items-center gap-[9px] rounded-row p-2 odd:bg-row-alt"
+              >
+                <ThemeFaces face={theme.swatch.light} />
+                <ThemeFaces face={theme.swatch.dark} />
+                <span className="min-w-0">
+                  <span className="block text-body">{theme.label}</span>
+                  <span className="block text-detail text-ink-faint">
+                    {theme.blurb}
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
 
         <Card title="Appearance axes">
           <p className="mb-3 text-detail text-ink-faint">

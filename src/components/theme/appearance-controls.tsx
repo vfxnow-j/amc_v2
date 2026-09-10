@@ -12,7 +12,7 @@ import { AXES, type Axis } from "@/lib/theme";
  * yours, and the only settings on that screen that take effect as you click
  * rather than on submit.
  *
- * Five of them now — how bright the app is, which of the six themes it wears,
+ * Five of them now — how bright the app is, which of the twelve themes it wears,
  * and three that are grain rather than look: how far the page sits below its
  * panels, and what the rail and the dashboard tiles are made of. They are one
  * loop over `AXES` rather than five hand-written fieldsets, so a sixth axis

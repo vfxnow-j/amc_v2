@@ -25,8 +25,9 @@ import { THEMES } from "@/lib/theme";
  * from the theme it advertises.
  *
  * This is the only place in the app that inlines literal colours. It has to:
- * the five themes you are *not* on aren't loaded, so their colours cannot come
- * from a token.
+ * the eleven themes you are *not* on aren't loaded, so their colours cannot
+ * come from a token. `grid` is three across, so twelve themes is four tidy
+ * rows in a 208px rail; a thirteenth would want a scroll or a fourth column.
  */
 export function ThemePicker({
   layout = "cards",
