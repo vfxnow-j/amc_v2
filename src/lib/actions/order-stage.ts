@@ -23,7 +23,11 @@ import {
 import { generateQuoteToken, sendQuoteLinkEmail } from "@/lib/actions/quote-tokens";
 import { createInvoiceFromReservation } from "@/lib/actions/invoices";
 import { isEmailConfigured } from "@/lib/email/client";
-import type { BillingCycleType, PricingType } from "@/generated/prisma/client";
+import type {
+  BillingCycleType,
+  DeliveryMethod,
+  PricingType,
+} from "@/generated/prisma/client";
 
 /**
  * The stage controls on the order record.
@@ -281,6 +285,98 @@ export async function shipOrder(
     if (problem) return { status: "error", message: problem };
     touch(id);
     return { status: "ok", message: "Marked shipped." };
+  } catch (error) {
+    return { status: "error", message: reasonFrom(error) };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Shipping
+// ---------------------------------------------------------------------------
+
+/**
+ * How the kit gets there and how it comes back.
+ *
+ * Fourteen columns for this have been on `Reservation` since the port, written
+ * by `createReservation`, read by the quote portal, the delivery note, the
+ * order-detail PDF and the client emails — and shown on no v2 screen at all. So
+ * a client could read the delivery method off their own quote while nobody here
+ * could see it, and the only way to correct a courier was to open the order in
+ * v1. This is that wiring.
+ *
+ * Delegated to `updateReservation` rather than writing the columns, because
+ * delivery and return costs feed the stored totals through
+ * `applyShippingMargin` — writing them directly would leave an order whose
+ * header total disagreed with its own shipping. It also syncs the two costs
+ * onto the active package, which is where the quote portal reads them from.
+ */
+export type ShippingDetails = {
+  deliveryMethod: DeliveryMethod | null;
+  deliveryAddress: string;
+  deliveryCourier: string;
+  deliveryTrackingNumber: string;
+  deliveryCost: number;
+  returnMethod: DeliveryMethod | null;
+  returnCourier: string;
+  returnTrackingNumber: string;
+  returnCost: number;
+  shippingMarginType: "FIXED" | "PERCENTAGE" | null;
+  shippingMargin: number;
+  deliveryNotes: string;
+};
+
+export async function saveShipping(
+  id: string,
+  shipping: ShippingDetails,
+): Promise<StageOutcome> {
+  if (shipping.deliveryCost < 0 || shipping.returnCost < 0) {
+    return { status: "error", message: "A shipping cost cannot be negative." };
+  }
+  if (shipping.shippingMargin < 0) {
+    return { status: "error", message: "A shipping margin cannot be negative." };
+  }
+  if (shipping.shippingMarginType === "PERCENTAGE" && shipping.shippingMargin > 100) {
+    return {
+      status: "error",
+      message: "A percentage margin cannot exceed 100.",
+    };
+  }
+  // A tracking number with no carrier is a number nobody can look up, and every
+  // one of the 15 parcel and freight orders in this database has a method with
+  // no tracking at all — so the pairing is worth enforcing before the habit sets.
+  if (shipping.deliveryTrackingNumber.trim() && !shipping.deliveryCourier.trim()) {
+    return {
+      status: "error",
+      message: "Name the carrier the delivery tracking number belongs to.",
+    };
+  }
+  if (shipping.returnTrackingNumber.trim() && !shipping.returnCourier.trim()) {
+    return {
+      status: "error",
+      message: "Name the carrier the return tracking number belongs to.",
+    };
+  }
+
+  try {
+    await updateReservation(id, {
+      deliveryMethod: shipping.deliveryMethod ?? "",
+      deliveryAddress: shipping.deliveryAddress,
+      deliveryCourier: shipping.deliveryCourier,
+      deliveryTrackingNumber: shipping.deliveryTrackingNumber,
+      deliveryCost: shipping.deliveryCost,
+      returnMethod: shipping.returnMethod ?? "",
+      returnCourier: shipping.returnCourier,
+      returnTrackingNumber: shipping.returnTrackingNumber,
+      returnCost: shipping.returnCost,
+      shippingMarginType: shipping.shippingMarginType ?? "",
+      shippingMargin: shipping.shippingMargin,
+      deliveryNotes: shipping.deliveryNotes,
+    });
+    touch(id);
+    return {
+      status: "ok",
+      message: "Shipping saved. The order total was repriced against it.",
+    };
   } catch (error) {
     return { status: "error", message: reasonFrom(error) };
   }

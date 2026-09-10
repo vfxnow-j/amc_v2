@@ -19,6 +19,8 @@ import {
 } from "@/components/orders/commercial-cards";
 import { OrderBillingCard } from "@/components/orders/billing-card";
 import { OrderDocumentsCard } from "@/components/orders/documents-card";
+import { ShippingCard } from "@/components/orders/shipping-card";
+import { getSessionUser } from "@/lib/roles";
 import { OrderActionBar } from "@/components/orders/order-action-bar";
 import { StageStrip, StageStripSkeleton } from "@/components/orders/stage-strip";
 import { getReservationHeader } from "@/lib/queries/reservation-record";
@@ -89,6 +91,7 @@ export default async function OrderRecordPage({ params }: Params) {
   const outNow = Math.max(0, progress.out - progress.returned);
   const outstanding = Math.max(0, progress.ordered - outNow);
 
+  const user = await getSessionUser();
   const commercial = COMMERCIAL_TYPES.includes(header.type);
   const isRto = header.type === "RENT_TO_OWN";
   const hasUnits = progress.ordered > 0;
@@ -216,6 +219,15 @@ export default async function OrderRecordPage({ params }: Params) {
           {commercial ? (
             <Suspense fallback={<CardSkeleton title="Commercial terms" rows={4} />}>
               <CommercialDetailsCard id={id} />
+            </Suspense>
+          ) : null}
+
+          {/* A cloud order has nothing to ship. Everything else does, even when
+              the client collects it — "customer collects" is an answer, and the
+              absence of one is what this card exists to make visible. */}
+          {header.type !== "CLOUD" ? (
+            <Suspense fallback={<CardSkeleton title="Shipping" rows={6} />}>
+              <ShippingCard id={id} canEdit={user?.role !== "VIEWER"} />
             </Suspense>
           ) : null}
 
