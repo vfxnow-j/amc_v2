@@ -2,10 +2,7 @@
 
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import {
-  deleteAgreementTemplate,
-  uploadAgreementTemplate,
-} from "@/lib/actions/agreement";
+import { deleteAgreementTemplate } from "@/lib/actions/agreement";
 import {
   deleteDocument,
   repairDocuments,
@@ -181,27 +178,41 @@ export function AgreementTemplate({
   const [busy, startTransition] = useTransition();
   const [error, setError] = useState("");
 
+  /**
+   * Posted to a route handler, not through a Server Function.
+   *
+   * It used to read the PDF into a data URL and hand the base64 to
+   * `uploadAgreementTemplate` — and Server Function requests cap at 1 MB, which
+   * base64 reaches at about 750 KB of actual PDF. Any real agreement with a
+   * letterhead was over that and failed with a framework error this screen
+   * could not explain. Multipart form data carries the bytes as bytes.
+   */
   function upload(file: File) {
     setError("");
     if (file.type !== "application/pdf") {
       setError("The template has to be a PDF — that is what gets signed.");
       return;
     }
-    const reader = new FileReader();
-    reader.onload = () => {
-      const base64 = String(reader.result).split(",")[1] ?? "";
-      startTransition(async () => {
-        try {
-          await uploadAgreementTemplate(base64, file.name);
-          router.refresh();
-        } catch (cause) {
-          setError(
-            cause instanceof Error ? cause.message : "Could not upload it.",
-          );
+    const body = new FormData();
+    body.set("file", file, file.name);
+    startTransition(async () => {
+      try {
+        const response = await fetch("/api/documents/agreement-template", {
+          method: "POST",
+          body,
+        });
+        const payload = (await response.json().catch(() => null)) as
+          | { error?: string }
+          | null;
+        if (!response.ok) {
+          setError(payload?.error ?? "Could not upload it.");
+          return;
         }
-      });
-    };
-    reader.readAsDataURL(file);
+        router.refresh();
+      } catch {
+        setError("That did not reach the server. Try it again.");
+      }
+    });
   }
 
   return (
@@ -253,7 +264,11 @@ export function AgreementTemplate({
             disabled={busy}
             onClick={() =>
               startTransition(async () => {
-                await deleteAgreementTemplate();
+                const outcome = await deleteAgreementTemplate();
+                if (outcome.status === "error") {
+                  setError(outcome.message);
+                  return;
+                }
                 router.refresh();
               })
             }

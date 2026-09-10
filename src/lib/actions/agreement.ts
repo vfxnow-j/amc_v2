@@ -1,405 +1,140 @@
-'use server'
+"use server";
 
-import { prisma } from '@/lib/prisma'
-import { requireAdmin, requireEditor } from '@/lib/auth-utils'
-import { serialize } from '@/lib/utils'
-import { PDFDocument, rgb, StandardFonts } from 'pdf-lib'
-import fs from 'fs/promises'
-import path from 'path'
-import { randomUUID } from 'crypto'
-import { sendEmail } from '@/lib/email/send'
-import { clientRequirementsRequestEmail } from '@/lib/email/templates'
-import { APP_URL } from '@/lib/email/client'
+import { randomUUID } from "crypto";
+import { revalidatePath } from "next/cache";
+import { prisma } from "@/lib/prisma";
+import { requireAdmin, requireAuth, requireEditor } from "@/lib/auth-utils";
+import { logAudit } from "@/lib/actions/audit";
+import { serialize } from "@/lib/utils";
+import { sendEmail } from "@/lib/email/send";
+import { clientRequirementsRequestEmail } from "@/lib/email/templates";
+import { APP_URL, isEmailConfigured } from "@/lib/email/client";
+import {
+  readTemplateMeta,
+  removeTemplate,
+  signAgreement,
+  type TemplateMeta,
+} from "@/lib/requirements/store";
+import type { RequirementKind } from "@/lib/requirements/token";
 
-function getProjectRoot(): string {
-  const cwd = process.cwd()
-  if (cwd.endsWith(path.join('.next', 'standalone'))) {
-    return path.resolve(cwd, '..', '..')
-  }
-  return cwd
+/**
+ * The staff half of requirements: ask for documents, waive them, sign on a
+ * client's behalf, and manage the one agreement template.
+ *
+ * **Everything ungated has left this file.** A `"use server"` module that any
+ * client component imports has an action id minted for every one of its
+ * exports, and this one is imported by `settings/document-actions.tsx` and
+ * `documents/print-dropdown.tsx`. It used to also export `uploadClientDocument`
+ * and `signAgreementForClient` with no authorization check at all — write a
+ * file, stamp `idVerifiedAt` on any client id, record a signed agreement — plus
+ * `getAgreementTemplatePath`, which handed out an absolute server path. Those
+ * moved to `lib/requirements/store.ts`, a plain module no client bundle can
+ * reach, and what is left here is wrappers with a gate on each.
+ *
+ * The public portal does not come through this file at all. It is served by
+ * route handlers under `app/api/requirements/[token]/`, which check the token
+ * themselves — see `lib/requirements/token.ts`. Nothing a stranger can call is
+ * a Server Function.
+ */
+
+export type RequirementsOutcome =
+  | { status: "ok"; message: string; url?: string }
+  | { status: "error"; message: string };
+
+// ---------------------------------------------------------------------------
+// The agreement template
+// ---------------------------------------------------------------------------
+
+/**
+ * The template's metadata, for the screens that report on it.
+ *
+ * Session-gated, unlike the rest of what it used to sit beside. The portal
+ * needs the same fact for an unauthenticated visitor and reads
+ * `readTemplateMeta` from the store directly rather than reaching through an
+ * action that would have to drop its gate to serve it.
+ */
+export async function getAgreementTemplate(): Promise<TemplateMeta | null> {
+  const auth = await requireAuth();
+  if (!auth.authorized) return null;
+  return readTemplateMeta();
 }
 
-const DOCUMENTS_ROOT = path.join(getProjectRoot(), 'documents')
-
-function toRelativePath(absolutePath: string): string {
-  if (absolutePath.startsWith(DOCUMENTS_ROOT)) {
-    return absolutePath.substring(DOCUMENTS_ROOT.length + 1)
+export async function deleteAgreementTemplate(): Promise<RequirementsOutcome> {
+  const auth = await requireAdmin();
+  if (!auth.authorized) {
+    return { status: "error", message: auth.error ?? "Admin access required" };
   }
-  const docsIdx = absolutePath.indexOf('/documents/')
-  if (docsIdx !== -1) {
-    return absolutePath.substring(docsIdx + '/documents/'.length)
-  }
-  return absolutePath
-}
-const TEMPLATE_DIR = path.join(DOCUMENTS_ROOT, 'templates')
-const TEMPLATE_FILENAME = 'rental-agreement.pdf'
-const TEMPLATE_PATH = path.join(TEMPLATE_DIR, TEMPLATE_FILENAME)
-const SETTING_KEY = 'rental_agreement_template'
 
-// ============================================
-// AGREEMENT TEMPLATE MANAGEMENT
-// ============================================
-
-export async function uploadAgreementTemplate(fileBase64: string, originalFilename: string) {
-  const authResult = await requireAdmin()
-  if (!authResult.authorized) throw new Error(authResult.error || 'Unauthorized')
-
-  await fs.mkdir(TEMPLATE_DIR, { recursive: true })
-
-  const buffer = Buffer.from(fileBase64, 'base64')
-  await fs.writeFile(TEMPLATE_PATH, buffer)
-
-  await prisma.setting.upsert({
-    where: { key: SETTING_KEY },
-    update: {
-      value: {
-        filename: originalFilename,
-        fileSize: buffer.length,
-        uploadedAt: new Date().toISOString(),
-        uploadedBy: authResult.userId,
-      },
-    },
-    create: {
-      key: SETTING_KEY,
-      value: {
-        filename: originalFilename,
-        fileSize: buffer.length,
-        uploadedAt: new Date().toISOString(),
-        uploadedBy: authResult.userId,
-      },
-    },
-  })
-
-  return { success: true }
+  await removeTemplate();
+  revalidatePath("/dashboard/settings/documents");
+  return {
+    status: "ok",
+    message:
+      "Template removed. Until another is uploaded there is nothing for a client to sign.",
+  };
 }
 
-export async function getAgreementTemplate() {
-  const setting = await prisma.setting.findUnique({
-    where: { key: SETTING_KEY },
-  })
+// ---------------------------------------------------------------------------
+// Signing on a client's behalf
+// ---------------------------------------------------------------------------
 
-  if (!setting) return null
-
-  const meta = setting.value as {
-    filename: string
-    fileSize: number
-    uploadedAt: string
-    uploadedBy: string
-  }
-
-  // Verify file still exists
-  try {
-    await fs.access(TEMPLATE_PATH)
-  } catch {
-    return null
-  }
-
-  return meta
-}
-
-export async function deleteAgreementTemplate() {
-  const authResult = await requireAdmin()
-  if (!authResult.authorized) throw new Error(authResult.error || 'Unauthorized')
-
-  try {
-    await fs.unlink(TEMPLATE_PATH)
-  } catch {
-    // File may already be deleted
-  }
-
-  await prisma.setting.deleteMany({
-    where: { key: SETTING_KEY },
-  })
-
-  return { success: true }
-}
-
-export async function getAgreementTemplatePath(): Promise<string | null> {
-  try {
-    await fs.access(TEMPLATE_PATH)
-    return TEMPLATE_PATH
-  } catch {
-    return null
-  }
-}
-
-// ============================================
-// CLIENT AGREEMENT SIGNING (Public / No Auth)
-// ============================================
-
+/**
+ * Record a signature taken in the room — over a counter, or read back over the
+ * phone and countersigned.
+ *
+ * `requireEditor`, because this writes an agreement in somebody else's name.
+ * The customer's own route to the same document is the portal, which proves who
+ * it is by the token in the link rather than by a session.
+ */
 export async function signAgreementForClient(
   clientId: string,
   signerName: string,
   signatureDataUrl: string,
-  reservationId?: string
-) {
-  const client = await prisma.client.findUnique({ where: { id: clientId } })
-  if (!client) throw new Error('Client not found')
-
-  // Check template exists
-  const templatePath = await getAgreementTemplatePath()
-  if (!templatePath) throw new Error('No rental agreement template configured')
-
-  // Save signed copy to client documents folder
-  const clientDocDir = path.join(DOCUMENTS_ROOT, 'clients', clientId)
-  await fs.mkdir(clientDocDir, { recursive: true })
-
-  // Load the template and embed the signature onto the last page
-  const templateBuffer = await fs.readFile(templatePath)
-  const signedPdfBytes = await embedSignatureOnPdf(templateBuffer, signatureDataUrl, signerName)
-
-  const signedFilename = `rental-agreement-signed-${Date.now()}.pdf`
-  const signedPath = path.join(clientDocDir, signedFilename)
-  await fs.writeFile(signedPath, Buffer.from(signedPdfBytes))
-
-  const fileSize = signedPdfBytes.length
-
-  // Find a system user for document attribution
-  const systemUser = await prisma.user.findFirst({
-    where: { role: 'ADMIN' },
-    select: { id: true },
-  })
-
-  await prisma.$transaction(async (tx) => {
-    const relPath = toRelativePath(signedPath)
-
-    // Create document record linked to the client
-    await tx.document.create({
-      data: {
-        documentType: 'RENTAL_AGREEMENT',
-        filename: signedFilename,
-        filePath: relPath,
-        fileSize,
-        entityType: 'CLIENT',
-        entityId: clientId,
-        isSigned: true,
-        signedBy: signerName,
-        signedAt: new Date(),
-        metadata: { signatureDataUrl },
-        createdById: systemUser?.id || 'system',
-      },
-    })
-
-    // Also link the agreement to the reservation so it shows on the order
-    if (reservationId) {
-      await tx.document.create({
-        data: {
-          documentType: 'RENTAL_AGREEMENT',
-          filename: signedFilename,
-          filePath: relPath,
-          fileSize,
-          entityType: 'RESERVATION',
-          entityId: reservationId,
-          isSigned: true,
-          signedBy: signerName,
-          signedAt: new Date(),
-          metadata: { signatureDataUrl, clientId },
-          createdById: systemUser?.id || 'system',
-        },
-      })
-    }
-
-    // Update client verification
-    await tx.client.update({
-      where: { id: clientId },
-      data: {
-        agreementSignedAt: new Date(),
-        agreementSignerName: signerName,
-      },
-    })
-  })
-
-  return { success: true }
-}
-
-/**
- * Embeds the customer's signature image, printed name, and date onto the
- * last page of the rental agreement PDF.
- */
-async function embedSignatureOnPdf(
-  templateBytes: Buffer,
-  signatureDataUrl: string,
-  signerName: string
-): Promise<Uint8Array> {
-  const pdfDoc = await PDFDocument.load(templateBytes)
-  const pages = pdfDoc.getPages()
-  const lastPage = pages[pages.length - 1]
-  const { width, height } = lastPage.getSize()
-
-  // Decode the signature PNG from the data URL
-  const base64Data = signatureDataUrl.replace(/^data:image\/png;base64,/, '')
-  const sigImageBytes = Buffer.from(base64Data, 'base64')
-  const sigImage = await pdfDoc.embedPng(sigImageBytes)
-
-  // Scale signature to fit nicely (max 200px wide, preserve aspect ratio)
-  const maxSigWidth = 200
-  const maxSigHeight = 60
-  const sigAspect = sigImage.width / sigImage.height
-  let sigW = maxSigWidth
-  let sigH = sigW / sigAspect
-  if (sigH > maxSigHeight) {
-    sigH = maxSigHeight
-    sigW = sigH * sigAspect
+  reservationId?: string,
+): Promise<RequirementsOutcome> {
+  const auth = await requireEditor();
+  if (!auth.authorized) {
+    return { status: "error", message: auth.error ?? "Unauthorized" };
   }
 
-  // Position: bottom-left area of the last page, above the footer margin
-  const marginLeft = 50
-  const marginBottom = 60
-
-  // Draw a signature block: line, signature image, name, and date
-  const font = await pdfDoc.embedFont(StandardFonts.Helvetica)
-  const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold)
-  const dateStr = new Date().toLocaleDateString('en-US', {
-    year: 'numeric', month: 'long', day: 'numeric',
-  })
-
-  const blockX = marginLeft
-  const lineY = marginBottom + 90
-
-  // "Signature" label
-  lastPage.drawText('Customer Signature', {
-    x: blockX,
-    y: lineY + sigH + 14,
-    size: 8,
-    font: fontBold,
-    color: rgb(0.4, 0.4, 0.4),
-  })
-
-  // Signature image
-  lastPage.drawImage(sigImage, {
-    x: blockX,
-    y: lineY + 4,
-    width: sigW,
-    height: sigH,
-  })
-
-  // Signature line
-  lastPage.drawLine({
-    start: { x: blockX, y: lineY },
-    end: { x: blockX + 220, y: lineY },
-    thickness: 0.75,
-    color: rgb(0.3, 0.3, 0.3),
-  })
-
-  // Printed name
-  lastPage.drawText(signerName, {
-    x: blockX,
-    y: lineY - 14,
-    size: 10,
-    font,
-    color: rgb(0.1, 0.1, 0.1),
-  })
-
-  // Date on the right side
-  const dateBlockX = width - marginLeft - 180
-
-  lastPage.drawText('Date', {
-    x: dateBlockX,
-    y: lineY + sigH + 14,
-    size: 8,
-    font: fontBold,
-    color: rgb(0.4, 0.4, 0.4),
-  })
-
-  lastPage.drawText(dateStr, {
-    x: dateBlockX,
-    y: lineY + 18,
-    size: 11,
-    font,
-    color: rgb(0.1, 0.1, 0.1),
-  })
-
-  lastPage.drawLine({
-    start: { x: dateBlockX, y: lineY },
-    end: { x: dateBlockX + 180, y: lineY },
-    thickness: 0.75,
-    color: rgb(0.3, 0.3, 0.3),
-  })
-
-  return pdfDoc.save()
-}
-
-// ============================================
-// CLIENT DOCUMENT UPLOADS (Public / No Auth)
-// ============================================
-
-export async function uploadClientDocument(
-  clientId: string,
-  docType: 'ID_FRONT' | 'ID_BACK' | 'COI',
-  fileBase64: string,
-  filename: string
-) {
-  const client = await prisma.client.findUnique({ where: { id: clientId } })
-  if (!client) throw new Error('Client not found')
-
-  const clientDocDir = path.join(DOCUMENTS_ROOT, 'clients', clientId)
-  await fs.mkdir(clientDocDir, { recursive: true })
-
-  // Sanitize filename
-  const safeName = filename.replace(/[<>:"/\\|?*]+/g, '').replace(/\s+/g, '_')
-  const ext = path.extname(safeName) || '.pdf'
-  const storedFilename = `${docType.toLowerCase()}-${Date.now()}${ext}`
-  const filePath = path.join(clientDocDir, storedFilename)
-
-  const buffer = Buffer.from(fileBase64, 'base64')
-  await fs.writeFile(filePath, buffer)
-
-  // Find system user for attribution
-  const systemUser = await prisma.user.findFirst({
-    where: { role: 'ADMIN' },
-    select: { id: true },
-  })
-
-  // Create document record
-  await prisma.document.create({
-    data: {
-      documentType: 'RENTAL_AGREEMENT', // reuse type for client docs
-      filename: storedFilename,
-      filePath: toRelativePath(filePath),
-      fileSize: buffer.length,
-      entityType: 'CLIENT',
-      entityId: clientId,
-      metadata: { originalFilename: filename, documentCategory: docType },
-      createdById: systemUser?.id || 'system',
-    },
-  })
-
-  // Update client verification dates
-  if (docType === 'COI') {
-    await prisma.client.update({
-      where: { id: clientId },
-      data: { coiVerifiedAt: new Date() },
-    })
-  } else {
-    // For ID, check if both front and back now exist
-    const idDocs = await prisma.document.findMany({
-      where: {
-        entityType: 'CLIENT',
-        entityId: clientId,
-        metadata: { path: ['documentCategory'], string_starts_with: 'ID_' },
-      },
-    })
-
-    const categories = idDocs.map((d) => (d.metadata as any)?.documentCategory)
-    const hasFront = categories.includes('ID_FRONT')
-    const hasBack = categories.includes('ID_BACK')
-
-    if (hasFront && hasBack) {
-      await prisma.client.update({
-        where: { id: clientId },
-        data: { idVerifiedAt: new Date() },
-      })
-    }
+  const name = signerName.trim();
+  if (!name) return { status: "error", message: "A signer's name is required." };
+  if (!signatureDataUrl.startsWith("data:image/png;base64,")) {
+    return { status: "error", message: "That signature did not come through." };
   }
 
-  return { success: true }
+  try {
+    await signAgreement(clientId, name, signatureDataUrl, reservationId);
+  } catch (error) {
+    return {
+      status: "error",
+      message:
+        error instanceof Error
+          ? error.message
+          : "The agreement could not be signed.",
+    };
+  }
+
+  await logAudit({
+    action: "UPDATE",
+    entityType: "Client",
+    entityId: clientId,
+    newValues: { agreementSignedBy: name, on_behalf: true },
+    userId: auth.userId,
+  });
+
+  revalidatePath(`/dashboard/clients/${clientId}`);
+  return { status: "ok", message: `Agreement recorded as signed by ${name}.` };
 }
 
-// ============================================
-// CLIENT VERIFICATION STATUS
-// ============================================
+// ---------------------------------------------------------------------------
+// What an account still owes us
+// ---------------------------------------------------------------------------
 
 export async function getClientVerificationStatus(clientId: string) {
+  const auth = await requireAuth();
+  if (!auth.authorized) throw new Error(auth.error || "Unauthorized");
+
   const client = await prisma.client.findUnique({
     where: { id: clientId },
     select: {
@@ -410,11 +145,11 @@ export async function getClientVerificationStatus(clientId: string) {
       skipIdRequirement: true,
       skipCoiRequirement: true,
     },
-  })
+  });
 
-  if (!client) throw new Error('Client not found')
+  if (!client) throw new Error("Client not found");
 
-  const template = await getAgreementTemplate()
+  const template = await readTemplateMeta();
 
   return serialize({
     hasTemplate: !!template,
@@ -427,155 +162,183 @@ export async function getClientVerificationStatus(clientId: string) {
     coiVerifiedAt: client.coiVerifiedAt,
     skipIdRequirement: client.skipIdRequirement,
     skipCoiRequirement: client.skipCoiRequirement,
-  })
+  });
 }
 
-// ============================================
-// CLIENT REQUIREMENTS TOKEN (Send Request)
-// ============================================
+// ---------------------------------------------------------------------------
+// Asking for documents
+// ---------------------------------------------------------------------------
 
+/**
+ * Mint a 30-day link and send it.
+ *
+ * **It always returns the URL, whether or not the email left the building.**
+ * `sendEmail` does not throw — it returns `{ success: false }` — and outbound
+ * mail is switched off in this instance, so an action that only reported
+ * "sent" would leave somebody watching an inbox that will never receive
+ * anything. The same token is minted by `applyOnboardingToLead` on the
+ * onboarding path, and both hand the link back for exactly this reason.
+ *
+ * The link is minted before the send and kept even if the send fails: a token
+ * row nobody used costs nothing, and the alternative — rolling it back on a
+ * failed send — would destroy the only copy of a link that can still be pasted
+ * into a thread by hand.
+ */
 export async function sendRequirementsRequest(
   clientId: string,
-  requirementTypes: ('ID' | 'COI' | 'AGREEMENT')[],
+  requirementTypes: RequirementKind[],
   recipientEmail?: string,
-  message?: string
-) {
-  const authResult = await requireEditor()
-  if (!authResult.authorized) throw new Error(authResult.error || 'Unauthorized')
+  message?: string,
+): Promise<RequirementsOutcome> {
+  const auth = await requireEditor();
+  if (!auth.authorized) {
+    return { status: "error", message: auth.error ?? "Unauthorized" };
+  }
 
-  if (requirementTypes.length === 0) throw new Error('At least one requirement type is required')
+  const types = (["ID", "COI", "AGREEMENT"] as RequirementKind[]).filter((kind) =>
+    requirementTypes.includes(kind),
+  );
+  if (types.length === 0) {
+    return { status: "error", message: "Pick at least one thing to ask for." };
+  }
 
   const client = await prisma.client.findUnique({
     where: { id: clientId },
     select: { id: true, name: true, email: true },
-  })
-  if (!client) throw new Error('Client not found')
+  });
+  if (!client) return { status: "error", message: "That account no longer exists." };
 
-  const email = recipientEmail || client.email
-  if (!email) throw new Error('No email address provided or on file for this client')
+  const email = (recipientEmail || client.email || "").trim();
+  if (!email) {
+    return {
+      status: "error",
+      message:
+        "No address to send it to — put one on the account, or type one here.",
+    };
+  }
 
-  const token = randomUUID()
-  const expiresAt = new Date()
-  expiresAt.setDate(expiresAt.getDate() + 30)
+  const token = randomUUID();
+  const expiresAt = new Date();
+  expiresAt.setDate(expiresAt.getDate() + 30);
 
   await prisma.clientRequirementToken.create({
-    data: {
-      token,
-      clientId,
-      requirementTypes,
-      expiresAt,
-    },
-  })
+    data: { token, clientId, requirementTypes: types, expiresAt },
+  });
 
-  const uploadUrl = `${APP_URL}/requirements/${token}`
+  const uploadUrl = `${APP_URL}/requirements/${token}`;
 
-  const emailContent = clientRequirementsRequestEmail({
+  const content = clientRequirementsRequestEmail({
     clientName: client.name,
-    requirementTypes,
+    requirementTypes: types,
     uploadUrl,
     message,
-  })
+  });
 
-  await sendEmail({
+  const sent = await sendEmail({
     to: email,
-    subject: emailContent.subject,
-    html: emailContent.html,
-  })
+    subject: content.subject,
+    html: content.html,
+  });
 
-  return { success: true, token, url: uploadUrl }
-}
-
-export async function getRequirementsByToken(token: string) {
-  const record = await prisma.clientRequirementToken.findUnique({
-    where: { token },
-    include: {
-      client: {
-        select: {
-          id: true,
-          name: true,
-          companyName: true,
-          idVerifiedAt: true,
-          coiVerifiedAt: true,
-          agreementSignedAt: true,
-        },
-      },
+  await logAudit({
+    action: "CREATE",
+    entityType: "Client",
+    entityId: clientId,
+    newValues: {
+      requirementsRequested: types,
+      sentTo: email,
+      mailed: sent.success,
     },
-  })
+    userId: auth.userId,
+  });
 
-  if (!record) return { error: 'Invalid or expired link' }
+  revalidatePath(`/dashboard/clients/${clientId}`);
 
-  if (record.expiresAt < new Date()) {
-    return { error: 'This link has expired. Please contact us for a new one.' }
-  }
-
-  // Check if agreement template exists (needed for signing section)
-  const hasTemplate = !!(await getAgreementTemplate())
-
-  return serialize({
-    clientId: record.client.id,
-    clientName: record.client.name,
-    companyName: record.client.companyName,
-    requirementTypes: record.requirementTypes,
-    idVerified: !!record.client.idVerifiedAt,
-    coiVerified: !!record.client.coiVerifiedAt,
-    agreementSigned: !!record.client.agreementSignedAt,
-    hasTemplate,
-    usedAt: record.usedAt,
-  })
+  return {
+    status: "ok",
+    url: uploadUrl,
+    message: sent.success
+      ? `Sent to ${email}. The link works for 30 days.`
+      : isEmailConfigured()
+        ? `The email would not send, so nothing reached ${email}. The link below works for 30 days — send it by hand.`
+        : "Outbound mail is switched off in this instance, so nothing was sent. The link below works for 30 days — send it by hand.",
+  };
 }
 
-export async function submitRequirementDocuments(
-  token: string,
-  documents: Array<{ type: 'ID_FRONT' | 'ID_BACK' | 'COI'; fileBase64: string; filename: string }>
-) {
-  const record = await prisma.clientRequirementToken.findUnique({
-    where: { token },
-    select: { id: true, clientId: true, expiresAt: true, requirementTypes: true },
-  })
+// ---------------------------------------------------------------------------
+// Waiving
+// ---------------------------------------------------------------------------
 
-  if (!record) throw new Error('Invalid link')
-  if (record.expiresAt < new Date()) throw new Error('This link has expired')
+const WAIVABLE = { ID: "skipIdRequirement", COI: "skipCoiRequirement" } as const;
 
-  for (const doc of documents) {
-    await uploadClientDocument(record.clientId, doc.type, doc.fileBase64, doc.filename)
-  }
-
-  // Mark token as used
-  await prisma.clientRequirementToken.update({
-    where: { id: record.id },
-    data: { usedAt: new Date() },
-  })
-
-  return { success: true }
-}
+const WAIVE_LABEL = { ID: "photo ID", COI: "the certificate of insurance" } as const;
 
 /**
- * Sign the rental agreement via a requirements token (public, no auth).
- * Validates the token, then delegates to `signAgreementForClient`.
+ * Decide an account does not have to produce an ID or a COI.
+ *
+ * Admin only and audited, because it is the one control here that makes a
+ * requirement go away rather than satisfying it — and because the reason
+ * somebody waived is the thing anybody asks about afterwards. The reason is
+ * required for that reason, and lands in the audit log rather than in a note
+ * field nobody reads.
+ *
+ * The signed agreement is deliberately **not** waivable. `skipIdRequirement`
+ * and `skipCoiRequirement` exist as columns; there is no equivalent for the
+ * agreement, and there should not be — the ID and the COI are checks on the
+ * customer, while the agreement is the contract the rental happens under.
  */
-export async function signAgreementViaToken(
-  token: string,
-  signerName: string,
-  signatureDataUrl: string
-) {
-  const record = await prisma.clientRequirementToken.findUnique({
-    where: { token },
-    select: { id: true, clientId: true, expiresAt: true, requirementTypes: true },
-  })
-
-  if (!record) throw new Error('Invalid link')
-  if (record.expiresAt < new Date()) throw new Error('This link has expired')
-  if (!record.requirementTypes.includes('AGREEMENT')) {
-    throw new Error('Agreement signing was not requested for this link')
+export async function waiveRequirement(
+  clientId: string,
+  kind: "ID" | "COI",
+  waived: boolean,
+  reason: string,
+): Promise<RequirementsOutcome> {
+  const auth = await requireAdmin();
+  if (!auth.authorized) {
+    return {
+      status: "error",
+      message:
+        auth.error === "Unauthorized"
+          ? "Unauthorized"
+          : "Waiving a requirement is an admin decision.",
+    };
   }
 
-  await signAgreementForClient(record.clientId, signerName, signatureDataUrl)
+  const why = reason.trim();
+  if (!why) {
+    return {
+      status: "error",
+      message: "Say why. A waiver with no reason is unanswerable later.",
+    };
+  }
 
-  // Mark token as used
-  await prisma.clientRequirementToken.update({
-    where: { id: record.id },
-    data: { usedAt: new Date() },
-  })
+  const column = WAIVABLE[kind];
+  const client = await prisma.client.findUnique({
+    where: { id: clientId },
+    select: { id: true, name: true, skipIdRequirement: true, skipCoiRequirement: true },
+  });
+  if (!client) return { status: "error", message: "That account no longer exists." };
 
-  return { success: true }
+  await prisma.client.update({
+    where: { id: clientId },
+    data: { [column]: waived },
+  });
+
+  await logAudit({
+    action: "UPDATE",
+    entityType: "Client",
+    entityId: clientId,
+    oldValues: { [column]: client[column] },
+    newValues: { [column]: waived, reason: why },
+    userId: auth.userId,
+  });
+
+  revalidatePath(`/dashboard/clients/${clientId}`);
+
+  return {
+    status: "ok",
+    message: waived
+      ? `${client.name} no longer has to produce ${WAIVE_LABEL[kind]}. The reason is on the audit log.`
+      : `${client.name} is asked for ${WAIVE_LABEL[kind]} again.`,
+  };
 }
