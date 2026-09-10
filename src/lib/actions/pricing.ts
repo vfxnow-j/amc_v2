@@ -4,6 +4,11 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireEditor } from "@/lib/auth-utils";
 import { logAudit } from "@/lib/actions/audit";
+import {
+  createService,
+  deleteService,
+  updateService,
+} from "@/lib/actions/services";
 import { isRateTier, RATE_TIER_LABEL, type RateTier } from "@/lib/queries/pricing";
 
 /**
@@ -92,4 +97,116 @@ export async function setAssetRate(
         ? `${RATE_TIER_LABEL[tier]} cleared on ${asset.name}.`
         : `${RATE_TIER_LABEL[tier]} set on ${asset.name}.`,
   };
+}
+
+/* ── The service catalogue ──────────────────────────────────────────────── */
+
+/**
+ * `createService`, `updateService` and `deleteService` were ported months ago
+ * and reachable from nothing: Operate → Services listed the catalogue and
+ * offered no way to add to it. These wrap them in the house outcome shape —
+ * they throw, and a form wants a message, not a stack trace.
+ *
+ * `deleteService` refuses while any order line still references the row. That
+ * guard is the server's and stays there; the form only mirrors it so the button
+ * explains itself before it is pressed.
+ */
+
+export type ServiceInput = {
+  name: string;
+  description: string | null;
+  defaultRate: number;
+  unit: string;
+  active: boolean;
+};
+
+function serviceProblem(input: ServiceInput): string | null {
+  if (!input.name.trim()) return "A service needs a name.";
+  if (!Number.isFinite(input.defaultRate) || input.defaultRate < 0) {
+    return "Enter a default rate of zero or more.";
+  }
+  return null;
+}
+
+export async function createServiceEntry(
+  input: ServiceInput,
+): Promise<PricingOutcome> {
+  const auth = await requireEditor();
+  if (!auth.authorized) return { status: "error", message: auth.error };
+
+  const problem = serviceProblem(input);
+  if (problem) return { status: "error", message: problem };
+
+  try {
+    await createService({
+      name: input.name.trim(),
+      description: input.description ?? undefined,
+      defaultRate: input.defaultRate,
+      unit: input.unit,
+    });
+    // createService has no `active` argument — the column defaults to true, so
+    // a service added as "not offered" needs a second write to say so.
+    if (!input.active) {
+      const created = await prisma.service.findFirst({
+        where: { name: input.name.trim() },
+        orderBy: { createdAt: "desc" },
+        select: { id: true },
+      });
+      if (created) await updateService(created.id, { active: false });
+    }
+  } catch (cause) {
+    return {
+      status: "error",
+      message: cause instanceof Error ? cause.message : "Could not add it.",
+    };
+  }
+
+  revalidatePath("/dashboard/pricing/services");
+  return { status: "ok", message: `${input.name.trim()} added.` };
+}
+
+export async function updateServiceEntry(
+  id: string,
+  input: ServiceInput,
+): Promise<PricingOutcome> {
+  const auth = await requireEditor();
+  if (!auth.authorized) return { status: "error", message: auth.error };
+
+  const problem = serviceProblem(input);
+  if (problem) return { status: "error", message: problem };
+
+  try {
+    await updateService(id, {
+      name: input.name.trim(),
+      description: input.description ?? "",
+      defaultRate: input.defaultRate,
+      unit: input.unit,
+      active: input.active,
+    });
+  } catch (cause) {
+    return {
+      status: "error",
+      message: cause instanceof Error ? cause.message : "Could not save it.",
+    };
+  }
+
+  revalidatePath("/dashboard/pricing/services");
+  return { status: "ok", message: `${input.name.trim()} saved.` };
+}
+
+export async function deleteServiceEntry(id: string): Promise<PricingOutcome> {
+  const auth = await requireEditor();
+  if (!auth.authorized) return { status: "error", message: auth.error };
+
+  try {
+    await deleteService(id);
+  } catch (cause) {
+    return {
+      status: "error",
+      message: cause instanceof Error ? cause.message : "Could not delete it.",
+    };
+  }
+
+  revalidatePath("/dashboard/pricing/services");
+  return { status: "ok", message: "Service deleted." };
 }
