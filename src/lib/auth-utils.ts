@@ -1,12 +1,16 @@
 import { auth, hasRole, isAdmin, isSuperAdmin, canEdit, isFlowUser } from './auth'
 import type { UserRole } from '@/generated/prisma/client'
 
-export type AuthResult = {
-  authorized: boolean
-  userId?: string
-  role?: UserRole
-  error?: string
-}
+/**
+ * A discriminated union rather than one object with optional fields: past the
+ * `authorized` check the caller has a userId and a role, and the compiler knows
+ * it. The optional-field version type-checked `authResult.userId` on the
+ * unauthorized branch and handed `string | undefined` to every Prisma write
+ * that records who did something.
+ */
+export type AuthResult =
+  | { authorized: true; userId: string; role: UserRole; error?: undefined }
+  | { authorized: false; userId?: undefined; role?: undefined; error: string }
 
 /**
  * Check if the current user is authenticated

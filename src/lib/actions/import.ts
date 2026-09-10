@@ -747,9 +747,23 @@ export async function bulkUpdateAssetRates(
   filters: BulkRateUpdateFilters,
   data: BulkRateUpdateData
 ): Promise<{ success: boolean; updated: number; error?: string }> {
-  const session = await auth()
-  if (!session?.user?.id) {
-    throw new Error('Unauthorized')
+  const authResult = await requireEditor()
+  if (!authResult.authorized) {
+    return { success: false, updated: 0, error: authResult.error }
+  }
+
+  // An unfiltered call reprices the entire catalogue in one updateMany. That is
+  // never what anybody means, and it is silent — `updated` comes back as 224 and
+  // reads like success. The companion preview, getAssetsForBulkUpdate, has always
+  // required an editor; this one did not, so a VIEWER could reach it.
+  const hasCategory = Boolean(filters.categoryId)
+  const hasAssets = Boolean(filters.assetIds && filters.assetIds.length > 0)
+  if (!hasCategory && !hasAssets) {
+    return {
+      success: false,
+      updated: 0,
+      error: 'Choose a category or specific models. An unfiltered rate change would reprice every model in the catalogue.',
+    }
   }
 
   try {

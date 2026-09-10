@@ -4,7 +4,6 @@ import { revalidatePath } from 'next/cache'
 import { Prisma } from '@/generated/prisma/client'
 import { prisma } from '@/lib/prisma'
 import type { OverScanConflict, OverScanResolution } from '@/lib/reservations/over-scan'
-import { auth } from '@/lib/auth'
 import { requireAuth, requireEditor, requireAdmin } from '@/lib/auth-utils'
 import { serialize } from '@/lib/utils'
 import { recomputeUnitRevenue } from '@/lib/utils/revenue'
@@ -651,10 +650,8 @@ export async function getReservation(id: string) {
 }
 
 export async function createReservation(data: ReservationFormData) {
-  const session = await auth()
-  if (!session?.user?.id) {
-    throw new Error('Unauthorized')
-  }
+  const authResult = await requireEditor()
+  if (!authResult.authorized) throw new Error(authResult.error)
 
   const reservationNumber = await generateReservationNumber(data.reservationType || 'RENTAL')
 
@@ -737,7 +734,7 @@ export async function createReservation(data: ReservationFormData) {
         status: 'DRAFT',
         actionRequired: data.actionRequired || false,
         actionRequiredNote: data.actionRequiredNote || null,
-        createdById: session.user.id,
+        createdById: authResult.userId,
         // Billing cycle
         billingCycleType: data.reservationType === 'SALE' ? 'ONE_TIME'
           : data.reservationType === 'RENT_TO_OWN' ? 'MONTHLY'
@@ -932,7 +929,7 @@ export async function createReservation(data: ReservationFormData) {
       entityId: reservation.id,
       fromStatus: null,
       toStatus: 'DRAFT',
-      changedById: session.user.id,
+      changedById: authResult.userId,
     })
   } catch { /* non-critical */ }
 
@@ -3795,10 +3792,8 @@ export async function checkoutReservationItem(
   assetUnitId: string,
   data: CheckoutItemData = {}
 ) {
-  const session = await auth()
-  if (!session?.user?.id) {
-    throw new Error('Unauthorized')
-  }
+  const authResult = await requireEditor()
+  if (!authResult.authorized) throw new Error(authResult.error)
 
   const result = await prisma.$transaction(async (tx) => {
     // Get reservation and item
@@ -3924,7 +3919,7 @@ export async function checkoutReservationItem(
         totalCharge: unitCharge,
         conditionOut: data.conditionOut,
         notes: data.notes,
-        createdById: session.user.id,
+        createdById: authResult.userId,
       },
     })
 
@@ -4033,10 +4028,8 @@ export async function checkinReservationItem(
   assetUnitId: string,
   data: CheckinItemData = {}
 ) {
-  const session = await auth()
-  if (!session?.user?.id) {
-    throw new Error('Unauthorized')
-  }
+  const authResult = await requireEditor()
+  if (!authResult.authorized) throw new Error(authResult.error)
 
   const result = await prisma.$transaction(async (tx) => {
     // Get reservation
@@ -4106,7 +4099,7 @@ export async function checkinReservationItem(
         returnCondition: data.returnCondition,
         damageFlag: data.damageFlag || false,
         damageNotes: data.damageNotes,
-        checkedInById: session.user.id,
+        checkedInById: authResult.userId,
         notes: data.notes
           ? checkout.notes
             ? `${checkout.notes}\n\nReturn notes: ${data.notes}`
@@ -4210,10 +4203,8 @@ export async function bulkCheckoutReservation(
   itemIds?: string[],
   data: CheckoutItemData = {}
 ) {
-  const session = await auth()
-  if (!session?.user?.id) {
-    throw new Error('Unauthorized')
-  }
+  const authResult = await requireEditor()
+  if (!authResult.authorized) throw new Error(authResult.error)
 
   const result = await prisma.$transaction(async (tx) => {
     const reservation = await tx.reservation.findUnique({
@@ -4310,7 +4301,7 @@ export async function bulkCheckoutReservation(
             totalCharge: itemUnitCharge,
             conditionOut: data.conditionOut,
             notes: data.notes,
-            createdById: session.user.id,
+            createdById: authResult.userId,
           },
         })
         checkouts.push(checkout)
@@ -4402,10 +4393,8 @@ export async function bulkCheckinReservation(
   itemIds?: string[],
   data: CheckinItemData = {}
 ) {
-  const session = await auth()
-  if (!session?.user?.id) {
-    throw new Error('Unauthorized')
-  }
+  const authResult = await requireEditor()
+  if (!authResult.authorized) throw new Error(authResult.error)
 
   const result = await prisma.$transaction(async (tx) => {
     const reservation = await tx.reservation.findUnique({
@@ -4466,7 +4455,7 @@ export async function bulkCheckinReservation(
               actualReturn: new Date(),
               conditionIn: data.conditionIn,
               returnCondition: data.returnCondition,
-              checkedInById: session.user.id,
+              checkedInById: authResult.userId,
               notes: data.notes
                 ? checkout.notes
                   ? `${checkout.notes}\n\nReturn notes: ${data.notes}`
@@ -4707,10 +4696,8 @@ export type QuickCheckoutData = {
 }
 
 export async function quickCheckout(data: QuickCheckoutData) {
-  const session = await auth()
-  if (!session?.user?.id) {
-    throw new Error('Unauthorized')
-  }
+  const authResult = await requireEditor()
+  if (!authResult.authorized) throw new Error(authResult.error)
 
   const result = await prisma.$transaction(async (tx) => {
     // Load product types
@@ -4783,7 +4770,7 @@ export async function quickCheckout(data: QuickCheckoutData) {
         notes: data.notes,
         status: 'ACTIVE',
         confirmedAt: new Date(),
-        createdById: session.user.id,
+        createdById: authResult.userId,
         billingCycleType: 'ONE_TIME',
         subtotal,
         total: subtotal,
@@ -4828,7 +4815,7 @@ export async function quickCheckout(data: QuickCheckoutData) {
           rate: resItem.rate,
           // Per-unit charge = rate × periods; item is qty 1 so subtotal is the charge.
           totalCharge: Number(resItem.subtotal),
-          createdById: session.user.id,
+          createdById: authResult.userId,
         },
       })
 
@@ -4881,10 +4868,8 @@ export async function duplicateReservation(
   reservationId: string,
   options?: { targetType?: ReservationType; rtoTermMonths?: number }
 ) {
-  const session = await auth()
-  if (!session?.user?.id) {
-    throw new Error('Unauthorized')
-  }
+  const authResult = await requireEditor()
+  if (!authResult.authorized) throw new Error(authResult.error)
 
   const source = await prisma.reservation.findUnique({
     where: { id: reservationId },
@@ -5003,7 +4988,7 @@ export async function duplicateReservation(
         status: 'DRAFT',
         priceVerified: false,
         priceVerifiedAt: null,
-        createdById: session.user.id,
+        createdById: authResult.userId,
         isRecurring,
         billingCycleType,
         billingCycleDay: source.billingCycleDay,
@@ -5419,10 +5404,8 @@ export async function swapReservationItemUnit(
   oldAssetUnitId: string,
   newAssetUnitId: string
 ) {
-  const session = await auth()
-  if (!session?.user?.id) {
-    throw new Error('Unauthorized')
-  }
+  const authResult = await requireEditor()
+  if (!authResult.authorized) throw new Error(authResult.error)
 
   const result = await prisma.$transaction(async (tx) => {
     // Get reservation and item
@@ -5502,7 +5485,7 @@ export async function swapReservationItemUnit(
       data: {
         status: 'RETURNED',
         actualReturn: new Date(),
-        checkedInById: session.user.id,
+        checkedInById: authResult.userId,
         notes: oldCheckout.notes
           ? `${oldCheckout.notes}\n\nSwapped out for unit ${newUnit.barcode}`
           : `Swapped out for unit ${newUnit.barcode}`,
@@ -5547,7 +5530,7 @@ export async function swapReservationItemUnit(
         rate: item.rate,
         totalCharge: swapUnitCharge,
         notes: `Swapped in for unit ${(await tx.assetUnit.findUnique({ where: { id: oldAssetUnitId } }))?.barcode || oldAssetUnitId}`,
-        createdById: session.user.id,
+        createdById: authResult.userId,
       },
     })
 
@@ -5613,8 +5596,6 @@ export async function resetItemUnitCheckout(
   const authResult = await requireAdmin()
   if (!authResult.authorized) throw new Error(authResult.error)
 
-  const session = await auth()
-
   return prisma.$transaction(async (tx) => {
     const reservation = await tx.reservation.findUnique({
       where: { id: reservationId },
@@ -5673,7 +5654,7 @@ export async function resetItemUnitCheckout(
       action: 'UPDATE',
       entityType: 'Reservation',
       entityId: reservationId,
-      userId: session?.user?.id || 'system',
+      userId: authResult.userId || 'system',
       newValues: { action: 'reset_item_checkout', unitBarcode: unit?.barcode || assetUnitId, reservationNumber: reservation.reservationNumber },
     })
 
