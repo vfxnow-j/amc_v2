@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Role } from "@/lib/roles";
+import { readAccent, type TileAccent } from "./accents";
 import {
   TILE_GRID,
   canSeeTile,
@@ -30,6 +31,11 @@ import {
  *   for correctness.
  * - **geometry** — clamped, never believed. `catalog.clampTileSize` holds each
  *   tile's own bounds; column and row bounds are the grid's.
+ * - **colour** — an accent that is not one of the twelve is dropped, and the
+ *   tile renders exactly as an uncoloured one. `accents.readAccent` is the same
+ *   answer the picker asks, so a hue withdrawn from the palette disappears from
+ *   saved layouts on the next read rather than rendering as an unstyled
+ *   attribute nobody can clear.
  * - **overlap** — resolved. Two tiles claiming the same cell is a rendering
  *   question CSS Grid answers by stacking them, which looks like a bug because
  *   it is one.
@@ -52,6 +58,8 @@ export type PlacedTile = {
   y: number;
   w: number;
   h: number;
+  /** One of the twelve, or absent — and absent is the plain tile. */
+  accent?: TileAccent;
 };
 
 /**
@@ -66,14 +74,16 @@ const MAX_ROWS = 400;
 /* ── The stored shape ────────────────────────────────────────────────────── */
 
 /**
- * Two accepted forms, and the bare-id form is not legacy debt.
+ * Three accepted forms, and the bare-id form is not legacy debt.
  *
  * A template is a *list of tiles in reading order* — an administrator picks
  * what belongs on a view, and every user then reshapes their own copy, so
  * storing pixel geometry on the company template would be storing one person's
  * taste as everyone's starting point. `["kpis", "due-back"]` is that list, and
  * `placeInReadingOrder` turns it into geometry. A user's own layout, written by
- * the canvas, is always the full form.
+ * the canvas, is always the full form. The third form is the second one with a
+ * colour on it — `{ id, accent }`, still no geometry — which is how an
+ * administrator colours a template tile without also placing it.
  *
  * The coordinates are `unknown` on purpose, and `whole` below is what makes
  * that safe. Typing them `z.number()` reads stricter and behaves worse: zod
@@ -84,11 +94,37 @@ const MAX_ROWS = 400;
  */
 const placedSchema = z.object({
   id: z.string(),
-  x: z.unknown(),
-  y: z.unknown(),
-  w: z.unknown(),
-  h: z.unknown(),
+  x: z.unknown().optional(),
+  y: z.unknown().optional(),
+  w: z.unknown().optional(),
+  h: z.unknown().optional(),
+  accent: z.unknown().optional(),
 });
+
+type StoredEntry = string | z.infer<typeof placedSchema>;
+
+/**
+ * Whether this entry is making a claim about *where* the tile goes.
+ *
+ * The third stored form is why this exists: `{ id, accent }` — a tile an
+ * administrator has coloured but not placed, because a template never carries
+ * geometry. Without this it would parse as a placed tile at the origin with
+ * every coordinate defaulted, and a whole template of them would compact into
+ * one column. Geometry-free objects are read exactly like the bare id they
+ * would otherwise have been, and flowed.
+ *
+ * `.optional()` on the four coordinates is what lets that object parse at all:
+ * in zod 4 an `unknown()` key is still a required key, so a missing `x` fails
+ * the object branch, fails the union, and empties the whole layout. The values
+ * stay `unknown` for the reason the note above gives — `whole()` clamps, and
+ * one `NaN` must not cost the other thirty-nine tiles.
+ */
+function hasGeometry(entry: StoredEntry): boolean {
+  if (typeof entry === "string") return false;
+  return [entry.x, entry.y, entry.w, entry.h].some(
+    (value) => typeof value === "number" && Number.isFinite(value),
+  );
+}
 
 const storedSchema = z.array(z.union([z.string(), placedSchema]));
 
@@ -137,11 +173,17 @@ export function readTiles(value: unknown, role: Role): PlacedTile[] {
     if (!canSeeTile(meta, role)) continue;
     seen.add(id);
 
-    if (typeof entry === "string") {
+    // Dropped rather than defaulted, and dropped the same way an unknown id
+    // is: a tile with a colour nobody recognises is a plain tile, not a broken
+    // one. `undefined` is spread away below so an uncoloured tile stays the
+    // exact object it is today.
+    const accent = typeof entry === "string" ? undefined : readAccent(entry.accent);
+
+    if (typeof entry === "string" || !hasGeometry(entry)) {
       // Geometry comes from the catalog and the flow below; `y` only has to
       // keep this entry in the order it was written, for the mixed case.
       const flowed = clampTileSize(meta, meta.size.default);
-      tiles.push({ id, x: 0, y: tiles.length, ...flowed });
+      tiles.push(withAccent({ id, x: 0, y: tiles.length, ...flowed }, accent));
       continue;
     }
 
@@ -155,13 +197,25 @@ export function readTiles(value: unknown, role: Role): PlacedTile[] {
     );
     const y = Math.min(Math.max(whole(entry.y, 0), 0), MAX_ROWS);
 
-    tiles.push({ id, x, y, w: size.w, h: size.h });
+    tiles.push(withAccent({ id, x, y, w: size.w, h: size.h }, accent));
   }
 
-  // A list of bare ids carries no geometry worth compacting — flow it instead,
-  // which is what an administrator picking tiles in an order meant.
-  const bare = parsed.data.every((entry) => typeof entry === "string");
-  return bare ? placeInReadingOrder(tiles.map((t) => t.id)) : compact(tiles);
+  // Nothing here carries geometry worth compacting — flow it instead, which is
+  // what an administrator picking tiles in an order meant. The colours are put
+  // back afterwards because placing is about ids and boxes and should stay
+  // that way; ids are unique by now, so the join is exact.
+  const bare = !parsed.data.some(hasGeometry);
+  if (!bare) return compact(tiles);
+
+  const accents = new Map(tiles.map((tile) => [tile.id, tile.accent]));
+  return placeInReadingOrder(tiles.map((tile) => tile.id)).map((tile) =>
+    withAccent(tile, accents.get(tile.id)),
+  );
+}
+
+/** Carry an accent onto a tile, leaving an uncoloured one byte-identical. */
+function withAccent(tile: PlacedTile, accent: TileAccent | undefined): PlacedTile {
+  return accent ? { ...tile, accent } : tile;
 }
 
 /** The same read, from a list of ids the caller already trusts. */
@@ -212,6 +266,27 @@ export function appendTile(tiles: readonly PlacedTile[], id: TileId): PlacedTile
   const { w, h } = clampTileSize(meta, meta.size.default);
   const y = tiles.reduce((low, tile) => Math.max(low, tile.y + tile.h), 0);
   return compact([...tiles, { id, x: 0, y, w, h }]);
+}
+
+/**
+ * Colour one tile, or take its colour off.
+ *
+ * Here rather than in the canvas because it is the same edit the settings form
+ * makes, and because `undefined` has to *remove* the key rather than sit in it:
+ * `tilesFingerprint` compares serialized JSON, so a tile carrying
+ * `accent: undefined` and one carrying nothing must not be two different
+ * layouts. Geometry is untouched — a colour is not a move.
+ */
+export function setTileAccent(
+  tiles: readonly PlacedTile[],
+  id: TileId,
+  accent: TileAccent | undefined,
+): PlacedTile[] {
+  return tiles.map((tile) => {
+    if (tile.id !== id) return tile;
+    const box = { id: tile.id, x: tile.x, y: tile.y, w: tile.w, h: tile.h };
+    return accent ? { ...box, accent } : box;
+  });
 }
 
 /* ── Compaction ──────────────────────────────────────────────────────────── */
@@ -275,7 +350,9 @@ function compact(tiles: readonly PlacedTile[]): PlacedTile[] {
 export function serializeTiles(tiles: readonly PlacedTile[]): PlacedTile[] {
   return [...tiles]
     .sort(byReadingOrder)
-    .map(({ id, x, y, w, h }) => ({ id, x, y, w, h }));
+    .map(({ id, x, y, w, h, accent }) =>
+      accent ? { id, x, y, w, h, accent } : { id, x, y, w, h },
+    );
 }
 
 export function tilesFingerprint(tiles: readonly PlacedTile[]): string {

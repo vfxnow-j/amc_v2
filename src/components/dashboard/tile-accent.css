@@ -1,0 +1,51 @@
+/* A tile's own colour, drawn once for both views.
+ *
+ * `globals.css` defines the twelve hues under `[data-accent="…"]` as four
+ * custom properties; this file is the only place that decides what a dashboard
+ * tile *does* with them. Imported by `dashboard-grid.tsx` (read) and
+ * `canvas.tsx` (edit) so the two cannot drift — a tile that changes appearance
+ * when you open the editor is a tile you are arranging blind.
+ *
+ * **A spine and a title, and deliberately nothing else.**
+ *
+ * The accent is there to tell one tile from another across a screen of twenty,
+ * which is a job for a small saturated mark in a fixed position — not for the
+ * tile's surface. Tinting the whole card would repaint the dashboard into a
+ * fruit salad, would fight `data-tile` (the appearance axis that already owns
+ * every tile's surface at once), and would put every figure on the dashboard on
+ * a background nobody computed contrast for. The spine is 3px of
+ * `--tile-accent-solid` and the title takes `--tile-accent-text`; the data
+ * itself is untouched.
+ *
+ * `--tile-accent-tint` and `--tile-accent-line` are deliberately left unused
+ * here. They exist for the picker's swatches and for whatever wants a tinted
+ * strip later; a tile is not it.
+ *
+ * The spine is a **border**, not a background or an overlay, and each of those
+ * was tried:
+ *
+ * - a background on the cell shows through any tile whose root is transparent —
+ *   the KPI row is four cards with 12px gaps, and it would stripe them;
+ * - an overlay pseudo-element inside `.tile-cell` scrolls away with the
+ *   content, because that cell is the scroll container above 1024px.
+ *
+ * A left border costs the tile 3px of its own width in both views (everything
+ * here is `border-box`), which is why it is on the cell rather than on the card:
+ * the outer box the grid placed is exactly the size it was.
+ */
+
+.tile-cell[data-accent],
+.tile-frame[data-accent] {
+  border-left: 3px solid var(--tile-accent-solid);
+  /* So the spine tapers around the card's own corners rather than running
+     square past them. */
+  border-radius: var(--radius-card);
+}
+
+/* Every tile titles itself with an `h2.text-card-title`, whether it went
+   through `TileHeader` or wrote the element itself. Both hooks together, so
+   this is the tile's name and never a heading inside its body. */
+.tile-cell[data-accent] h2.text-card-title,
+.tile-frame[data-accent] h2.text-card-title {
+  color: var(--tile-accent-text);
+}

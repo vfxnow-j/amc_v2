@@ -2,6 +2,7 @@ import type { CSSProperties } from "react";
 import type { PlacedTile } from "@/lib/dashboard/layout";
 import { byReadingOrder } from "@/lib/dashboard/layout";
 import "./dashboard-grid.css";
+import "./tile-accent.css";
 
 /**
  * The dashboard as everybody but the person editing it sees it.
@@ -21,6 +22,12 @@ import "./dashboard-grid.css";
  * Grid lines are 1-indexed and stored coordinates are 0-indexed, which is the
  * one conversion in this file and the reason it is spelled out here rather than
  * in the CSS: `--tile-x` is `x + 1`.
+ *
+ * A tile's colour is one attribute on the same cell — `data-accent`, absent
+ * when the tile has none, which is how a plain tile stays byte-identical to
+ * what this emitted before. Everything it means is in `tile-accent.css` and in
+ * `globals.css`; nothing about it costs this view a line of JavaScript, which
+ * was the condition for having it at all.
  */
 
 export type DashboardGridItem = {
@@ -45,7 +52,12 @@ export function DashboardGrid({ items }: { items: DashboardGridItem[] }) {
         };
 
         return (
-          <div key={tile.id} className="tile-cell" style={style}>
+          <div
+            key={tile.id}
+            className="tile-cell"
+            data-accent={tile.accent}
+            style={style}
+          >
             {node}
           </div>
         );
