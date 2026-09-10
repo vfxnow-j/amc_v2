@@ -31,24 +31,35 @@ import type { Role } from "@/lib/roles";
 /**
  * Every tile the dashboard can place.
  *
- * This is a starter set: seven tiles, each backed by a query and a component
- * that already exist and already render on the dashboard today. The full
- * catalogue — roughly twenty-two, including the logistics and AR-aging waves —
- * is a later step, and every one of them is an id added here and an entry
- * added to the registry.
+ * The first seven were the fixed dashboard, lifted as-is. The rest arrived in
+ * two waves and the difference between them is worth knowing when adding the
+ * twenty-third: the **reuse wave** is tiles over queries another screen already
+ * runs, which cost a component and nothing else; the **new-query wave** needed
+ * a query written for them, and each of those carries a caveat in its copy
+ * about what the schema can and cannot answer.
  *
  * Ids are persisted in `DashboardLayout.tiles` and in the seeded templates, so
  * they are a data format: rename one and every saved layout loses a tile.
  * Prefer adding a new id and dropping the old one on read.
  */
 export type TileId =
+  // The original seven.
   | "kpis"
   | "revenue-by-type"
   | "top-items"
   | "idle-items"
   | "due-back"
   | "maintenance"
-  | "decisions";
+  | "decisions"
+  // Reuse wave: existing queries, new components.
+  | "outgoing"
+  | "incoming"
+  | "billing-book"
+  | "purchase-orders"
+  | "year-to-date"
+  | "recurring-health"
+  | "rate-health"
+  | "data-flags";
 
 /* ── Shape ───────────────────────────────────────────────────────────────── */
 
@@ -68,15 +79,26 @@ export const TILE_GRID = {
 
 export type TileSize = { w: number; h: number };
 
-/** How tiles are grouped in the picker. Ordered; the picker reads this order. */
+/**
+ * How tiles are grouped in the picker. Ordered; the picker reads this order.
+ *
+ * The categories are questions a person has, not parts of the schema. "Money in
+ * and out" is not "invoices and purchase orders" because somebody looking for
+ * what they are owed is not looking for a table name — and the two directions
+ * belong together, since the answer to "can we buy this" is both of them.
+ */
 export type TileCategory =
   | "How we are trading"
+  | "Money in and out"
   | "The fleet"
+  | "Getting it there"
   | "Needs a person";
 
 export const TILE_CATEGORIES: readonly TileCategory[] = [
   "How we are trading",
+  "Money in and out",
   "The fleet",
+  "Getting it there",
   "Needs a person",
 ];
 
@@ -211,6 +233,118 @@ export const TILE_CATALOG: Record<TileId, TileMeta> = {
     access: "everyone",
     readsRange: false,
   },
+
+  /* ── Reuse wave ──────────────────────────────────────────────────────── */
+
+  outgoing: {
+    id: "outgoing",
+    title: "Going out",
+    blurb: "Orders due out of the door with units nobody has pulled yet.",
+    category: "Needs a person",
+    size: {
+      default: { w: 6, h: 8 },
+      min: { w: 5, h: 5 },
+      max: { w: 12, h: 16 },
+    },
+    access: "everyone",
+    readsRange: false,
+  },
+  incoming: {
+    id: "incoming",
+    title: "Coming back",
+    blurb: "Orders with units still out, ordered by how late they are.",
+    category: "Needs a person",
+    size: {
+      default: { w: 6, h: 8 },
+      min: { w: 5, h: 5 },
+      max: { w: 12, h: 16 },
+    },
+    access: "everyone",
+    readsRange: false,
+  },
+  "billing-book": {
+    id: "billing-book",
+    title: "How the book bills",
+    blurb:
+      "What bills again on its own, what somebody has to raise, and what never bills.",
+    category: "How we are trading",
+    size: {
+      default: { w: 12, h: 4 },
+      min: { w: 6, h: 3 },
+      max: { w: 12, h: 6 },
+    },
+    access: "everyone",
+    readsRange: false,
+  },
+  "purchase-orders": {
+    id: "purchase-orders",
+    title: "On order",
+    blurb: "What has been committed to vendors and hasn't arrived.",
+    category: "Money in and out",
+    size: {
+      default: { w: 4, h: 5 },
+      min: { w: 3, h: 4 },
+      max: { w: 12, h: 8 },
+    },
+    access: "everyone",
+    readsRange: false,
+  },
+  "year-to-date": {
+    id: "year-to-date",
+    title: "This year so far",
+    blurb: "Revenue earned since January, and how much of the fleet is out.",
+    category: "How we are trading",
+    size: {
+      default: { w: 4, h: 5 },
+      min: { w: 3, h: 4 },
+      max: { w: 12, h: 8 },
+    },
+    // Fixed to the calendar year on purpose. The header's range control moves
+    // the tiles that answer "how are we trading now"; this one answers "how has
+    // the year gone", and a year that changed length with a segmented control
+    // would be a different question wearing the same title.
+    access: "everyone",
+    readsRange: false,
+  },
+  "recurring-health": {
+    id: "recurring-health",
+    title: "Recurring billing",
+    blurb: "Live cycles, and the ones the billing run silently skips.",
+    category: "How we are trading",
+    size: {
+      default: { w: 4, h: 5 },
+      min: { w: 3, h: 4 },
+      max: { w: 12, h: 8 },
+    },
+    access: "everyone",
+    readsRange: false,
+  },
+  "rate-health": {
+    id: "rate-health",
+    title: "Rates to review",
+    blurb: "Assets whose rate is out of step with what the hardware cost.",
+    category: "The fleet",
+    size: {
+      default: { w: 5, h: 5 },
+      min: { w: 4, h: 4 },
+      max: { w: 12, h: 8 },
+    },
+    access: "everyone",
+    readsRange: false,
+  },
+  "data-flags": {
+    id: "data-flags",
+    title: "Doesn't add up",
+    blurb: "Records that disagree with each other, and facts nobody has entered.",
+    category: "Needs a person",
+    size: {
+      default: { w: 5, h: 6 },
+      min: { w: 4, h: 4 },
+      max: { w: 12, h: 12 },
+    },
+    access: "everyone",
+    readsRange: false,
+  },
 };
 
 /** Declaration order, which is also the reading order of the default layout. */
@@ -220,6 +354,11 @@ export const TILE_IDS = Object.keys(TILE_CATALOG) as TileId[];
  * What a user sees before they have reshaped anything, and what the seeded
  * "Everything" template is made of. Top to bottom: how we are trading, where
  * that money came from, what the fleet is doing, what needs a person.
+ *
+ * Deliberately still the original seven, and not every tile in the catalogue.
+ * A default is what somebody who has never opened the picker gets, and
+ * twenty-two tiles is not a default — it is a settings screen that renders
+ * itself. The rest are placed on purpose, or arrive through a template.
  */
 export const DEFAULT_TILES: readonly TileId[] = [
   "kpis",

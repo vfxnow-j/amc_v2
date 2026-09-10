@@ -9,6 +9,17 @@ import {
   CardSkeleton,
   MaintenanceCard,
 } from "@/components/dashboard/maintenance-card";
+import { DataFlagsTile } from "@/components/dashboard/tiles/flags";
+import { RateHealthTile } from "@/components/dashboard/tiles/fleet";
+import { PurchaseOrdersTile } from "@/components/dashboard/tiles/purchasing";
+import {
+  RecurringHealthTile,
+  YearToDateTile,
+} from "@/components/dashboard/tiles/trading";
+import {
+  BillingBook,
+  BillingBookSkeleton,
+} from "@/components/orders/billing-book";
 import {
   RevenueStrip,
   RevenueStripSkeleton,
@@ -22,6 +33,11 @@ import {
   DecisionsCard,
   SideCardSkeleton,
 } from "@/components/overview/side-cards";
+import {
+  IncomingCard,
+  OutgoingCard,
+  QueueCardSkeleton,
+} from "@/components/today/movement-cards";
 import {
   TILE_CATALOG,
   type TileId,
@@ -131,6 +147,59 @@ export const TILE_REGISTRY: Record<TileId, TileEntry> = {
     meta: TILE_CATALOG.decisions,
     Component: DecisionsCard,
     fallback: <SideCardSkeleton />,
+  },
+
+  /* ── Reuse wave ──────────────────────────────────────────────────────── */
+
+  // The two movement queues are the Calendar screen's own components, placed
+  // rather than reimplemented. They take no arguments and each fetches its own
+  // side, which is exactly the tile contract — and it means the dashboard and
+  // the Calendar can never disagree about what is late.
+  outgoing: {
+    meta: TILE_CATALOG.outgoing,
+    Component: OutgoingCard,
+    fallback: <QueueCardSkeleton title="Going out" />,
+  },
+  incoming: {
+    meta: TILE_CATALOG.incoming,
+    Component: IncomingCard,
+    fallback: <QueueCardSkeleton title="Coming back" />,
+  },
+  // Likewise the billing book, which is the Orders hub's. It carries its own
+  // card chrome rather than `Tile` — `bg-panel` against the tiles' `bg-tile`,
+  // which resolve to the same colour today. Left alone deliberately: rewriting
+  // a shared component to suit the dashboard would restyle the Orders screen as
+  // a side effect, and the `--tile-*` axis exists precisely so that divergence
+  // is a token change rather than a component fork.
+  "billing-book": {
+    meta: TILE_CATALOG["billing-book"],
+    Component: BillingBook,
+    fallback: <BillingBookSkeleton />,
+  },
+  "purchase-orders": {
+    meta: TILE_CATALOG["purchase-orders"],
+    Component: PurchaseOrdersTile,
+    fallback: <CardSkeleton rows={3} />,
+  },
+  "year-to-date": {
+    meta: TILE_CATALOG["year-to-date"],
+    Component: YearToDateTile,
+    fallback: <CardSkeleton rows={3} />,
+  },
+  "recurring-health": {
+    meta: TILE_CATALOG["recurring-health"],
+    Component: RecurringHealthTile,
+    fallback: <CardSkeleton rows={3} />,
+  },
+  "rate-health": {
+    meta: TILE_CATALOG["rate-health"],
+    Component: RateHealthTile,
+    fallback: <CardSkeleton rows={3} />,
+  },
+  "data-flags": {
+    meta: TILE_CATALOG["data-flags"],
+    Component: DataFlagsTile,
+    fallback: <CardSkeleton rows={6} />,
   },
 };
 
