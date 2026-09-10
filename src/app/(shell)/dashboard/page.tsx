@@ -1,25 +1,8 @@
 import { Suspense } from "react";
 import { PageHeader } from "@/components/shell/page-header";
 import { ActionBar } from "@/components/dashboard/action-bar";
-import {
-  IdleItemsCard,
-  TopItemsCard,
-} from "@/components/dashboard/item-cards";
-import {
-  CardSkeleton,
-  MaintenanceCard,
-} from "@/components/dashboard/maintenance-card";
-import { KpiRow, KpiRowSkeleton } from "@/components/overview/kpi-row";
-import {
-  DueBackCard,
-  DueBackCardSkeleton,
-} from "@/components/overview/due-back-card";
+import { renderTile } from "@/components/dashboard/tiles/registry";
 import { RangeControl } from "@/components/overview/range-control";
-import { DecisionsCard, SideCardSkeleton } from "@/components/overview/side-cards";
-import {
-  RevenueStrip,
-  RevenueStripSkeleton,
-} from "@/components/orders/revenue-strip";
 import { moneyCompact } from "@/lib/format";
 import { getHeaderStats } from "@/lib/queries/overview";
 import { isRange, type Range } from "@/lib/queries/range";
@@ -56,6 +39,14 @@ async function HeaderBlurb() {
  * calculation across every recurring order and the fleet cards group the whole
  * order book — none of them may hold up the KPIs, and none of them holds up
  * each other.
+ *
+ * The cards are no longer named here. Each one is a tile id resolved through
+ * `components/dashboard/tiles/registry`, which owns the boundary as well as
+ * the component; the layout below is still hand-written, and stays that way
+ * until stored layouts land. That indirection is the whole point of the
+ * split — this page will shortly read a list of ids off a `DashboardLayout`
+ * row instead of spelling seven of them out, and nothing else has to change
+ * for it to.
  */
 export default async function DashboardPage({
   searchParams,
@@ -64,6 +55,7 @@ export default async function DashboardPage({
 }) {
   const { range: requested } = await searchParams;
   const range: Range = isRange(requested) ? requested : "month";
+  const context = { range };
 
   return (
     <>
@@ -81,35 +73,20 @@ export default async function DashboardPage({
       <ActionBar />
 
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
-        <Suspense fallback={<KpiRowSkeleton />}>
-          <KpiRow range={range} />
-        </Suspense>
-
-        <Suspense fallback={<RevenueStripSkeleton />}>
-          <RevenueStrip range={range} />
-        </Suspense>
+        {renderTile("kpis", context)}
+        {renderTile("revenue-by-type", context)}
 
         <div className="grid gap-3 xl:grid-cols-2">
-          <Suspense fallback={<CardSkeleton rows={6} />}>
-            <TopItemsCard />
-          </Suspense>
-          <Suspense fallback={<CardSkeleton rows={6} />}>
-            <IdleItemsCard />
-          </Suspense>
+          {renderTile("top-items", context)}
+          {renderTile("idle-items", context)}
         </div>
 
         <div className="grid gap-3 lg:grid-cols-[1.5fr_1fr]">
-          <Suspense fallback={<DueBackCardSkeleton />}>
-            <DueBackCard />
-          </Suspense>
+          {renderTile("due-back", context)}
 
           <div className="flex flex-col gap-3">
-            <Suspense fallback={<CardSkeleton rows={4} />}>
-              <MaintenanceCard />
-            </Suspense>
-            <Suspense fallback={<SideCardSkeleton />}>
-              <DecisionsCard />
-            </Suspense>
+            {renderTile("maintenance", context)}
+            {renderTile("decisions", context)}
           </div>
         </div>
       </div>

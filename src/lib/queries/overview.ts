@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { endOfDay, startOfDay } from "date-fns";
 import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
@@ -106,7 +107,14 @@ export type Kpis = {
   overdue: { units: number };
 };
 
-export async function getKpis(
+/**
+ * Wrapped in React `cache()` so one render pass runs it at most once. The
+ * dashboard is a grid of independently-suspended tiles now, and more than one
+ * of them can read the same figures — without this, placing both runs the same
+ * query twice inside a single request. `queries/reports.ts` wraps its own for
+ * the same reason.
+ */
+export const getKpis = cache(async function getKpis(
   range: Range = "month",
   now = new Date(),
 ): Promise<Kpis> {
@@ -149,7 +157,7 @@ export async function getKpis(
     units: { onRent, total: rentableUnits },
     overdue: { units: overdue },
   };
-}
+});
 
 /** The header card's one-line context blurb. */
 export async function getHeaderStats() {

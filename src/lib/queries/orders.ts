@@ -1,3 +1,4 @@
+import { cache } from "react";
 import type { Prisma, ReservationType } from "@/generated/prisma/client";
 import { getEarnedRevenue } from "@/lib/analytics/earned-revenue";
 import { ORDER_TYPES } from "@/lib/orders/types";
@@ -137,7 +138,14 @@ export type BillingBook = {
  *   never picked up and never bills. It is counted because nothing else counts
  *   it.
  */
-export async function getBillingBook(now = new Date()): Promise<BillingBook> {
+/**
+ * Wrapped in React `cache()` so one render pass runs it at most once. The
+ * dashboard is a grid of independently-suspended tiles now, and more than one
+ * of them can read the same figures — without this, placing both runs the same
+ * query twice inside a single request. `queries/reports.ts` wraps its own for
+ * the same reason.
+ */
+export const getBillingBook = cache(async function getBillingBook(now = new Date()): Promise<BillingBook> {
   const soon = new Date(now);
   soon.setDate(soon.getDate() + 7);
 
@@ -212,4 +220,4 @@ export async function getBillingBook(now = new Date()): Promise<BillingBook> {
       value: Number(notBilledAgg._sum.total ?? 0),
     },
   };
-}
+});

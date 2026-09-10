@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { endOfDay, startOfDay } from "date-fns";
 import type { Prisma, ReservationStatus } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
@@ -64,7 +65,14 @@ export type Outgoing = {
  * `ReservationItemUnit` rows, because a line can be ordered without units
  * assigned yet — those are precisely the ones nobody has touched.
  */
-export async function getOutgoing(
+/**
+ * Wrapped in React `cache()` so one render pass runs it at most once. The
+ * dashboard is a grid of independently-suspended tiles now, and more than one
+ * of them can read the same figures — without this, placing both runs the same
+ * query twice inside a single request. `queries/reports.ts` wraps its own for
+ * the same reason.
+ */
+export const getOutgoing = cache(async function getOutgoing(
   now = new Date(),
   take = 12,
 ): Promise<Outgoing> {
@@ -122,7 +130,7 @@ export async function getOutgoing(
     upcoming,
     units: rows.reduce((sum, row) => sum + row.units, 0),
   };
-}
+});
 
 export type IncomingRow = {
   reservationId: string;
