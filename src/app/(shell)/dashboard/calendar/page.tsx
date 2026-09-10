@@ -1,7 +1,13 @@
 import { Suspense } from "react";
 import Link from "next/link";
 import { PageHeader } from "@/components/shell/page-header";
+import {
+  IncomingCard,
+  OutgoingCard,
+  QueueCardSkeleton,
+} from "@/components/today/movement-cards";
 import { getCalendarMonth, type CalendarDay } from "@/lib/queries/operate";
+import { getTodayStats } from "@/lib/queries/today";
 
 export const metadata = { title: "Calendar" };
 
@@ -136,8 +142,33 @@ function MonthSkeleton() {
   );
 }
 
+async function HeaderBlurb() {
+  const { toPull, toReceive } = await getTodayStats();
+
+  if (toPull === 0 && toReceive === 0) {
+    return <>Nothing waiting in either direction</>;
+  }
+
+  return (
+    <>
+      {toPull} {toPull === 1 ? "unit" : "units"} to pull ·{" "}
+      {toReceive} {toReceive === 1 ? "unit" : "units"} to receive
+    </>
+  );
+}
+
 /**
- * Operate → Calendar: the month view of what leaves and what comes back.
+ * Operate → Calendar: when things move, and what needs hands about it now.
+ *
+ * Today's movements was its own screen until 2026-09-09 and was folded in here
+ * on the owner's call — the two answered the same question at two zoom levels
+ * and neither was complete alone. The month grid says a return is due Friday;
+ * the queues below say that six units of it are already late and nobody has
+ * pulled them. Reading one without the other was the redundancy.
+ *
+ * The queue cards are reused exactly as they were, not reimplemented. They take
+ * no arguments, each fetches its own side, and each keeps its own Suspense
+ * boundary so a slow return query never holds up the pull list — or the grid.
  *
  * Recurring orders appear on the day they start but never on the day they
  * "end": their `endDate` is a billing-period boundary, not a return date.
@@ -145,8 +176,9 @@ function MonthSkeleton() {
  * 35 when the Overview first shipped, and a calendar full of returns that
  * aren't returns is worse than no calendar.
  *
- * Two per direction per day, then a count — a cell that lists fifteen orders
- * stops being glanceable, and the day's real work is on the order anyway.
+ * Two per direction per day in the grid, then a count — a cell that lists
+ * fifteen orders stops being glanceable, and the day's real work is on the
+ * order anyway.
  */
 export default async function CalendarPage({
   searchParams,
@@ -165,12 +197,37 @@ export default async function CalendarPage({
       <PageHeader
         eyebrow="Operate"
         title="Calendar"
-        blurb="What goes out and what comes back, by day"
+        blurb={
+          <Suspense fallback="Counting what needs hands…">
+            <HeaderBlurb />
+          </Suspense>
+        }
+        actions={
+          <Link
+            href="/dashboard/orders"
+            className="rounded-pill bg-sunken px-[14px] py-2 text-pill text-ink transition-colors hover:bg-row-hover"
+          >
+            All orders
+          </Link>
+        }
       />
 
       <Suspense key={`${year}-${safeMonth}`} fallback={<MonthSkeleton />}>
         <Month year={year} month={safeMonth} />
       </Suspense>
+
+      {/* The grid says when; these say what is late and what is waiting. Every
+          row opens its order — this is still not a scanner, for the reason
+          Today's movements gave: check-out and check-in happen on the order,
+          where the lines, the units and the sign-off already are. */}
+      <div className="grid min-h-0 gap-3 lg:grid-cols-2">
+        <Suspense fallback={<QueueCardSkeleton title="Going out" />}>
+          <OutgoingCard />
+        </Suspense>
+        <Suspense fallback={<QueueCardSkeleton title="Coming back" />}>
+          <IncomingCard />
+        </Suspense>
+      </div>
     </>
   );
 }

@@ -22,8 +22,8 @@ export async function createScanList(data: { name: string; description?: string 
     },
   })
 
-  revalidatePath('/dashboard/scan-lists')
-  revalidatePath('/dashboard/mobile')
+  revalidatePath('/dashboard/audits')
+  revalidatePath('/dashboard/scan')
   return serialize(list)
 }
 
@@ -57,8 +57,8 @@ export async function addToListByBarcode(listId: string, barcode: string): Promi
       },
     })
 
-    revalidatePath('/dashboard/scan-lists')
-    revalidatePath(`/dashboard/scan-lists/${listId}`)
+    revalidatePath('/dashboard/audits')
+    revalidatePath(`/dashboard/audits/scan-lists/${listId}`)
 
     if (!assetUnit) {
       return { success: true, warning: 'Unknown barcode — saved as unregistered' }
@@ -131,7 +131,7 @@ export async function removeScanListItem(itemId: string) {
 
   await prisma.scanListItem.delete({ where: { id: itemId } })
 
-  revalidatePath('/dashboard/scan-lists')
+  revalidatePath('/dashboard/audits')
   return { success: true }
 }
 
@@ -141,7 +141,7 @@ export async function deleteScanList(id: string) {
 
   await prisma.scanList.delete({ where: { id } })
 
-  revalidatePath('/dashboard/scan-lists')
-  revalidatePath('/dashboard/mobile')
+  revalidatePath('/dashboard/audits')
+  revalidatePath('/dashboard/scan')
   return { success: true }
 }

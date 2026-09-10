@@ -5,7 +5,7 @@ import { dayYear } from "@/lib/format";
 import { UNIT_STATUS_LABEL } from "@/lib/inventory/labels";
 import { findUnitByCode } from "@/lib/queries/operate";
 
-export const metadata = { title: "Mobile scan" };
+export const metadata = { title: "Scan" };
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -108,19 +108,25 @@ async function Result({ code }: { code: string }) {
 }
 
 /**
- * Operate → Mobile scan: what a phone in the warehouse needs.
+ * Scan. Renamed from Mobile scan and moved off /dashboard/mobile, 2026-09-09.
  *
- * Answers one question — "what is this thing, and where should it be?" — and
- * then hands off. Scanning to *move* stock happens on the order, where the
- * rates and the sign-off live; a second place to check units in and out is
- * exactly what the dropped Desk was, and it would drift from the order's
- * version the moment either changed.
+ * "Mobile" named the device rather than the job, and the job is the same at a
+ * packing desk with a gun as it is on a phone in the aisle. The screen is
+ * reached from the dashboard's Scan button rather than the rail, on the owner's
+ * call — it is a thing you go and do, not a place in the information
+ * architecture.
+ *
+ * Today it answers one question — "what is this thing, and where should it
+ * be?" — and then hands off. Check-out and check-in modes, a scan-list mode and
+ * gun ergonomics (carriage-return commit, a queue that never drops a scan, an
+ * audible toggle) are the rest of this track; this commit is the rename alone,
+ * so nothing about the existing behaviour can regress under it.
  *
  * A plain GET form, so a hardware scanner that types a code and presses Enter
  * works with no JavaScript at all. Codes are matched whole: a fuzzy match here
  * would confidently describe the wrong unit to somebody holding one.
  */
-export default async function MobileScanPage({
+export default async function ScanPage({
   searchParams,
 }: {
   searchParams: Promise<{ code?: string }>;
@@ -132,7 +138,7 @@ export default async function MobileScanPage({
     <>
       <PageHeader
         eyebrow="Operate"
-        title="Mobile scan"
+        title="Scan"
         blurb="Scan a barcode to see what it is and where it should be"
       />
 
@@ -145,7 +151,9 @@ export default async function MobileScanPage({
               defaultValue={code}
               autoFocus
               autoComplete="off"
-              inputMode="numeric"
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
               placeholder="Scan or type a barcode"
               className="w-full border-0 bg-transparent text-body text-ink outline-none placeholder:text-ink-faint"
             />

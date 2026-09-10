@@ -1,6 +1,6 @@
 import { Suspense } from "react";
-import Link from "next/link";
 import { PageHeader } from "@/components/shell/page-header";
+import { ActionBar } from "@/components/dashboard/action-bar";
 import {
   IdleItemsCard,
   TopItemsCard,
@@ -75,18 +75,10 @@ export default async function DashboardPage({
             <HeaderBlurb />
           </Suspense>
         }
-        actions={
-          <>
-            <RangeControl range={range} />
-            <Link
-              href="/dashboard/orders/new"
-              className="rounded-pill bg-accent-solid px-4 py-2 text-pill text-accent-on-solid"
-            >
-              New order
-            </Link>
-          </>
-        }
+        actions={<RangeControl range={range} />}
       />
+
+      <ActionBar />
 
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
         <Suspense fallback={<KpiRowSkeleton />}>

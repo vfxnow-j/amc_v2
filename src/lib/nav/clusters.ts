@@ -74,32 +74,20 @@ export const NAV_CLUSTERS: NavCluster[] = [
         ],
       },
       {
-        // Not a second scanner. The owner's call, 2026-07-30: a standalone
-        // check-out/check-in desk duplicates the reservation record, which is
-        // where the units, the rates and the sign-off already live — v1 came to
-        // the same conclusion, and its /dashboard/checkout is a signpost that
-        // redirects into the order. So this screen answers "what needs hands
-        // today" and every row opens the order, where the scanning happens.
-        id: "today",
-        label: "Today’s movements",
-        href: "/dashboard/today",
+        // Absorbs Today's movements, 2026-09-09. The two answered the same
+        // question at two zoom levels — the grid says a return is due Friday,
+        // the queues say six units of it are already late — and neither read
+        // completely alone. Still not a scanner: every row opens its order,
+        // where the lines, the units and the sign-off already are.
+        id: "calendar",
+        label: "Calendar",
+        href: "/dashboard/calendar",
         from: [
+          "/dashboard/calendar",
           "/dashboard/checkout",
           "/dashboard/checkin",
           "/dashboard/checkouts",
         ],
-      },
-      {
-        id: "mobile",
-        label: "Mobile scan",
-        href: "/dashboard/mobile",
-        from: ["/dashboard/mobile"],
-      },
-      {
-        id: "calendar",
-        label: "Calendar",
-        href: "/dashboard/calendar",
-        from: ["/dashboard/calendar"],
       },
       {
         // Promoted out of reservations; the Package model already exists.

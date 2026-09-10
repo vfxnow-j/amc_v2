@@ -21,8 +21,8 @@ const nextConfig: NextConfig = {
     return [
       // The check-out/check-in desk is gone: both actions happen on the order,
       // and "what needs hands today" is its own queue.
-      { source: "/dashboard/checkout", destination: "/dashboard/today", permanent: true },
-      { source: "/dashboard/checkin", destination: "/dashboard/today", permanent: true },
+      { source: "/dashboard/checkout", destination: "/dashboard/calendar", permanent: true },
+      { source: "/dashboard/checkin", destination: "/dashboard/calendar", permanent: true },
       // v1's list of what's out. The Reservations hub answers that now.
       {
         source: "/dashboard/checkouts",
@@ -47,6 +47,12 @@ const nextConfig: NextConfig = {
       },
       { source: "/dashboard/cloud", destination: "/dashboard/pricing/cloud", permanent: true },
       { source: "/dashboard/services", destination: "/dashboard/pricing/services", permanent: true },
+      // Today's movements folded into Calendar: the grid says when things move,
+      // the queues under it say what is late and what is waiting.
+      { source: "/dashboard/today", destination: "/dashboard/calendar", permanent: true },
+      // "Mobile" named the device, not the job. The job is the same at a packing
+      // desk with a gun as it is on a phone in the aisle.
+      { source: "/dashboard/mobile", destination: "/dashboard/scan", permanent: true },
     ];
   },
 };
