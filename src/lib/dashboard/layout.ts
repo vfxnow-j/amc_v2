@@ -74,21 +74,36 @@ const MAX_ROWS = 400;
  * taste as everyone's starting point. `["kpis", "due-back"]` is that list, and
  * `placeInReadingOrder` turns it into geometry. A user's own layout, written by
  * the canvas, is always the full form.
+ *
+ * The coordinates are `unknown` on purpose, and `whole` below is what makes
+ * that safe. Typing them `z.number()` reads stricter and behaves worse: zod
+ * fails the whole array on one bad member, so a single `NaN` written by some
+ * future arithmetic bug would throw away a layout that was otherwise entirely
+ * fine. Clamping is already the rule for every one of these values — a missing
+ * or unusable one is just the far end of the same clamp.
  */
 const placedSchema = z.object({
   id: z.string(),
-  x: z.number(),
-  y: z.number(),
-  w: z.number(),
-  h: z.number(),
+  x: z.unknown(),
+  y: z.unknown(),
+  w: z.unknown(),
+  h: z.unknown(),
 });
 
-const storedSchema = z.array(z.union([z.string(), placedSchema])).max(MAX_TILES);
+const storedSchema = z.array(z.union([z.string(), placedSchema]));
+
+/**
+ * Longer than this and the column is corrupt rather than crowded, so it is
+ * refused whole instead of being read down to the cap. The cap itself is
+ * applied inside the loop: forty *usable* tiles, not forty entries of which
+ * thirty-nine were duplicates.
+ */
+const ABSURD = 200;
 
 /* ── Reading ─────────────────────────────────────────────────────────────── */
 
-function whole(value: number, fallback: number): number {
-  if (!Number.isFinite(value)) return fallback;
+function whole(value: unknown, fallback: number): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
   return Math.round(value);
 }
 
@@ -102,6 +117,8 @@ function whole(value: number, fallback: number): number {
  * dashboard", because the two want the same answer: show them something.
  */
 export function readTiles(value: unknown, role: Role): PlacedTile[] {
+  if (Array.isArray(value) && value.length > ABSURD) return [];
+
   const parsed = storedSchema.safeParse(value);
   if (!parsed.success) return [];
 
@@ -109,6 +126,7 @@ export function readTiles(value: unknown, role: Role): PlacedTile[] {
   const tiles: PlacedTile[] = [];
 
   for (const entry of parsed.data) {
+    if (tiles.length >= MAX_TILES) break;
     const id = typeof entry === "string" ? entry : entry.id;
     if (!isTileId(id)) continue;
     // First placement wins. A duplicated id is not two tiles — every tile is a

@@ -16,8 +16,8 @@ import type { TileId } from "./catalog";
  *
  * **Re-seeding is guarded on the table being empty, not on each key being
  * present**, and that distinction is the whole design. Seeding per missing key
- * would make "Everything" undeletable: remove it, and the next page load puts
- * it back. An administrator who deletes every view gets the seeds again, which
+ * would make the default view undeletable: remove it, and the next page load
+ * puts it back. An administrator who deletes every view gets the seeds again, which
  * is a recovery path rather than a contradiction.
  *
  * Pure and client-safe. `Role` is imported as a type only, so nothing here
@@ -46,9 +46,12 @@ export type SeedView = {
 export const SEED_VIEWS: SeedView[] = [
   {
     key: "everything",
-    label: "Everything",
-    // The dashboard exactly as it stood before layouts were storable, so the
-    // change nobody asked for is no change at all.
+    // Not "Everything": the catalogue is larger than this view and growing, and
+    // a name that promises the whole of it goes stale the day a tile is added.
+    // This is the dashboard as it stood before layouts were storable — the
+    // whole business on one screen, which is a claim about scope rather than a
+    // count of the catalogue.
+    label: "The whole business",
     tiles: [
       "kpis",
       "revenue-by-type",
