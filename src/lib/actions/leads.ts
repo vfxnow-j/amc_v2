@@ -2,8 +2,12 @@
 
 import { revalidatePath } from 'next/cache'
 import { prisma } from '@/lib/prisma'
-import { requireAuth, requireEditor } from '@/lib/auth-utils'
+import { requireAdmin, requireAuth, requireEditor } from '@/lib/auth-utils'
+import { isAdmin } from '@/lib/auth'
 import { serialize } from '@/lib/utils'
+import { sendEmail } from '@/lib/email/send'
+import { isEmailConfigured } from '@/lib/email/client'
+import { onboardingInviteEmail } from '@/lib/email/templates'
 import { logAudit } from './audit'
 import { notifyNewLead } from './notifications'
 import { generateReservationNumber } from './reservations'
@@ -27,6 +31,12 @@ export type LeadFormData = {
   estimatedValue?: number
   notes?: string
   clientId?: string
+  // Ad attribution. The lead record has displayed these since it was built and
+  // nothing in v2 could set them, so every campaign name and every acquisition
+  // cost in this database arrived from v1 or from a webhook.
+  adCampaign?: string
+  adPlatform?: string
+  adCost?: number
 }
 
 export type LeadFilters = {
@@ -308,6 +318,9 @@ export async function createLead(data: LeadFormData) {
       estimatedValue: data.estimatedValue ?? null,
       notes: data.notes?.trim() || null,
       convertedToClientId: data.clientId || null,
+      adCampaign: data.adCampaign?.trim() || null,
+      adPlatform: data.adPlatform?.trim() || null,
+      adCost: data.adCost ?? null,
     },
   })
 
@@ -363,6 +376,9 @@ export async function updateLead(id: string, data: Partial<LeadFormData>) {
   }
   if (data.estimatedValue !== undefined) updateData.estimatedValue = data.estimatedValue
   if (data.notes !== undefined) updateData.notes = data.notes?.trim() || null
+  if (data.adCampaign !== undefined) updateData.adCampaign = data.adCampaign?.trim() || null
+  if (data.adPlatform !== undefined) updateData.adPlatform = data.adPlatform?.trim() || null
+  if (data.adCost !== undefined) updateData.adCost = data.adCost
 
   const lead = await prisma.lead.update({ where: { id }, data: updateData })
 
@@ -755,4 +771,386 @@ export async function getLeadPipelineStats() {
       {} as Record<string, { count: number; value: unknown }>
     )
   )
+}
+
+// ============================================
+// CREATE FROM A FORM
+// ============================================
+
+/**
+ * What the create-lead screen sends.
+ *
+ * Separate from `LeadFormData` because that type is the ported action's own
+ * shape and the webhooks fill it too; this one carries the extra flag the
+ * screen needs to say "yes, I saw the duplicate warning, do it anyway".
+ */
+export type LeadInput = {
+  name: string
+  companyName?: string
+  email?: string
+  phone?: string
+  source?: LeadSource
+  channel?: string
+  salesRep?: string
+  status?: LeadStatus
+  assignedToId?: string
+  estimatedValue?: number
+  notes?: string
+  adCampaign?: string
+  adPlatform?: string
+  adCost?: number
+  /** Set once the caller has been shown the lead this looks like. */
+  allowDuplicate?: boolean
+}
+
+export type LeadCreateOutcome =
+  | { status: 'ok'; id: string; name: string }
+  | { status: 'error'; message: string }
+  | {
+      status: 'duplicate'
+      message: string
+      existing: {
+        id: string
+        name: string
+        companyName: string | null
+        email: string | null
+        status: LeadStatus
+      }
+    }
+
+const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+/**
+ * Create a lead from the screen, with a result the screen can render.
+ *
+ * `createLead` throws, which is right for a webhook and useless to a form, so
+ * this is the same thin layer `lib/actions/accounts.ts` puts over
+ * `createClient`. The one thing it adds is the duplicate question: enquiries
+ * arrive twice constantly — the same person fills in the website form and then
+ * rings — and `findMatchingLead` is the dedupe every inbound path already uses.
+ * Asking here means the person keying it in gets the same answer the webhook
+ * would have, instead of quietly opening the second record.
+ *
+ * It asks rather than refuses. Two people at one company is a real thing, and a
+ * form that will not let you record the second one gets worked around.
+ */
+export async function createLeadFromForm(input: LeadInput): Promise<LeadCreateOutcome> {
+  const auth = await requireEditor()
+  if (!auth.authorized) {
+    return { status: 'error', message: auth.error ?? 'Unauthorized' }
+  }
+
+  const name = input.name.trim()
+  if (!name) return { status: 'error', message: 'A lead needs a name.' }
+
+  const email = input.email?.trim()
+  // Loose on purpose, as everywhere else here: refusing a real address because
+  // it fails a regex is worse than storing one that bounces.
+  if (email && !EMAIL_SHAPE.test(email)) {
+    return { status: 'error', message: `"${email}" does not look like an email address.` }
+  }
+
+  if (input.estimatedValue != null && (!Number.isFinite(input.estimatedValue) || input.estimatedValue < 0)) {
+    return { status: 'error', message: 'An estimated value is a positive amount, or nothing at all.' }
+  }
+  if (input.adCost != null && (!Number.isFinite(input.adCost) || input.adCost < 0)) {
+    return { status: 'error', message: 'Cost to acquire is a positive amount, or nothing at all.' }
+  }
+
+  if (!input.allowDuplicate) {
+    const existing = await findMatchingLead({
+      name,
+      email: email || undefined,
+      phone: input.phone?.trim() || undefined,
+      companyName: input.companyName?.trim() || undefined,
+    })
+    if (existing) {
+      return {
+        status: 'duplicate',
+        message: `This looks like a lead that is already here — ${existing.name}${existing.companyName ? ` at ${existing.companyName}` : ''}.`,
+        existing: {
+          id: existing.id,
+          name: existing.name,
+          companyName: existing.companyName,
+          email: existing.email,
+          status: existing.status,
+        },
+      }
+    }
+  }
+
+  try {
+    const lead = await createLead({
+      name,
+      email: email || undefined,
+      phone: input.phone?.trim() || undefined,
+      companyName: input.companyName?.trim() || undefined,
+      source: input.source,
+      channel: input.channel?.trim() || undefined,
+      salesRep: input.salesRep?.trim() || undefined,
+      status: input.status,
+      assignedToId: input.assignedToId || undefined,
+      estimatedValue: input.estimatedValue,
+      notes: input.notes?.trim() || undefined,
+      adCampaign: input.adCampaign?.trim() || undefined,
+      adPlatform: input.adPlatform?.trim() || undefined,
+      adCost: input.adCost,
+    })
+    return { status: 'ok', id: lead.id, name: lead.name }
+  } catch (cause) {
+    return {
+      status: 'error',
+      message: cause instanceof Error ? cause.message : 'Could not save the lead.',
+    }
+  }
+}
+
+/**
+ * Who a lead can be handed to.
+ *
+ * `lib/actions/users.getUsers` is admin-only and returns far more than a picker
+ * needs, and an unassigned live lead is the single failure mode the Leads list
+ * exists to catch — so anyone who can create one can name its owner.
+ */
+export async function getLeadAssignees() {
+  const auth = await requireAuth()
+  if (!auth.authorized) return []
+
+  const users = await prisma.user.findMany({
+    select: { id: true, name: true },
+    orderBy: { name: 'asc' },
+  })
+  return serialize(users)
+}
+
+// ============================================
+// ONBOARDING — the link, and who it goes to
+// ============================================
+
+/**
+ * Where the onboarding form lives.
+ *
+ * A `Setting` row rather than an environment variable, because the form is a
+ * hosted thing that moves — a new Typeform, a different HubSpot page — and
+ * moving it should not mean a redeploy. Read and written the same way every
+ * other integration setting in this codebase is (`lib/integrations/zapier.ts`,
+ * `lib/actions/agreement.ts`): one keyed row holding a JSON value.
+ */
+const ONBOARDING_URL_KEY = 'onboarding_form_url'
+
+async function readOnboardingUrl(): Promise<string | null> {
+  const row = await prisma.setting.findUnique({ where: { key: ONBOARDING_URL_KEY } })
+  const value = row?.value
+  const url = typeof value === 'string' ? value.trim() : null
+  return url || null
+}
+
+export type OnboardingLinkState = {
+  /** Null until somebody sets it. Nothing can be sent before that. */
+  url: string | null
+  /** Whether this user may change where it points. */
+  canConfigure: boolean
+  /** False on this instance — RESEND_API_KEY is blank by design. */
+  emailConfigured: boolean
+}
+
+export async function getOnboardingLink(): Promise<OnboardingLinkState> {
+  const auth = await requireEditor()
+  if (!auth.authorized) {
+    return { url: null, canConfigure: false, emailConfigured: false }
+  }
+
+  return {
+    url: await readOnboardingUrl(),
+    canConfigure: isAdmin(auth.role),
+    emailConfigured: isEmailConfigured(),
+  }
+}
+
+export async function saveOnboardingLink(
+  url: string
+): Promise<{ status: 'ok'; url: string } | { status: 'error'; message: string }> {
+  const auth = await requireAdmin()
+  if (!auth.authorized) {
+    return { status: 'error', message: auth.error ?? 'Admin access required' }
+  }
+
+  const trimmed = url.trim()
+  let parsed: URL
+  try {
+    parsed = new URL(trimmed)
+  } catch {
+    return { status: 'error', message: 'That is not a URL. It needs the https:// too.' }
+  }
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    return { status: 'error', message: 'The onboarding link has to be an http or https address.' }
+  }
+
+  const previous = await readOnboardingUrl()
+
+  await prisma.setting.upsert({
+    where: { key: ONBOARDING_URL_KEY },
+    update: { value: trimmed },
+    create: { key: ONBOARDING_URL_KEY, value: trimmed },
+  })
+
+  await logAudit({
+    action: 'UPDATE',
+    entityType: 'Settings',
+    entityId: ONBOARDING_URL_KEY,
+    oldValues: { url: previous },
+    newValues: { url: trimmed },
+    userId: auth.userId,
+  })
+
+  return { status: 'ok', url: trimmed }
+}
+
+export type OnboardOutcome =
+  | {
+      status: 'ok'
+      leadId: string
+      leadName: string
+      /** True when this attached to an enquiry that was already on file. */
+      merged: boolean
+      /**
+       * The onboarding link, always returned — never only mailed. Outbound
+       * email is off on this instance, so this is usually the only copy that
+       * exists and somebody has to pass it on by hand.
+       */
+      url: string
+      /** Whether the email actually left. */
+      delivered: boolean
+      email: string
+    }
+  | { status: 'error'; message: string }
+  | { status: 'unconfigured'; message: string; canConfigure: boolean }
+
+/** A usable name out of an address, for when nobody typed one. */
+function nameFromEmail(email: string): string {
+  const local = email.split('@')[0] ?? email
+  const words = local
+    .split(/[._+-]+/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+  return words.join(' ') || email
+}
+
+/**
+ * Ask somebody to onboard: an email address in, a link out.
+ *
+ * The address is run through `findMatchingLead` first, so pressing this on
+ * somebody who already rang in adds a touchpoint to their record rather than
+ * opening a second one — the same dedupe the website form and the JustCall
+ * webhook go through.
+ *
+ * What it deliberately does **not** send is the quote. The address has not been
+ * verified by anybody, and a quote link is the full rate card; onboarding is
+ * what earns it. Hence the button copy: "Request onboarding", not "Send quote".
+ *
+ * `sendEmail` never throws — it returns `{success:false}` when there is no
+ * Resend key, which is the standing state here — so the boolean is checked and
+ * the link is returned either way. An action that quietly reported success
+ * while the mail went nowhere is the failure this shape exists to prevent.
+ */
+export async function requestOnboarding(input: {
+  email: string
+  name?: string
+  companyName?: string
+  phone?: string
+}): Promise<OnboardOutcome> {
+  const auth = await requireEditor()
+  if (!auth.authorized) {
+    return { status: 'error', message: auth.error ?? 'Unauthorized' }
+  }
+
+  const email = input.email.trim().toLowerCase()
+  if (!EMAIL_SHAPE.test(email)) {
+    return {
+      status: 'error',
+      message: `"${input.email.trim()}" does not look like an email address.`,
+    }
+  }
+
+  const url = await readOnboardingUrl()
+  if (!url) {
+    return {
+      status: 'unconfigured',
+      message:
+        'No onboarding form has been set, so there is no link to send. Set where it points first.',
+      canConfigure: isAdmin(auth.role),
+    }
+  }
+
+  const name = input.name?.trim() || nameFromEmail(email)
+  const companyName = input.companyName?.trim() || undefined
+  const phone = input.phone?.trim() || undefined
+
+  const existing = await findMatchingLead({ name, email, phone, companyName })
+
+  let leadId: string
+  let leadName: string
+
+  if (existing) {
+    await mergeIntoLead(
+      existing.id,
+      { email, phone, companyName, channel: 'Onboarding request', source: 'DIRECT' },
+      {
+        // QUALIFIED, not PROSPECT: nothing has been quoted yet, and
+        // `shouldAdvanceStatus` only ever moves forward, so a lead already
+        // further along is left where it is.
+        suggestedStatus: 'QUALIFIED',
+        activityTitle: 'Onboarding requested',
+        activityDescription: `Onboarding form sent to ${email}`,
+        createdById: auth.userId,
+      }
+    )
+    leadId = existing.id
+    leadName = existing.name
+  } else {
+    const created = await createLead({
+      name,
+      email,
+      phone,
+      companyName,
+      source: 'DIRECT',
+      channel: 'Onboarding request',
+      status: 'QUALIFIED',
+      assignedToId: auth.userId,
+    })
+    leadId = created.id
+    leadName = created.name
+  }
+
+  const message = onboardingInviteEmail({ name: leadName, formUrl: url, companyName })
+  const sent = await sendEmail({ to: email, subject: message.subject, html: message.html })
+  const delivered = sent.success
+
+  // Recorded either way. "We asked them to onboard on the 9th" is the fact
+  // somebody needs a fortnight later, and it is not true unless the mail went.
+  await prisma.leadActivity.create({
+    data: {
+      leadId,
+      type: delivered ? 'EMAIL' : 'SYSTEM',
+      title: delivered ? 'Onboarding link emailed' : 'Onboarding link created — not sent',
+      description: delivered
+        ? `Onboarding form sent to ${email}.`
+        : `Outbound email is switched off, so nothing was delivered. The link was handed to whoever pressed the button to pass on: ${url}`,
+      metadata: { url, delivered, reason: sent.error ?? null },
+      createdById: auth.userId,
+    },
+  })
+
+  revalidatePath('/dashboard/leads')
+  revalidatePath(`/dashboard/leads/${leadId}`)
+
+  return {
+    status: 'ok',
+    leadId,
+    leadName,
+    merged: !!existing,
+    url,
+    delivered,
+    email,
+  }
 }

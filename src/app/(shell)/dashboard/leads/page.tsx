@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import Link from "next/link";
 import { FilterTabs, FilterTabsSkeleton } from "@/components/list/filter-tabs";
 import { ListSearch } from "@/components/list/list-search";
 import {
@@ -200,7 +201,17 @@ export default async function LeadsPage({
             <HeaderBlurb />
           </Suspense>
         }
-        actions={<ListSearch placeholder="Search leads, companies, email" />}
+        actions={
+          <>
+            <ListSearch placeholder="Search leads, companies, email" />
+            <Link
+              href="/dashboard/leads/new"
+              className="rounded-pill bg-accent-solid px-4 py-2 text-pill text-accent-on-solid"
+            >
+              New lead
+            </Link>
+          </>
+        }
       />
 
       <div className="flex items-center gap-3">

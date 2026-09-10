@@ -1827,3 +1827,55 @@ export function taskStatusChangedEmail(
     `),
   }
 }
+
+// ============================================
+// ONBOARDING
+// ============================================
+
+/**
+ * The message that carries the onboarding form link to a prospect.
+ *
+ * Deliberately says nothing about price. This goes to an address nobody has
+ * verified yet, which is exactly why the quote link is withheld until the form
+ * comes back — a quote in an unverified inbox is the whole rate card in the
+ * hands of whoever mistyped their email.
+ *
+ * The destination is a `Setting` row rather than a constant here, so the form
+ * can move without a deploy.
+ */
+export function onboardingInviteEmail(data: {
+  name: string
+  formUrl: string
+  companyName?: string | null
+}) {
+  const safeName = escapeHtml(data.name)
+  const safeUrl = escapeHtml(data.formUrl)
+  const forWhom = data.companyName
+    ? ` for ${escapeHtml(data.companyName)}`
+    : ''
+
+  return {
+    subject: 'Getting you set up with VFXNow',
+    html: baseLayout(`
+      <h2 style="margin: 0 0 16px; color: #18181b; font-size: 20px;">A few details before we quote${forWhom}</h2>
+      <p style="color: #3f3f46; line-height: 1.6;">Hi ${safeName},</p>
+      <p style="color: #3f3f46; line-height: 1.6;">
+        Thanks for getting in touch. Before we can put a quote together we need a
+        little information about you &mdash; billing details, where equipment
+        would ship, and who to reach. The form below takes a couple of minutes.
+      </p>
+      <div style="text-align: center; margin: 28px 0;">
+        <a href="${safeUrl}" style="background: #18181b; color: #ffffff; padding: 12px 32px; border-radius: 6px; text-decoration: none; font-weight: 500; display: inline-block;">
+          Start onboarding
+        </a>
+      </div>
+      <p style="color: #71717a; font-size: 13px; line-height: 1.6;">
+        If the button does not work, paste this into your browser:<br>
+        <span style="word-break: break-all;">${safeUrl}</span>
+      </p>
+      <p style="color: #71717a; font-size: 13px; line-height: 1.6;">
+        Reply to this email if anything on the form does not apply to you.
+      </p>
+    `),
+  }
+}
