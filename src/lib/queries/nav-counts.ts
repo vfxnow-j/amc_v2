@@ -52,7 +52,7 @@ export async function getNavCounts(): Promise<NavCounts> {
       operate: openOrders,
       inventory: rentableUnits,
       service: openWorkOrders,
-      revenue: unpaidInvoices,
+      accounting: unpaidInvoices,
       clients: activeClients,
       // Insight carries no count in the reference — it's a read surface.
     },

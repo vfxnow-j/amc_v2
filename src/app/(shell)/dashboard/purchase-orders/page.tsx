@@ -169,7 +169,7 @@ export default async function PurchaseOrdersPage({
   return (
     <>
       <PageHeader
-        eyebrow="Revenue"
+        eyebrow="Accounting"
         title="Purchase orders"
         blurb={
           <Suspense fallback="Totalling what's on order…">

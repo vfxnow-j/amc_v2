@@ -50,7 +50,7 @@ export default async function InvoiceRecordPage({ params }: Params) {
   return (
     <>
       <PageHeader
-        eyebrow="Revenue · Invoice"
+        eyebrow="Accounting · Invoice"
         title={invoice.invoiceNumber}
         blurb={
           <>

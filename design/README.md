@@ -78,7 +78,9 @@ that back it.
 | Maintenance log | `maintenance` (`MaintenanceRecord`) | Existing route folds in here |
 | Coverage & RMA | `ServiceCoverage` | Warranty/coverage expiry tracking |
 
-### 4. Revenue — `RV`
+### 4. Accounting — `AC`
+*(named Revenue in the original handoff; renamed 2026-09-09 — the cluster holds
+money going out as well as coming in.)*
 | Nav item | Existing route(s) | Notes |
 |---|---|---|
 | Invoices | `invoices` | Unchanged |

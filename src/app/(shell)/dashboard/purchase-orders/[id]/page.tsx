@@ -73,7 +73,7 @@ export default async function PurchaseOrderRecordPage({ params }: Params) {
   return (
     <>
       <PageHeader
-        eyebrow="Revenue · Purchase order"
+        eyebrow="Accounting · Purchase order"
         title={po.poNumber}
         blurb={
           <>

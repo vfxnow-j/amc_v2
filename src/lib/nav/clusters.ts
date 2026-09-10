@@ -15,7 +15,7 @@ export type ClusterId =
   | "operate"
   | "inventory"
   | "service"
-  | "revenue"
+  | "accounting"
   | "clients"
   | "insight";
 
@@ -203,9 +203,12 @@ export const NAV_CLUSTERS: NavCluster[] = [
     ],
   },
   {
-    id: "revenue",
-    code: "RV",
-    label: "Revenue",
+    // Renamed from Revenue, 2026-09-09. "Revenue" named what comes in, but the
+    // cluster has always held both directions — purchase orders and leases are
+    // money going out. Accounting is what the screens actually are.
+    id: "accounting",
+    code: "AC",
+    label: "Accounting",
     roles: ALL_ADMIN,
     pages: [
       {

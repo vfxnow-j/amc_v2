@@ -49,7 +49,7 @@ async function LeaseRecord({ id }: { id: string }) {
   return (
     <>
       <PageHeader
-        eyebrow="Revenue · Lease"
+        eyebrow="Accounting · Lease"
         title={lease.leaseNumber}
         blurb={
           <>

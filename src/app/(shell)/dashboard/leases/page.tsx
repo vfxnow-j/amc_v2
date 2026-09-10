@@ -96,7 +96,7 @@ export default async function LeasesPage() {
   return (
     <>
       <PageHeader
-        eyebrow="Revenue"
+        eyebrow="Accounting"
         title="Leases"
         blurb="The financing behind the fleet — what the business borrowed to buy hardware, and how far through paying it is"
       />

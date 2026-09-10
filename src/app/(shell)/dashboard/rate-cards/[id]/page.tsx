@@ -65,7 +65,7 @@ export default async function RateCardRecordPage({ params }: Params) {
   return (
     <>
       <PageHeader
-        eyebrow="Revenue · Rate card"
+        eyebrow="Accounting · Rate card"
         title={card.name}
         blurb={
           <>

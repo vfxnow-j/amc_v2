@@ -122,7 +122,7 @@ export default async function PaymentsPage({
   return (
     <>
       <PageHeader
-        eyebrow="Revenue"
+        eyebrow="Accounting"
         title="Payments"
         blurb="What has come in, and against which invoice"
         actions={<ListSearch placeholder="Search reference, invoice, client" />}

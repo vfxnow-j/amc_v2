@@ -196,7 +196,7 @@ export default async function InvoicesPage({
   return (
     <>
       <PageHeader
-        eyebrow="Revenue"
+        eyebrow="Accounting"
         title="Invoices"
         blurb={
           <Suspense fallback="Totalling what's owed…">

@@ -77,7 +77,7 @@ export default async function RateCardsPage() {
   return (
     <>
       <PageHeader
-        eyebrow="Revenue"
+        eyebrow="Accounting"
         title="Rate cards"
         blurb="What each category is priced at, before per-order adjustment"
       />

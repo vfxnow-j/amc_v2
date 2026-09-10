@@ -453,7 +453,7 @@ Ordered by what unblocks dev testing first, not by cluster.
 - Category create/edit — `createCategory` `updateCategory` `deleteCategory`
   (Settings → Categories has a form; confirm it is wired end to end)
 
-**2 · Revenue — money in and out.**
+**2 · Accounting — money in and out.**
 - Invoice create/edit standalone — `createInvoice` `updateInvoice`
   (only `createInvoiceFromReservation` is reachable, from an order)
 - Purchase order create/edit — `createPurchaseOrder` `updatePurchaseOrder`
