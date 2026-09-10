@@ -12,6 +12,11 @@ import { logAudit } from './audit'
 import { notifyNewLead } from './notifications'
 import { generateReservationNumber } from './reservations'
 import { syncReservationDeal } from '@/lib/integrations/hubspot'
+import {
+  applyOnboardingToLead,
+  type OnboardingApplied,
+  type OnboardingPayload,
+} from '@/lib/leads/onboarding'
 import type { LeadSource, LeadStatus, Prisma } from '@/generated/prisma/client'
 
 // ============================================
@@ -1153,4 +1158,133 @@ export async function requestOnboarding(input: {
     delivered,
     email,
   }
+}
+
+// ============================================
+// THE PROSPECT PATH — a quote before an account
+// ============================================
+
+/**
+ * File a held quote against the lead it was raised for.
+ *
+ * The prospect path creates three things — a lead, a shell client and a draft
+ * order — and this is the join. Without it the lead says "onboarding
+ * requested" and the order sits under a client nobody can explain; with it,
+ * opening either one leads to the other.
+ *
+ * PROSPECT, not WON: a quote exists, which is what this stage means here.
+ * Winning is the order being approved, and an order held for somebody who has
+ * not onboarded is the one thing `approveOrder` refuses to do.
+ */
+export async function linkLeadToProspectOrder(
+  leadId: string,
+  clientId: string,
+  reservationId: string,
+  reservationNumber: string
+) {
+  const auth = await requireEditor()
+  if (!auth.authorized) return { status: 'error' as const, message: auth.error ?? 'Unauthorized' }
+
+  const lead = await prisma.lead.findUnique({
+    where: { id: leadId },
+    select: { id: true, status: true, convertedToClientId: true },
+  })
+  if (!lead) return { status: 'error' as const, message: 'Lead not found' }
+
+  const advanced = shouldAdvanceStatus(lead.status, 'PROSPECT')
+
+  await prisma.lead.update({
+    where: { id: leadId },
+    data: {
+      convertedToClientId: clientId,
+      convertedReservationId: reservationId,
+      convertedAt: new Date(),
+      ...(advanced ? { status: 'PROSPECT' as LeadStatus } : {}),
+    },
+  })
+
+  await prisma.leadActivity.create({
+    data: {
+      leadId,
+      type: 'SYSTEM',
+      title: 'Quote held pending onboarding',
+      description: `${reservationNumber} was priced and saved as a draft. It is not sent — the onboarding form has to come back first.`,
+      metadata: { reservationId, clientId, prospect: true },
+      createdById: auth.userId,
+    },
+  })
+
+  if (advanced) {
+    await prisma.leadActivity.create({
+      data: {
+        leadId,
+        type: 'STATUS_CHANGE',
+        title: `Pipeline advanced: ${lead.status} → PROSPECT`,
+        description: 'A quote exists for them.',
+        metadata: { previousStatus: lead.status, newStatus: 'PROSPECT' },
+        createdById: auth.userId,
+      },
+    })
+  }
+
+  revalidatePath('/dashboard/leads')
+  revalidatePath(`/dashboard/leads/${leadId}`)
+  return { status: 'ok' as const }
+}
+
+export type RecordOnboardingOutcome =
+  | { status: 'ok'; message: string; applied: OnboardingApplied }
+  | { status: 'error'; message: string }
+
+/**
+ * Record an onboarding that arrived by some route the app cannot see.
+ *
+ * This is not a convenience. `RESEND_API_KEY` and the Zapier secret are both
+ * blank on this instance, so the form is passed on by hand and comes back by
+ * hand — and without this button the loop does not close at all: the client
+ * stays provisional, `approveOrder` keeps refusing, and the quote nobody may
+ * send sits there forever. The webhook automates this path later; it does not
+ * replace it, because a form filled in over the phone never touches Zapier.
+ *
+ * The gate is here rather than in `applyOnboardingToLead` because the webhook
+ * shares that core and authenticates a different way. See its header.
+ */
+export async function recordOnboarding(
+  leadId: string,
+  payload: OnboardingPayload
+): Promise<RecordOnboardingOutcome> {
+  const auth = await requireEditor()
+  if (!auth.authorized) {
+    return { status: 'error', message: auth.error ?? 'Unauthorized' }
+  }
+
+  const email = payload.email?.trim()
+  if (email && !EMAIL_SHAPE.test(email)) {
+    return { status: 'error', message: `"${email}" does not look like an email address.` }
+  }
+
+  const result = await applyOnboardingToLead(leadId, payload, {
+    userId: auth.userId,
+    via: 'manual',
+  })
+  if ('error' in result) return { status: 'error', message: result.error }
+
+  const parts = [
+    result.clientCreated
+      ? `${result.clientName} now has an account.`
+      : result.wasProspect
+        ? `${result.clientName} is a full account now — the quote was being held against a provisional one.`
+        : `${result.clientName} is on file already, so this was recorded against that account.`,
+    result.filled.length > 0
+      ? `Filled ${result.filled.join(', ').toLowerCase()}.`
+      : 'Nothing was blank, so nothing on the account changed.',
+    result.keptTyped.length > 0
+      ? `Kept what was already recorded for ${result.keptTyped.join(', ').toLowerCase()} — the form disagreed and the record won.`
+      : null,
+    result.order?.flagged
+      ? `${result.order.reservationNumber} is flagged for a decision: it can be sent now.`
+      : null,
+  ].filter(Boolean)
+
+  return { status: 'ok', message: parts.join(' '), applied: result }
 }

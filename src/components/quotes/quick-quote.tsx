@@ -5,9 +5,12 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Search, X } from "lucide-react";
 import { lookupAssets, lookupClients } from "@/lib/actions/order-builder";
-import { createQuickQuote } from "@/lib/actions/quick-quote";
+import { createProspectQuote, createQuickQuote } from "@/lib/actions/quick-quote";
 import type { AssetAvailability } from "@/lib/queries/order-builder";
-import type { QuickQuoteOutcome } from "@/lib/quotes/contract";
+import type {
+  ProspectQuoteOutcome,
+  QuickQuoteOutcome,
+} from "@/lib/quotes/contract";
 import { SUBTOTAL_LABEL, estimateQuote } from "@/lib/quotes/estimate";
 import { formatTermLength, periodUnitAbbrev } from "@/lib/pricing/periods";
 import { Modal, ModalCancel } from "@/components/feedback/modal";
@@ -65,12 +68,15 @@ function iso(date: Date) {
  *    person flip a line to "weekly" here and the monthly number would keep its
  *    value under a `/wk` label: a roughly fourfold overcharge on a quote.
  *    Each line is priced in the unit the catalog quotes it in, full stop.
- *  - **No new accounts.** Quick Quote is for a client who already exists. A
- *    prospect gets onboarded first; sending an unverified address a link that
- *    carries full pricing is not a shortcut worth having.
+ *  - **No quote to a prospect.** Somebody who is not an account yet can be
+ *    quoted — that is the second half of this dialog — but what leaves the
+ *    building is the onboarding form, not the quote. A quote link is the whole
+ *    rate card, and anyone can type anyone's address into a box. The quote is
+ *    saved, held against a provisional account, and released once their form
+ *    comes back.
  *
- * Existing clients only, and rentals only. The other three order types each
- * need a field this dialog does not ask for.
+ * Rentals only. The other three order types each need a field this dialog does
+ * not ask for.
  */
 export function QuickQuote({
   open,
@@ -94,7 +100,17 @@ export function QuickQuote({
   const [assetHits, setAssetHits] = useState<AssetAvailability[]>([]);
   const [lines, setLines] = useState<Line[]>([]);
 
-  const [outcome, setOutcome] = useState<QuickQuoteOutcome | null>(null);
+  // Set when the person is quoting somebody who is not an account yet. Null is
+  // the ordinary path; the two are never both live.
+  const [prospect, setProspect] = useState<{
+    email: string;
+    name: string;
+    companyName: string;
+  } | null>(null);
+
+  const [outcome, setOutcome] = useState<
+    QuickQuoteOutcome | ProspectQuoteOutcome | null
+  >(null);
   const [busy, startTransition] = useTransition();
   const typed = useRef(false);
 
@@ -124,8 +140,12 @@ export function QuickQuote({
   );
   const short = lines.filter((line) => line.quantity > line.free);
   const datesValid = start < end;
-  const ready = Boolean(client) && lines.length > 0 && datesValid;
+  const named = prospect
+    ? /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(prospect.email.trim())
+    : Boolean(client);
+  const ready = named && lines.length > 0 && datesValid;
   const done = outcome?.status === "ok";
+  const sent = done && "onboardingUrl" in outcome ? outcome : null;
 
   function update(index: number, patch: Partial<Line>) {
     setLines((current) =>
@@ -135,6 +155,7 @@ export function QuickQuote({
 
   function reset() {
     setClient(null);
+    setProspect(null);
     setClientQuery("");
     setClientHits([]);
     setAssetQuery("");
@@ -143,6 +164,39 @@ export function QuickQuote({
     setProjectName("");
     setOutcome(null);
     typed.current = false;
+  }
+
+  /** The lines, in the shape both actions take. */
+  function draftLines() {
+    return lines.map((line) => ({
+      assetId: line.assetId,
+      name: line.name,
+      quantity: line.quantity,
+      rate: line.rate,
+      pricingType: line.pricingType,
+      // Said out loud in the panel above, not decided silently: a line
+      // asking for more than is free raises the flag ops already reads.
+      ...(line.quantity > line.free ? { overbooked: true } : {}),
+    }));
+  }
+
+  /** The prospect path. One button, and it never sends the quote. */
+  function commitProspect() {
+    if (!prospect) return;
+    setOutcome(null);
+    startTransition(async () => {
+      const result = await createProspectQuote({
+        email: prospect.email.trim(),
+        name: prospect.name.trim() || undefined,
+        companyName: prospect.companyName.trim() || undefined,
+        start,
+        end,
+        projectName: projectName.trim() || undefined,
+        lines: draftLines(),
+      });
+      setOutcome(result);
+      if (result.status === "ok") router.refresh();
+    });
   }
 
   function commit(send: boolean) {
@@ -154,16 +208,7 @@ export function QuickQuote({
         end,
         projectName: projectName.trim() || undefined,
         send,
-        lines: lines.map((line) => ({
-          assetId: line.assetId,
-          name: line.name,
-          quantity: line.quantity,
-          rate: line.rate,
-          pricingType: line.pricingType,
-          // Said out loud in the panel above, not decided silently: a line
-          // asking for more than is free raises the flag ops already reads.
-          ...(line.quantity > line.free ? { overbooked: true } : {}),
-        })),
+        lines: draftLines(),
       });
       setOutcome(result);
       if (result.status === "ok") router.refresh();
@@ -181,7 +226,9 @@ export function QuickQuote({
       blurb={
         done
           ? "Saved. The figures below are the order's own, read back after it was written."
-          : "A price against a client you already have. It saves as an order, so nothing is quoted twice."
+          : prospect
+            ? "A price for somebody who is not an account yet. It saves as a draft and is held — they get the onboarding form, not the quote."
+            : "A price against a client you already have. It saves as an order, so nothing is quoted twice."
       }
       footer={
         done ? (
@@ -193,6 +240,18 @@ export function QuickQuote({
             >
               Open the order
             </Link>
+          </>
+        ) : prospect ? (
+          <>
+            <ModalCancel />
+            <button
+              type="button"
+              disabled={busy || !ready}
+              onClick={commitProspect}
+              className="h-9 rounded-pill bg-accent-solid px-4 text-pill text-accent-on-solid disabled:opacity-50"
+            >
+              {busy ? "Working…" : "Hold quote · request onboarding"}
+            </button>
           </>
         ) : (
           <>
@@ -218,13 +277,123 @@ export function QuickQuote({
       }
     >
       {done ? (
-        <Notice tone="ok">{outcome.message}</Notice>
+        <div className="flex flex-col gap-3">
+          <Notice tone="ok">{outcome.message}</Notice>
+
+          {sent ? (
+            <>
+              {sent.delivered ? (
+                <p className="text-detail text-ink-muted">
+                  The onboarding form went to {sent.email}.
+                </p>
+              ) : (
+                <div className="rounded-well bg-sunken p-3">
+                  <p className="mb-1 text-detail text-ink-muted">
+                    Outbound email is switched off here, so{" "}
+                    <span className="font-bold text-ink">
+                      nothing reached {sent.email}
+                    </span>
+                    . Send them this form link yourself — the quote stays put
+                    until it comes back.
+                  </p>
+                  <code className="block break-all rounded-row bg-panel/60 p-2 text-[11px] select-all">
+                    {sent.onboardingUrl}
+                  </code>
+                </div>
+              )}
+              <p className="text-detail text-ink-muted">
+                <Link
+                  href={`/dashboard/leads/${sent.leadId}`}
+                  className="text-accent-text underline"
+                >
+                  Open {sent.leadName}
+                </Link>{" "}
+                — record their onboarding there when it lands, and the quote can
+                be sent and approved.
+              </p>
+            </>
+          ) : null}
+        </div>
       ) : (
         <div className="flex flex-col gap-3">
           {outcome?.status === "error" ? (
             <Notice tone="error">{outcome.message}</Notice>
           ) : null}
 
+          {outcome?.status === "client-exists" ? (
+            <Notice tone="error">
+              <p className="mb-2">{outcome.message}</p>
+              <button
+                type="button"
+                onClick={() => {
+                  setClient(outcome.client);
+                  setProspect(null);
+                  setOutcome(null);
+                }}
+                className="h-8 rounded-pill bg-panel px-3 text-pill text-ink"
+              >
+                Quote {outcome.client.name} as a client
+              </button>
+            </Notice>
+          ) : null}
+
+          {prospect ? (
+            <div className="flex flex-col gap-2 rounded-well bg-sunken p-3">
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="text-micro uppercase text-ink-muted">
+                  Somebody new
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setProspect(null);
+                    setOutcome(null);
+                  }}
+                  className="text-micro text-ink-faint underline hover:text-ink"
+                >
+                  Back to clients
+                </button>
+              </div>
+
+              <input
+                type="email"
+                value={prospect.email}
+                autoFocus
+                onChange={(event) =>
+                  setProspect({ ...prospect, email: event.target.value })
+                }
+                placeholder="them@studio.com"
+                aria-label="Their email"
+                className={`${FIELD} bg-panel`}
+              />
+              <div className="grid gap-2 sm:grid-cols-2">
+                <input
+                  value={prospect.name}
+                  onChange={(event) =>
+                    setProspect({ ...prospect, name: event.target.value })
+                  }
+                  placeholder="Name (optional)"
+                  aria-label="Their name"
+                  className={`${FIELD} bg-panel`}
+                />
+                <input
+                  value={prospect.companyName}
+                  onChange={(event) =>
+                    setProspect({ ...prospect, companyName: event.target.value })
+                  }
+                  placeholder="Company (optional)"
+                  aria-label="Their company"
+                  className={`${FIELD} bg-panel`}
+                />
+              </div>
+              <p className="text-micro text-ink-faint">
+                They get the onboarding form at this address. They do not get
+                the quote — it is held against a provisional account until the
+                form comes back, and cannot be approved or sent before then. If
+                they have rung before, this lands on their existing lead.
+              </p>
+            </div>
+          ) : (
           <div>
             <label className={LABEL} htmlFor="qq-client">
               Client
@@ -279,22 +448,44 @@ export function QuickQuote({
                   </ul>
                 ) : null}
                 {clientQuery.trim().length >= 2 && clientHits.length === 0 ? (
-                  <p className="mt-1 text-detail text-ink-muted">
-                    No match. Quick quote only prices against a client who
-                    already exists — start someone new with Onboard, or build
-                    the order in full at{" "}
-                    <Link
-                      href="/dashboard/orders/new"
-                      className="text-accent-text hover:underline"
+                  <div className="mt-1 rounded-well bg-sunken p-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setOutcome(null);
+                        setProspect({
+                          email: "",
+                          // Whatever was typed into the search is a name far
+                          // more often than it is a company, and retyping it is
+                          // the sort of friction that loses the call.
+                          name: clientQuery.trim(),
+                          companyName: "",
+                        });
+                        setClientQuery("");
+                        setClientHits([]);
+                      }}
+                      className="w-full rounded-row px-2 py-[6px] text-left text-detail text-accent-text hover:bg-row-hover"
                     >
-                      New order
-                    </Link>
-                    .
-                  </p>
+                      No match — quote “{clientQuery.trim()}” as somebody new
+                    </button>
+                    <p className="px-2 pt-1 text-micro text-ink-faint">
+                      Opens a lead, holds the quote against a provisional
+                      account and asks them to onboard. Nothing priced is sent
+                      to them. The full builder is at{" "}
+                      <Link
+                        href="/dashboard/orders/new"
+                        className="text-accent-text hover:underline"
+                      >
+                        New order
+                      </Link>
+                      .
+                    </p>
+                  </div>
                 ) : null}
               </>
             )}
           </div>
+          )}
 
           <div className="grid grid-cols-2 gap-2">
             <div>

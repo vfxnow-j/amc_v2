@@ -35,7 +35,11 @@ export async function getLeadHeader(id: string) {
       lostReason: true,
       lostAt: true,
       convertedToClientId: true,
-      convertedToClient: { select: { id: true, name: true } },
+      // `prospectAt` rides along because the record has to say when the
+      // account behind a lead is only a shell holding a quote — that is the
+      // one state where "Record onboarding" is the next thing to do rather
+      // than a tidy-up.
+      convertedToClient: { select: { id: true, name: true, prospectAt: true } },
       convertedReservationId: true,
       convertedAt: true,
       boundToReservationId: true,

@@ -3,6 +3,7 @@ import type { LeadStatus } from "@/generated/prisma/client";
 import { Card, CardEmpty, Field, Unset } from "@/components/record/record-card";
 import { LeadDesk } from "@/components/leads/lead-desk";
 import { LeadResolve } from "@/components/leads/lead-resolve";
+import { RecordOnboarding } from "@/components/leads/record-onboarding";
 import { LEAD_SOURCE_LABEL, LEAD_STATUS_LABEL } from "@/lib/clients/labels";
 import { dayYear, money } from "@/lib/format";
 import {
@@ -262,9 +263,21 @@ export async function ActivityCard({ id }: { id: string }) {
   );
 }
 
-/** Owner, status and the log-it form — the panel somebody works from. */
+/**
+ * Owner, status and the log-it form — the panel somebody works from.
+ *
+ * "Record onboarding" sits here rather than under Convert because it is not a
+ * conversion: it is the fact that arrives from outside and unblocks everything
+ * else. With mail off and the Zapier secret unset it is also the only way that
+ * fact ever reaches the app, so it is a button on the panel people actually
+ * work from and not a menu item.
+ */
 export async function DeskCard({ lead }: { lead: LeadHeader }) {
   const owners = await getLeadOwners();
+  const prospect = !!lead.convertedToClient?.prospectAt;
+  // A lead somebody closed does not need an onboarding button — unless a quote
+  // is stuck behind a provisional account, which no status makes untrue.
+  const offer = prospect || !(lead.status === "LOST" || lead.status === "UNQUALIFIED");
 
   return (
     <Card
@@ -278,6 +291,27 @@ export async function DeskCard({ lead }: { lead: LeadHeader }) {
         owners={owners}
         resolved={isResolved(lead.status)}
       />
+
+      {offer ? (
+        <div className="flex flex-wrap items-center gap-2 px-4 pb-4">
+          <RecordOnboarding
+            leadId={lead.id}
+            leadName={lead.name}
+            prospect={prospect}
+            defaults={{
+              name: lead.name,
+              email: lead.email,
+              phone: lead.phone,
+              companyName: lead.companyName,
+            }}
+          />
+          <span className="min-w-0 flex-1 text-micro text-ink-faint">
+            {prospect
+              ? "A quote is held against a provisional account. It cannot be approved or sent until their form is recorded."
+              : "For a form that came back by phone, by reply, or as an attachment."}
+          </span>
+        </div>
+      ) : null}
     </Card>
   );
 }

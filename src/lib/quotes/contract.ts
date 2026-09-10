@@ -36,3 +36,51 @@ export type QuickQuoteInput = {
 export type QuickQuoteOutcome =
   | { status: "ok"; message: string; href: string }
   | { status: "error"; message: string };
+
+/**
+ * A quote for somebody who is not an account yet.
+ *
+ * Deliberately not a variant of `QuickQuoteInput`: it carries no `clientId`
+ * because there is no client, and no `send` because a prospect quote is never
+ * sent. The address has not been verified by anybody and a quote link is the
+ * whole rate card; onboarding is what earns it.
+ */
+export type ProspectQuoteInput = {
+  /** The only field that is genuinely required — everything hangs off it. */
+  email: string;
+  name?: string;
+  companyName?: string;
+  phone?: string;
+  /** Date-only, `YYYY-MM-DD`, as the date inputs produce them. */
+  start: string;
+  end: string;
+  projectName?: string;
+  lines: DraftLine[];
+};
+
+export type ProspectQuoteOutcome =
+  | {
+      status: "ok";
+      message: string;
+      /** The held order. */
+      href: string;
+      leadId: string;
+      leadName: string;
+      /** Always returned, never only mailed — outbound email is off here. */
+      onboardingUrl: string;
+      /** Whether the onboarding email actually left. Usually false. */
+      delivered: boolean;
+      email: string;
+    }
+  | { status: "error"; message: string }
+  /**
+   * The address is already an account. Not an error and not a silent
+   * redirect: the prospect path would open a second record for people the
+   * app already bills, so it refuses and hands back who they are, and the
+   * dialog offers to quote them properly instead.
+   */
+  | {
+      status: "client-exists";
+      message: string;
+      client: { id: string; name: string; companyName: string | null };
+    };

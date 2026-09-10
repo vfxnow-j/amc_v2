@@ -92,6 +92,38 @@ export async function createQuoteLink(
 }
 
 /**
+ * Whether the account behind this order is still a shell.
+ *
+ * `Client.prospectAt` is set when a client row was materialised only to hold a
+ * quote for somebody who has not onboarded — see `createProspectQuote`. It
+ * earns its keep in exactly two places, both here: nothing commits stock to an
+ * account nobody has verified, and nobody's full rate card goes to an address
+ * nobody has verified. Recording their onboarding clears the flag, which is
+ * the point — sending the quote is the reward for onboarding.
+ *
+ * Returns the refusal to show, or null when the order may proceed.
+ */
+async function prospectRefusal(id: string, act: string): Promise<string | null> {
+  const order = await prisma.reservation.findUnique({
+    where: { id },
+    select: {
+      client: {
+        select: { id: true, name: true, prospectAt: true, convertedLeads: { select: { id: true }, take: 1 } },
+      },
+    },
+  });
+  const client = order?.client;
+  if (!client?.prospectAt) return null;
+
+  const lead = client.convertedLeads[0];
+  return `${client.name} has not onboarded. ${act} would ${
+    act === "Sending it"
+      ? "put the full rate card in an inbox nobody has verified"
+      : "commit stock to an account nobody has verified"
+  }. Record their onboarding${lead ? " on their lead" : ""} first — that is what releases this quote.`;
+}
+
+/**
  * Send the quote, and record that it went.
  *
  * Two halves that are allowed to disagree. Emailing is best-effort — this
@@ -110,6 +142,9 @@ export async function sendOrderQuote(
 ): Promise<StageOutcome> {
   const auth = await requireEditor();
   if (!auth.authorized) return { status: "error", message: auth.error ?? "Unauthorized" };
+
+  const held = await prospectRefusal(id, "Sending it");
+  if (held) return { status: "error", message: held };
 
   const recipients = input.emails
     .flatMap((entry) => entry.split(/[,;\s]+/))
@@ -171,6 +206,13 @@ export async function sendOrderQuote(
 
 /** `force` skips the stock check the action runs, which only warns anyway. */
 export async function approveOrder(id: string, force?: boolean): Promise<StageOutcome> {
+  // Not something `force` can wave through. `force` skips the availability
+  // warning, which is a judgement call about stock; this is a judgement call
+  // about whether the customer exists, and the way past it is to record the
+  // onboarding rather than to insist.
+  const held = await prospectRefusal(id, "Approving it");
+  if (held) return { status: "error", message: held };
+
   try {
     const result = await approveReservation(id, force);
     const problem = refusal(result);
