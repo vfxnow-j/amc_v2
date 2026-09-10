@@ -2,6 +2,9 @@ import Link from "next/link";
 import { Card, CardEmpty, Unset } from "@/components/record/record-card";
 import { Figure, StatusText } from "@/components/inventory/record-cards";
 import { dayYear, money } from "@/lib/format";
+// The one PO vocabulary, shared with the Purchase orders list — this file used
+// to keep its own copy, which is two places for "Part received" to drift.
+import { PO_STATUS_LABEL } from "@/lib/accounting/labels";
 import {
   getVendorAssets,
   getVendorPurchaseOrders,
@@ -10,14 +13,6 @@ import {
 } from "@/lib/queries/vendor-record";
 
 /** The cards the vendor record is built from. */
-
-const PO_STATUS_LABEL: Record<string, string> = {
-  DRAFT: "Draft",
-  SUBMITTED: "Submitted",
-  PARTIAL: "Part received",
-  RECEIVED: "Received",
-  CANCELLED: "Canceled",
-};
 
 /**
  * What has been bought here, and what it has earned back.
@@ -183,7 +178,10 @@ export async function VendorPurchaseOrdersCard({ id }: { id: string }) {
         {rows.map((row) => (
           <li key={row.id}>
             <Link
-              href={`/dashboard/purchase-orders?q=${encodeURIComponent(row.poNumber)}`}
+              // The PO record, not a search for its number. The search was
+              // written before the record existed and left the reader one more
+              // click from what they had already picked out by name.
+              href={`/dashboard/purchase-orders/${row.id}`}
               className="grid grid-cols-[minmax(0,1fr)_106px_80px_86px] items-center gap-2 rounded-row px-2 py-[6px] text-detail hover:bg-row-hover"
             >
               <span className="truncate font-bold tabular-nums">
