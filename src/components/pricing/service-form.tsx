@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import type { ServiceKind } from "@/generated/prisma/enums";
 import { Notice } from "@/components/feedback/notice";
 import {
   createServiceEntry,
@@ -15,9 +16,32 @@ export type ServiceDraft = {
   description: string | null;
   defaultRate: number;
   unit: string;
+  kind: ServiceKind;
   active: boolean;
   usedOnOrders: number;
 };
+
+/**
+ * What kind of work it is, as opposed to how it is charged.
+ *
+ * The two were the same column until 2026-09-09, and could not be: "Per Day"
+ * says nothing about whether a day is an engineer's or a van's. Logistics has
+ * no rows yet — an order's delivery and return costs live on the order itself —
+ * so the value is here ahead of the work that will use it.
+ */
+export const SERVICE_KIND_LABEL: Record<ServiceKind, string> = {
+  PROFESSIONAL: "Professional services",
+  MANAGED: "Managed services",
+  LOGISTICS: "Logistics",
+  OTHER: "Other",
+};
+
+const KINDS: ServiceKind[] = [
+  "PROFESSIONAL",
+  "MANAGED",
+  "LOGISTICS",
+  "OTHER",
+];
 
 /**
  * The four units a service is charged in.
@@ -66,6 +90,7 @@ export function ServiceForm({
   const [description, setDescription] = useState(service?.description ?? "");
   const [rate, setRate] = useState(String(service?.defaultRate ?? ""));
   const [unit, setUnit] = useState(service?.unit ?? "Flat");
+  const [kind, setKind] = useState<ServiceKind>(service?.kind ?? "OTHER");
   const [active, setActive] = useState(service?.active ?? true);
 
   function submit(event: React.FormEvent) {
@@ -78,6 +103,7 @@ export function ServiceForm({
       description: description.trim() || null,
       defaultRate: Number(rate) || 0,
       unit,
+      kind,
       active,
     };
 
@@ -121,6 +147,21 @@ export function ServiceForm({
           placeholder="e.g. On-site support, day"
           className={FIELD}
         />
+      </label>
+
+      <label className="flex flex-col gap-[3px]">
+        <span className="text-micro uppercase text-ink-muted">Kind</span>
+        <select
+          value={kind}
+          onChange={(event) => setKind(event.target.value as ServiceKind)}
+          className="h-9 rounded-well border-0 bg-sunken px-2 text-detail text-ink outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          {KINDS.map((option) => (
+            <option key={option} value={option}>
+              {SERVICE_KIND_LABEL[option]}
+            </option>
+          ))}
+        </select>
       </label>
 
       <label className="flex flex-col gap-[3px]">

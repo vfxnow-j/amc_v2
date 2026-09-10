@@ -27,6 +27,12 @@ const TYPE_LABEL: Record<DocumentType, string> = {
   PURCHASE_ORDER: "Purchase order",
   PROPOSAL: "Quote",
   RENTAL_AGREEMENT: "Rental agreement",
+  // v1 raises these against a funding request. v2 does not model the feature
+  // yet, so a document of this type can only arrive from a refresh and will
+  // never be on an order — but the map is exhaustive over the enum, and a
+  // missing key here is a blank label rather than a compile error at the point
+  // the type is added.
+  FUNDING_REQUEST: "Funding request",
 };
 
 function size(bytes: number): string {

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireEditor } from "@/lib/auth-utils";
 import { logAudit } from "@/lib/actions/audit";
+import type { ServiceKind } from "@/generated/prisma/enums";
 import {
   createService,
   deleteService,
@@ -117,6 +118,7 @@ export type ServiceInput = {
   description: string | null;
   defaultRate: number;
   unit: string;
+  kind: ServiceKind;
   active: boolean;
 };
 
@@ -143,17 +145,9 @@ export async function createServiceEntry(
       description: input.description ?? undefined,
       defaultRate: input.defaultRate,
       unit: input.unit,
+      kind: input.kind,
+      active: input.active,
     });
-    // createService has no `active` argument — the column defaults to true, so
-    // a service added as "not offered" needs a second write to say so.
-    if (!input.active) {
-      const created = await prisma.service.findFirst({
-        where: { name: input.name.trim() },
-        orderBy: { createdAt: "desc" },
-        select: { id: true },
-      });
-      if (created) await updateService(created.id, { active: false });
-    }
   } catch (cause) {
     return {
       status: "error",
@@ -181,6 +175,7 @@ export async function updateServiceEntry(
       description: input.description ?? "",
       defaultRate: input.defaultRate,
       unit: input.unit,
+      kind: input.kind,
       active: input.active,
     });
   } catch (cause) {

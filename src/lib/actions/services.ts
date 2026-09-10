@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { prisma } from '@/lib/prisma'
 import { requireAuth, requireEditor } from '@/lib/auth-utils'
 import { serialize } from '@/lib/utils'
+import type { ServiceKind } from '@/generated/prisma/enums'
 
 // ============================================
 // SERVICE CATALOG
@@ -14,6 +15,10 @@ export type ServiceFormData = {
   description?: string
   defaultRate: number
   unit?: string
+  /** What kind of work it is, as opposed to how it is charged. */
+  kind?: ServiceKind
+  /** Omitted means offered — the column defaults to true. */
+  active?: boolean
 }
 
 export async function getServices(search?: string) {
@@ -51,14 +56,16 @@ export async function createService(data: ServiceFormData) {
       description: data.description || null,
       defaultRate: data.defaultRate,
       unit: data.unit || 'Flat',
+      ...(data.kind !== undefined && { kind: data.kind }),
+      ...(data.active !== undefined && { active: data.active }),
     },
   })
 
-  revalidatePath('/dashboard/services')
+  revalidatePath('/dashboard/pricing/services')
   return serialize(service)
 }
 
-export async function updateService(id: string, data: Partial<ServiceFormData> & { active?: boolean }) {
+export async function updateService(id: string, data: Partial<ServiceFormData>) {
   const authResult = await requireEditor()
   if (!authResult.authorized) throw new Error(authResult.error)
 
@@ -69,11 +76,12 @@ export async function updateService(id: string, data: Partial<ServiceFormData> &
       ...(data.description !== undefined && { description: data.description || null }),
       ...(data.defaultRate !== undefined && { defaultRate: data.defaultRate }),
       ...(data.unit !== undefined && { unit: data.unit }),
+      ...(data.kind !== undefined && { kind: data.kind }),
       ...(data.active !== undefined && { active: data.active }),
     },
   })
 
-  revalidatePath('/dashboard/services')
+  revalidatePath('/dashboard/pricing/services')
   return serialize(service)
 }
 
@@ -88,7 +96,7 @@ export async function deleteService(id: string) {
 
   await prisma.service.delete({ where: { id } })
 
-  revalidatePath('/dashboard/services')
+  revalidatePath('/dashboard/pricing/services')
 }
 
 export async function searchServices(query: string) {

@@ -1809,13 +1809,27 @@ model Lease {
 // ---------------------------------------------------------------------------
 // Service catalog — professional services that can be added to orders
 // ---------------------------------------------------------------------------
+/// What kind of work a service is, as opposed to how it is charged.
+///
+/// `unit` was doing both jobs and could only do one: "Per Day" says nothing
+/// about whether a day is an engineer's or a van's. OTHER is the default
+/// because a service nobody has classified is unclassified — defaulting to the
+/// commonest value would assert something about every row added from now on.
+enum ServiceKind {
+  MANAGED
+  PROFESSIONAL
+  LOGISTICS
+  OTHER
+}
+
 model Service {
-  id          String   @id @default(cuid())
+  id          String      @id @default(cuid())
   name        String
   description String?
-  defaultRate Decimal  @default(0) @db.Decimal(12, 2)
-  unit        String   @default("Flat") // "Flat", "Per Hour", "Per Day", "Per Session"
-  active      Boolean  @default(true)
+  defaultRate Decimal     @default(0) @db.Decimal(12, 2)
+  unit        String      @default("Flat") // "Flat", "Per Hour", "Per Day", "Per Session"
+  kind        ServiceKind @default(OTHER)
+  active      Boolean     @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 

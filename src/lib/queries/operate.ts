@@ -233,13 +233,16 @@ export async function getPackages({ page = 1 }: { page?: number } = {}) {
 
 export async function getServices() {
   const records = await prisma.service.findMany({
-    orderBy: [{ active: "desc" }, { name: "asc" }],
+    // Grouped by kind, then named. The catalogue reads as three short lists
+    // rather than one alphabetical one, which is the whole point of the column.
+    orderBy: [{ kind: "asc" }, { active: "desc" }, { name: "asc" }],
     select: {
       id: true,
       name: true,
       description: true,
       defaultRate: true,
       unit: true,
+      kind: true,
       active: true,
       _count: { select: { items: true } },
     },
@@ -251,6 +254,7 @@ export async function getServices() {
     description: record.description,
     defaultRate: Number(record.defaultRate),
     unit: record.unit,
+    kind: record.kind,
     active: record.active,
     timesOrdered: record._count.items,
   }));

@@ -8,7 +8,11 @@ import {
 import { Card, CardEmpty } from "@/components/record/record-card";
 import { PageHeader } from "@/components/shell/page-header";
 import { PricingTabs } from "@/components/pricing/pricing-tabs";
-import { ServiceForm, type ServiceDraft } from "@/components/pricing/service-form";
+import {
+  ServiceForm,
+  SERVICE_KIND_LABEL,
+  type ServiceDraft,
+} from "@/components/pricing/service-form";
 import { money } from "@/lib/format";
 import { getServices } from "@/lib/queries/operate";
 import { getSessionUser } from "@/lib/roles";
@@ -19,6 +23,7 @@ export const metadata = { title: "Services" };
 const COLUMNS: Column[] = [
   { key: "name", label: "Service", width: "minmax(0,1.1fr)" },
   { key: "description", label: "Note", width: "minmax(0,1.6fr)" },
+  { key: "kind", label: "Kind", width: "128px" },
   { key: "rate", label: "Default rate", width: "112px", align: "right" },
   { key: "unit", label: "Charged", width: "104px" },
   { key: "ordered", label: "Ordered", width: "82px", align: "right" },
@@ -32,6 +37,7 @@ async function drafts(): Promise<ServiceDraft[]> {
     description: service.description,
     defaultRate: service.defaultRate,
     unit: service.unit,
+    kind: service.kind,
     active: service.active,
     usedOnOrders: service.timesOrdered,
   }));
@@ -113,6 +119,9 @@ async function Table({
           description: (
             <span className="text-ink-muted">{row.description ?? "—"}</span>
           ),
+          kind: (
+            <span className="text-ink-muted">{SERVICE_KIND_LABEL[row.kind]}</span>
+          ),
           rate: row.defaultRate ? (
             money(row.defaultRate)
           ) : (
@@ -137,13 +146,16 @@ async function Table({
  * Cloud beside it: form on the left, catalogue on the right, `?edit=` picking
  * the row.
  *
- * **There is no service taxonomy yet.** `Service.unit` says how a service is
- * charged ("Flat", "Per Day"), not what kind of service it is, so managed,
- * professional and logistics work cannot be told apart except by reading the
- * names. Grouping them needs a column, which is a schema decision worth taking
- * deliberately rather than inventing here. Logistics in particular is not in
- * this table at all today: delivery and return costs live on the order's own
- * `deliveryCost`/`returnCost` fields, which no v2 screen yet shows.
+ * `kind` was added on 2026-09-09 because `unit` was doing two jobs and could
+ * only do one: "Per Day" says nothing about whether a day is an engineer's or a
+ * van's. The six existing rows were classified once, by hand, from their names —
+ * a correction of data the column did not exist to hold, not a rule. Nothing in
+ * the app infers a kind from a name and nothing should.
+ *
+ * LOGISTICS has no rows yet. An order's delivery and return costs live on the
+ * order itself, in fourteen columns no v2 screen has ever shown; wiring those
+ * onto the order record comes first, and default logistics rates land here
+ * after.
  *
  * The default rate is a starting figure. Adding a service to an order copies it
  * onto the line and the line is what charges, so editing here never moves an
