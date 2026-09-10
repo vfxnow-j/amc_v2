@@ -45,7 +45,14 @@ export default async function RootLayout({
       <head>
         <ThemeScript appearance={appearance} />
       </head>
-      <body className="min-h-full flex flex-col">
+      {/* The shell is viewport-height and scrolls internally: the rail has to keep
+          its footer — settings, notifications, the user — reachable without
+          scrolling the page to find it. `min-h-full` let the body grow with the
+          content, which pushed that footer below the fold on any long screen.
+          Everything below already expected a bounded height (`min-h-0 flex-1` on
+          the shell, `overflow-y-auto` on the nav); this is the one line that was
+          not holding up its end. */}
+      <body className="h-full overflow-hidden flex flex-col">
         <ThemeProvider appearance={appearance}>
           {children}
         </ThemeProvider>

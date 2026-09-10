@@ -43,7 +43,11 @@ export default async function ShellLayout({
           </Suspense>
         }
       />
-      <main className="flex min-w-0 flex-1 flex-col gap-3">{children}</main>
+      {/* Scrolls itself, now that the page does not. `min-h-0` so a tall child
+          cannot push the main column past the viewport instead of scrolling. */}
+      <main className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-y-auto">
+        {children}
+      </main>
     </div>
   );
 }
