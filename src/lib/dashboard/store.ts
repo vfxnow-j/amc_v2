@@ -5,7 +5,7 @@ import type { UserRole } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import type { Role } from "@/lib/roles";
 import { type TileId } from "./catalog";
-import { readTiles, tilesFromIds, type PlacedTile } from "./layout";
+import { readTiles, type PlacedTile } from "./layout";
 import {
   FALLBACK_VIEW_KEY,
   SEED_VIEWS,
@@ -124,7 +124,7 @@ function seedFallback(role: Role): { view: DashboardView; tiles: PlacedTile[] } 
     SEED_VIEWS[0];
   return {
     view: { key: seed.key, label: seed.label, access: [], sortOrder: 0 },
-    tiles: tilesFromIds(seed.tiles, role),
+    tiles: readTiles(seed.tiles, role),
   };
 }
 
@@ -134,7 +134,7 @@ function templateTiles(row: TemplateRow, role: Role): PlacedTile[] {
   if (stored.length > 0) return stored;
 
   const seed = SEED_VIEWS.find((candidate) => candidate.key === row.key);
-  return seed ? tilesFromIds(seed.tiles, role) : [];
+  return seed ? readTiles(seed.tiles, role) : [];
 }
 
 /**

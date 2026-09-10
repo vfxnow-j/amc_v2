@@ -158,7 +158,7 @@ export const TILE_CATALOG: Record<TileId, TileMeta> = {
     size: {
       default: { w: 12, h: 2 },
       min: { w: 6, h: 2 },
-      max: { w: 12, h: 3 },
+      max: { w: 12, h: 4 },
     },
     access: "everyone",
     readsRange: true,
@@ -171,7 +171,7 @@ export const TILE_CATALOG: Record<TileId, TileMeta> = {
     category: "How we are trading",
     size: {
       default: { w: 12, h: 4 },
-      min: { w: 6, h: 3 },
+      min: { w: 6, h: 2 },
       max: { w: 12, h: 6 },
     },
     access: "everyone",
@@ -183,7 +183,7 @@ export const TILE_CATALOG: Record<TileId, TileMeta> = {
     blurb: "The hardware carrying the business, ranked by what it was booked at.",
     category: "The fleet",
     size: {
-      default: { w: 6, h: 7 },
+      default: { w: 6, h: 8 },
       min: { w: 4, h: 4 },
       max: { w: 12, h: 12 },
     },
@@ -196,7 +196,7 @@ export const TILE_CATALOG: Record<TileId, TileMeta> = {
     blurb: "Capital sitting still — assets with units in the fleet and no order line.",
     category: "The fleet",
     size: {
-      default: { w: 6, h: 7 },
+      default: { w: 6, h: 8 },
       min: { w: 4, h: 4 },
       max: { w: 12, h: 12 },
     },
@@ -209,8 +209,8 @@ export const TILE_CATALOG: Record<TileId, TileMeta> = {
     blurb: "Units out past their window, and the ones coming back today.",
     category: "Needs a person",
     size: {
-      default: { w: 7, h: 9 },
-      min: { w: 5, h: 5 },
+      default: { w: 8, h: 10 },
+      min: { w: 4, h: 4 },
       max: { w: 12, h: 16 },
     },
     access: "everyone",
@@ -222,7 +222,7 @@ export const TILE_CATALOG: Record<TileId, TileMeta> = {
     blurb: "What is broken, what is at RMA, and what is about to fall out of cover.",
     category: "Needs a person",
     size: {
-      default: { w: 5, h: 5 },
+      default: { w: 6, h: 6 },
       min: { w: 4, h: 4 },
       max: { w: 12, h: 10 },
     },
@@ -235,8 +235,8 @@ export const TILE_CATALOG: Record<TileId, TileMeta> = {
     blurb: "Expiring quotes and ageing invoices — the calls nobody has made yet.",
     category: "Needs a person",
     size: {
-      default: { w: 5, h: 4 },
-      min: { w: 4, h: 3 },
+      default: { w: 6, h: 4 },
+      min: { w: 4, h: 2 },
       max: { w: 12, h: 8 },
     },
     access: "everyone",
@@ -252,7 +252,7 @@ export const TILE_CATALOG: Record<TileId, TileMeta> = {
     category: "Needs a person",
     size: {
       default: { w: 6, h: 8 },
-      min: { w: 5, h: 5 },
+      min: { w: 4, h: 4 },
       max: { w: 12, h: 16 },
     },
     access: "everyone",
@@ -265,7 +265,7 @@ export const TILE_CATALOG: Record<TileId, TileMeta> = {
     category: "Needs a person",
     size: {
       default: { w: 6, h: 8 },
-      min: { w: 5, h: 5 },
+      min: { w: 4, h: 4 },
       max: { w: 12, h: 16 },
     },
     access: "everyone",
@@ -279,7 +279,7 @@ export const TILE_CATALOG: Record<TileId, TileMeta> = {
     category: "How we are trading",
     size: {
       default: { w: 12, h: 4 },
-      min: { w: 6, h: 3 },
+      min: { w: 6, h: 2 },
       max: { w: 12, h: 6 },
     },
     access: "everyone",
@@ -291,7 +291,7 @@ export const TILE_CATALOG: Record<TileId, TileMeta> = {
     blurb: "What has been committed to vendors and hasn't arrived.",
     category: "Money in and out",
     size: {
-      default: { w: 4, h: 5 },
+      default: { w: 4, h: 6 },
       min: { w: 3, h: 4 },
       max: { w: 12, h: 8 },
     },
@@ -304,7 +304,7 @@ export const TILE_CATALOG: Record<TileId, TileMeta> = {
     blurb: "Revenue earned since January, and how much of the fleet is out.",
     category: "How we are trading",
     size: {
-      default: { w: 4, h: 5 },
+      default: { w: 4, h: 6 },
       min: { w: 3, h: 4 },
       max: { w: 12, h: 8 },
     },
@@ -321,7 +321,7 @@ export const TILE_CATALOG: Record<TileId, TileMeta> = {
     blurb: "Live cycles, and the ones the billing run silently skips.",
     category: "How we are trading",
     size: {
-      default: { w: 4, h: 5 },
+      default: { w: 4, h: 6 },
       min: { w: 3, h: 4 },
       max: { w: 12, h: 8 },
     },
@@ -334,7 +334,7 @@ export const TILE_CATALOG: Record<TileId, TileMeta> = {
     blurb: "Assets whose rate is out of step with what the hardware cost.",
     category: "The fleet",
     size: {
-      default: { w: 5, h: 5 },
+      default: { w: 6, h: 6 },
       min: { w: 4, h: 4 },
       max: { w: 12, h: 8 },
     },
@@ -347,7 +347,7 @@ export const TILE_CATALOG: Record<TileId, TileMeta> = {
     blurb: "Records that disagree with each other, and facts nobody has entered.",
     category: "Needs a person",
     size: {
-      default: { w: 5, h: 6 },
+      default: { w: 6, h: 6 },
       min: { w: 4, h: 4 },
       max: { w: 12, h: 12 },
     },
@@ -371,7 +371,7 @@ export const TILE_CATALOG: Record<TileId, TileMeta> = {
       "Shipped by courier with no tracking number — nobody can say where the kit is.",
     category: "Getting it there",
     size: {
-      default: { w: 6, h: 7 },
+      default: { w: 6, h: 8 },
       min: { w: 4, h: 4 },
       max: { w: 12, h: 12 },
     },
@@ -385,8 +385,8 @@ export const TILE_CATALOG: Record<TileId, TileMeta> = {
       "Van, courier or the client's own hands — and the live orders that say neither.",
     category: "Getting it there",
     size: {
-      default: { w: 4, h: 7 },
-      min: { w: 3, h: 5 },
+      default: { w: 4, h: 8 },
+      min: { w: 3, h: 4 },
       max: { w: 12, h: 12 },
     },
     access: "everyone",
@@ -399,7 +399,7 @@ export const TILE_CATALOG: Record<TileId, TileMeta> = {
       "What shipping costs against what it's billed at. Not a rate comparison.",
     category: "Getting it there",
     size: {
-      default: { w: 5, h: 6 },
+      default: { w: 6, h: 6 },
       min: { w: 4, h: 4 },
       max: { w: 12, h: 10 },
     },
@@ -415,8 +415,8 @@ export const TILE_CATALOG: Record<TileId, TileMeta> = {
     blurb: "What is outstanding, how late it is, and what is still in draft.",
     category: "Money in and out",
     size: {
-      default: { w: 5, h: 7 },
-      min: { w: 4, h: 5 },
+      default: { w: 6, h: 8 },
+      min: { w: 4, h: 4 },
       max: { w: 12, h: 10 },
     },
     access: "everyone",
@@ -429,7 +429,7 @@ export const TILE_CATALOG: Record<TileId, TileMeta> = {
       "What the sale book makes on what it sells. Rentals have no cost of goods.",
     category: "Money in and out",
     size: {
-      default: { w: 5, h: 6 },
+      default: { w: 6, h: 6 },
       min: { w: 4, h: 4 },
       max: { w: 12, h: 10 },
     },
@@ -451,7 +451,7 @@ export const TILE_CATALOG: Record<TileId, TileMeta> = {
       "Who is carrying the service work, and what is off the shelf with nobody on it.",
     category: "Needs a person",
     size: {
-      default: { w: 5, h: 6 },
+      default: { w: 6, h: 6 },
       min: { w: 4, h: 4 },
       max: { w: 12, h: 12 },
     },
@@ -465,8 +465,8 @@ export const TILE_CATALOG: Record<TileId, TileMeta> = {
     category: "Needs a person",
     size: {
       default: { w: 12, h: 4 },
-      min: { w: 6, h: 3 },
-      max: { w: 12, h: 7 },
+      min: { w: 6, h: 2 },
+      max: { w: 12, h: 8 },
     },
     access: "everyone",
     readsRange: false,
