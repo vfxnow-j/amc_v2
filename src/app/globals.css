@@ -130,10 +130,26 @@
   --radius-tile: 9px; /* mark tiles, avatars */
   --radius-pill: 20px; /* buttons, badges, segmented controls */
 
-  /* -- shadows — only two, and none in dark ------------------------------
+  /* -- shadows — only two ------------------------------------------------
      Cast from the theme's own darkest surface, so a shadow on Ember is warm
      and one on Midnight is cold rather than every theme dropping the same
-     blue-grey. Dark mode drops them entirely; surface lightness separates. */
+     blue-grey.
+
+     The dark blocks below used to carry `--shadow-sm: none` and
+     `--shadow-lg: none`, saying dark mode drops shadows entirely. **It never
+     did.** Tailwind inlines an @theme shadow value into the utility at build
+     time — `.shadow-sm` compiles to the literal `0 1px 2px color-mix(…)`, not
+     to `var(--shadow-sm)` — so nothing downstream could override it and the
+     two lines had no effect from the day they were written. They were dropped
+     with the light-dark() collapse rather than carried forward inert.
+
+     In practice this is nearly invisible: a 14% mix of the darkest surface,
+     cast on a ground that is that same surface, is close to nothing. If the
+     stated intent is wanted for real, it is one edit and not a dark block —
+     wrap the colour, e.g.
+       0 1px 2px light-dark(color-mix(… 14%, transparent), transparent)
+     — which is a visible change in dark mode and so is left as a call to
+     make deliberately.                                                    */
   --shadow-sm: 0 1px 2px
     color-mix(in srgb, var(--color-surface-13) 14%, transparent);
   --shadow-lg: 0 12px 32px
@@ -325,33 +341,67 @@
 /* ---------------------------------------------------------------------------
    Roles — the one place a ramp stop becomes a job.
 
-   Written twice, once per mode, and never per theme. Light is the default;
-   :root[data-mode="dark"] flips it, and the media block at the end is the
-   no-JS fallback for when nothing has resolved the mode. All three read the
-   same --color-surface-N and --color-accent-N, so all six themes get every
-   role for free and a seventh needs no edit here.
+   Written once, in terms of --color-surface-N and --color-accent-N, so all six
+   themes get every role for free and a seventh needs no edit here.
 
-   KEEP THE TWO DARK BLOCKS IN SYNC.
+   Once, not three times. This block used to be :root, then :root[data-mode="dark"]
+   repeating every line, then a third copy inside a prefers-color-scheme media
+   query for the no-JS case — carrying a shouted warning to keep the two dark
+   blocks in sync, which is the kind of instruction that only exists because the
+   structure cannot enforce it. light-dark() enforces it: the light value and the
+   dark value sit next to each other on one line and cannot drift apart.
+
+   light-dark() resolves against the element's own `color-scheme`, and the base
+   layer already sets that correctly in all three cases — `light` on html, `dark`
+   under [data-mode="dark"], and `dark` under the media query when no mode has
+   been resolved. color-scheme inherits, so every element in the document
+   resolves the same way its root does. That was already true before this change;
+   it is now load-bearing, so if the color-scheme rules at the bottom of this file
+   ever move, these tokens move with them.
+
+   Roles that are the same in both modes are written plainly, and the fact that
+   they have no dark half is then visible rather than something you confirm by
+   diffing two blocks.
 --------------------------------------------------------------------------- */
 
 :root {
-  --ground: var(--color-surface-2); /* app background */
-  --panel: var(--color-surface-0); /* cards, nav */
-  --sunken: var(--color-surface-3); /* search, user pod, wells */
-  --row-alt: var(--color-surface-1); /* zebra */
-  --hairline: var(--color-surface-4);
+  --ground: light-dark(var(--color-surface-2), var(--color-surface-13)); /* app background */
+  --panel: light-dark(var(--color-surface-0), var(--color-surface-12)); /* cards, nav */
+  --sunken: light-dark(var(--color-surface-3), var(--color-surface-10)); /* search, user pod, wells */
+  --row-alt: light-dark(var(--color-surface-1), var(--color-surface-11)); /* zebra */
+  --hairline: light-dark(var(--color-surface-4), var(--color-surface-9));
 
-  --ink: var(--color-surface-12);
-  --ink-muted: var(--color-surface-8);
-  --ink-faint: var(--color-surface-7);
+  --ink: light-dark(var(--color-surface-12), var(--color-surface-2));
+  --ink-muted: light-dark(var(--color-surface-8), var(--color-surface-5));
+  --ink-faint: light-dark(var(--color-surface-7), var(--color-surface-6));
 
-  /* accent roles that differ by mode */
-  --accent-text: var(--color-accent-700); /* accent-coloured body text, links */
-  --accent-solid: var(--color-accent-700); /* primary button fill */
-  --accent-on-solid: #ffffff; /* text on --accent-solid */
-  --accent-tint: var(--color-accent-100); /* alert cards, late rows */
-  --accent-tint-strong: var(--color-accent-200); /* count pills */
-  --accent-on-tint: var(--color-accent-800); /* text on --accent-tint */
+  /* Accent roles. On dark the accent may fill, carrying the theme's darkest
+     surface as glyphs; on light it cannot, so the text and fill roles drop to
+     the 700 stop and the tints are ramp stops rather than translucent mixes. */
+  --accent-text: light-dark(
+    var(--color-accent-700),
+    var(--color-accent-300)
+  ); /* accent-coloured body text, links */
+  --accent-solid: light-dark(
+    var(--color-accent-700),
+    var(--color-accent-fill)
+  ); /* primary button fill */
+  --accent-on-solid: light-dark(
+    #ffffff,
+    var(--color-surface-13)
+  ); /* text on --accent-solid */
+  --accent-tint: light-dark(
+    var(--color-accent-100),
+    color-mix(in srgb, var(--color-accent-500) 22%, transparent)
+  ); /* alert cards, late rows */
+  --accent-tint-strong: light-dark(
+    var(--color-accent-200),
+    color-mix(in srgb, var(--color-accent-500) 32%, transparent)
+  ); /* count pills */
+  --accent-on-tint: light-dark(
+    var(--color-accent-800),
+    var(--color-accent-300)
+  ); /* text on --accent-tint */
 
   /* The strongest fill the accent can manage while still carrying glyphs, and
      what those glyphs are. Same in both modes on purpose: this is the mark
@@ -360,9 +410,18 @@
   --accent-fill: var(--color-accent-fill);
   --accent-on-fill: var(--color-surface-13);
 
-  --nav-bubble-open: var(--color-accent-100);
-  --nav-bubble-quiet: var(--color-surface-3); /* closed, contains active page */
-  --nav-mark-closed: var(--color-surface-4);
+  --nav-bubble-open: light-dark(
+    var(--color-accent-100),
+    color-mix(in srgb, var(--color-accent-500) 20%, transparent)
+  );
+  --nav-bubble-quiet: light-dark(
+    var(--color-surface-3),
+    var(--color-surface-11)
+  ); /* closed, contains active page */
+  --nav-mark-closed: light-dark(
+    var(--color-surface-4),
+    var(--color-surface-9)
+  );
 
   /* The dashboard tile surface. Written in terms of --panel rather than a ramp
      stop, so it is the panel colour in both modes and in all six themes and
@@ -377,113 +436,18 @@
 
   /* -- status ------------------------------------------------------------
      Deliberately outside the theme. Overdue, paid and damaged must not change
-     meaning because somebody picked Ember — red is red in all six.        */
-  --danger: #b42318;
-  --danger-on: #ffffff;
-  --success: #067647;
-  --success-on: #ffffff;
-  --warning: #b54708;
-  --warning-on: #ffffff;
+     meaning because somebody picked Ember — red is red in all six. The dark
+     halves are the same hues lifted for legibility on the dark grounds.    */
+  --danger: light-dark(#b42318, #f97066);
+  --danger-on: light-dark(#ffffff, var(--color-surface-13));
+  --success: light-dark(#067647, #47c67f);
+  --success-on: light-dark(#ffffff, var(--color-surface-13));
+  --warning: light-dark(#b54708, #f5a524);
+  --warning-on: light-dark(#ffffff, var(--color-surface-13));
 
-  --segmented-track: var(--color-surface-3);
-  --segmented-thumb: var(--color-surface-0);
-  --row-hover: var(--color-surface-3);
-}
-
-:root[data-mode="dark"] {
-  --ground: var(--color-surface-13);
-  --panel: var(--color-surface-12);
-  --sunken: var(--color-surface-10);
-  --row-alt: var(--color-surface-11);
-  --hairline: var(--color-surface-9);
-
-  --ink: var(--color-surface-2);
-  --ink-muted: var(--color-surface-5);
-  --ink-faint: var(--color-surface-6);
-
-  /* the accent may fill on dark, carrying the theme's darkest surface as glyphs */
-  --accent-text: var(--color-accent-300);
-  --accent-solid: var(--color-accent-fill);
-  --accent-on-solid: var(--color-surface-13);
-  --accent-tint: color-mix(in srgb, var(--color-accent-500) 22%, transparent);
-  --accent-tint-strong: color-mix(
-    in srgb,
-    var(--color-accent-500) 32%,
-    transparent
-  );
-  --accent-on-tint: var(--color-accent-300);
-
-  --nav-bubble-open: color-mix(
-    in srgb,
-    var(--color-accent-500) 20%,
-    transparent
-  );
-  --nav-bubble-quiet: var(--color-surface-11);
-  --nav-mark-closed: var(--color-surface-9);
-
-  /* lifted for legibility on the dark grounds */
-  --danger: #f97066;
-  --danger-on: var(--color-surface-13);
-  --success: #47c67f;
-  --success-on: var(--color-surface-13);
-  --warning: #f5a524;
-  --warning-on: var(--color-surface-13);
-
-  --segmented-track: var(--color-surface-10);
-  --segmented-thumb: var(--color-surface-2);
-  --row-hover: var(--color-surface-10);
-
-  /* no shadows at all in dark — surface lightness does the separating */
-  --shadow-sm: none;
-  --shadow-lg: none;
-}
-
-/* No-JS fallback: honour the OS preference when no mode has been resolved. */
-@media (prefers-color-scheme: dark) {
-  :root:not([data-mode]) {
-    --ground: var(--color-surface-13);
-    --panel: var(--color-surface-12);
-    --sunken: var(--color-surface-10);
-    --row-alt: var(--color-surface-11);
-    --hairline: var(--color-surface-9);
-
-    --ink: var(--color-surface-2);
-    --ink-muted: var(--color-surface-5);
-    --ink-faint: var(--color-surface-6);
-
-    --accent-text: var(--color-accent-300);
-    --accent-solid: var(--color-accent-fill);
-    --accent-on-solid: var(--color-surface-13);
-    --accent-tint: color-mix(in srgb, var(--color-accent-500) 22%, transparent);
-    --accent-tint-strong: color-mix(
-      in srgb,
-      var(--color-accent-500) 32%,
-      transparent
-    );
-    --accent-on-tint: var(--color-accent-300);
-
-    --nav-bubble-open: color-mix(
-      in srgb,
-      var(--color-accent-500) 20%,
-      transparent
-    );
-    --nav-bubble-quiet: var(--color-surface-11);
-    --nav-mark-closed: var(--color-surface-9);
-
-    --danger: #f97066;
-    --danger-on: var(--color-surface-13);
-    --success: #47c67f;
-    --success-on: var(--color-surface-13);
-    --warning: #f5a524;
-    --warning-on: var(--color-surface-13);
-
-    --segmented-track: var(--color-surface-10);
-    --segmented-thumb: var(--color-surface-2);
-    --row-hover: var(--color-surface-10);
-
-    --shadow-sm: none;
-    --shadow-lg: none;
-  }
+  --segmented-track: light-dark(var(--color-surface-3), var(--color-surface-10));
+  --segmented-thumb: light-dark(var(--color-surface-0), var(--color-surface-2));
+  --row-hover: light-dark(var(--color-surface-3), var(--color-surface-10));
 }
 
 /* Expose the semantic layer as Tailwind utilities (bg-panel, text-ink-muted…). */
