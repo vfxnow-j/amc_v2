@@ -75,6 +75,17 @@ export default auth((req) => {
   return NextResponse.next();
 });
 
+/**
+ * `api/v1/webhooks` is excluded, and not because the proxy would reject those
+ * requests — `KEYED_PREFIXES` already waves `/api/v1` straight through. It is
+ * excluded because a *matched* route has its body cloned and buffered so it
+ * can be read twice, capped at 10 MB (`proxyClientMaxBodySize`), and past that
+ * cap Next truncates the buffer and logs a warning rather than failing the
+ * request. The handler would then parse half a document and refuse it as
+ * malformed, with the sender told only that its submission was invalid. A
+ * webhook body that nothing here reads before the handler does has no reason
+ * to be buffered at all.
+ */
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|brand/).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|brand/|api/v1/webhooks).*)"],
 };
