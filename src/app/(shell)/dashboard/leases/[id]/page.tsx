@@ -9,10 +9,10 @@ import {
   Field,
   Unset,
 } from "@/components/record/record-card";
-import { LeaseUnitsCard } from "@/components/revenue/contract-cards";
+import { LeaseUnitsCard } from "@/components/accounting/contract-cards";
 import { dayYear, money } from "@/lib/format";
 import { getLease } from "@/lib/queries/contract-record";
-import { LEASE_STATUS_LABEL } from "@/lib/revenue/labels";
+import { LEASE_STATUS_LABEL } from "@/lib/accounting/labels";
 
 type Params = { params: Promise<{ id: string }> };
 

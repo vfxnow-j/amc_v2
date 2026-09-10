@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import type { ReceiveMode } from "@/lib/revenue/labels";
+import type { ReceiveMode } from "@/lib/accounting/labels";
 
 /** Queries behind the Purchase order record. One per card, so each Suspends alone. */
 

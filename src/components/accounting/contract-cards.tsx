@@ -8,7 +8,7 @@ import {
   getContractUnits,
   getLeaseUnits,
 } from "@/lib/queries/contract-record";
-import { INVOICE_STATUS_LABEL } from "@/lib/revenue/labels";
+import { INVOICE_STATUS_LABEL } from "@/lib/accounting/labels";
 
 /**
  * The Contract record's cards, for both kinds of contract.

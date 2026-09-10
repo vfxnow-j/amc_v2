@@ -6,8 +6,8 @@ import {
 } from "@/components/list/list-table";
 import { PageHeader } from "@/components/shell/page-header";
 import { dayYear, money } from "@/lib/format";
-import { LEASE_STATUS_LABEL } from "@/lib/revenue/labels";
-import { getLeases } from "@/lib/queries/revenue";
+import { LEASE_STATUS_LABEL } from "@/lib/accounting/labels";
+import { getLeases } from "@/lib/queries/accounting";
 
 export const metadata = { title: "Leases" };
 

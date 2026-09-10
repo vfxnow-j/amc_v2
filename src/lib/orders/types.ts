@@ -15,7 +15,7 @@ import { TYPE_LABEL } from "@/lib/reservations/status";
  * Leases are deliberately NOT here. A `Lease` is money owed to a *lender* for
  * hardware the business bought — no client, no lines, no window — and folding
  * it in would make it a permanent special case in every column. It keeps its
- * own screen (owner's call, 2026-07-28, see lib/revenue/labels).
+ * own screen (owner's call, 2026-07-28, see lib/accounting/labels).
  *
  * Prisma-free at runtime so the filter strip, a client component, can import it
  * without dragging the pg driver into the browser bundle.

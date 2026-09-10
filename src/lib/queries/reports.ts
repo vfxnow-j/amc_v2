@@ -5,7 +5,7 @@ import { getFullInventoryReport } from "@/lib/actions/reports";
 import { getEarnedRevenue } from "@/lib/analytics/earned-revenue";
 import { IN_FLEET as FLEET_STATUSES } from "@/lib/inventory/availability";
 import { isConfirmedPrice } from "@/lib/market-price";
-import { UNSETTLED } from "@/lib/queries/revenue";
+import { UNSETTLED } from "@/lib/queries/accounting";
 
 /**
  * Queries behind the Reports cluster.

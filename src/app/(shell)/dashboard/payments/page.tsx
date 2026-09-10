@@ -7,7 +7,7 @@ import {
 } from "@/components/list/list-table";
 import { PageHeader } from "@/components/shell/page-header";
 import { dayYear, moneyCompact, moneyExact } from "@/lib/format";
-import { getPayments } from "@/lib/queries/revenue";
+import { getPayments } from "@/lib/queries/accounting";
 
 export const metadata = { title: "Payments" };
 

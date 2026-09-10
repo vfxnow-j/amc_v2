@@ -14,12 +14,12 @@ import {
   PO_VIEW_LABEL,
   isPOView,
   type POView,
-} from "@/lib/revenue/labels";
+} from "@/lib/accounting/labels";
 import {
   getPOHeaderStats,
   getPOViewCounts,
   getPurchaseOrders,
-} from "@/lib/queries/revenue";
+} from "@/lib/queries/accounting";
 
 export const metadata = { title: "Purchase orders" };
 

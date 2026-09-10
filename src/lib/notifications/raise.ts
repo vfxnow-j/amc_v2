@@ -1,7 +1,7 @@
 import type { NotificationType } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { IN_FLEET, OPEN_CHECKOUT } from "@/lib/inventory/availability";
-import { UNSETTLED } from "@/lib/queries/revenue";
+import { UNSETTLED } from "@/lib/queries/accounting";
 import { daysUntil } from "@/lib/format";
 
 /**
@@ -25,7 +25,7 @@ import { daysUntil } from "@/lib/format";
  * - It cannot drift from the screens. "Overdue" here is `OPEN_CHECKOUT` past
  *   `expectedReturn`, the same definition the Reservations hub and the units
  *   list use, not `Checkout.status = OVERDUE`, which is maintained by a nightly
- *   job and lags. Unsettled invoices come from `UNSETTLED` in `queries/revenue`
+ *   job and lags. Unsettled invoices come from `UNSETTLED` in `queries/accounting`
  *   for the same reason. A notification that disagrees with the list it links
  *   to is worse than no notification.
  * - SYSTEM is not raised here. It means "the platform needs to tell you

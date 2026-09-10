@@ -13,10 +13,10 @@ import {
   AlsoOwedCard,
   LinesCard,
   PaymentsCard,
-} from "@/components/revenue/invoice-cards";
+} from "@/components/accounting/invoice-cards";
 import { dayYear, daysUntil, moneyExact } from "@/lib/format";
 import { getInvoiceHeader } from "@/lib/queries/invoice-record";
-import { INVOICE_STATUS_LABEL } from "@/lib/revenue/labels";
+import { INVOICE_STATUS_LABEL } from "@/lib/accounting/labels";
 
 type Params = { params: Promise<{ id: string }> };
 

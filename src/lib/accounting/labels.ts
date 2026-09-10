@@ -24,7 +24,7 @@ export const INVOICE_STATUS_LABEL: Record<InvoiceStatus, string> = {
  *
  * Lives here rather than in the query layer so the record screens, which judge
  * one invoice at a time, and the list, which judges them in bulk, can't drift
- * apart. `queries/revenue.ts` builds its `UNSETTLED` where-clause from this.
+ * apart. `queries/accounting.ts` builds its `UNSETTLED` where-clause from this.
  */
 export const UNSETTLED_STATUSES: InvoiceStatus[] = ["SENT", "PARTIAL", "OVERDUE"];
 

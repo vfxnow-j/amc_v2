@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { receivePOLines, type ReceiveOutcome } from "@/lib/revenue/actions";
-import type { ReceiveMode } from "@/lib/revenue/labels";
+import { receivePOLines, type ReceiveOutcome } from "@/lib/accounting/actions";
+import type { ReceiveMode } from "@/lib/accounting/labels";
 
 export type ReceiveLine = {
   id: string;

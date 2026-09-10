@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { UNSETTLED } from "@/lib/queries/revenue";
+import { UNSETTLED } from "@/lib/queries/accounting";
 import { OPEN_STATUSES } from "@/lib/reservations/status";
 
 /** Queries behind the Accounts record. One per card, so each Suspends alone. */

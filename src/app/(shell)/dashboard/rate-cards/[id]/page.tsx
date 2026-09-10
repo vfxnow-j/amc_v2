@@ -3,14 +3,14 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/shell/page-header";
 import { Card, CardEmpty, CardSkeleton } from "@/components/record/record-card";
-import { CoverageCard, RateGapCard } from "@/components/revenue/rate-card-cards";
+import { CoverageCard, RateGapCard } from "@/components/accounting/rate-card-cards";
 import { dayYear, moneyExact } from "@/lib/format";
 import { getRateCard } from "@/lib/queries/rate-card-record";
 import {
   PRICED_RATE_TIERS,
   RATE_TIER_LABEL,
   isPricedRateType,
-} from "@/lib/revenue/labels";
+} from "@/lib/accounting/labels";
 
 type Params = { params: Promise<{ id: string }> };
 

@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import {
   recordInvoicePayment,
   type PaymentOutcome,
-} from "@/lib/revenue/actions";
+} from "@/lib/accounting/actions";
 
 const MONEY = new Intl.NumberFormat("en-US", {
   style: "currency",

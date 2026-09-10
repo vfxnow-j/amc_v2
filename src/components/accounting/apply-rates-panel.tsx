@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { applyRateCard, type ApplyRatesOutcome } from "@/lib/revenue/actions";
+import { applyRateCard, type ApplyRatesOutcome } from "@/lib/accounting/actions";
 
 /**
  * The bulk rate update, behind the list of what it would change.

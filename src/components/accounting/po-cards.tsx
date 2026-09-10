@@ -7,7 +7,7 @@ import {
   getPOFees,
   getPOLines,
 } from "@/lib/queries/po-record";
-import type { ReceiveMode } from "@/lib/revenue/labels";
+import type { ReceiveMode } from "@/lib/accounting/labels";
 
 /**
  * The Purchase order record's cards.

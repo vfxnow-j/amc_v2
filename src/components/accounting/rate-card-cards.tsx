@@ -1,12 +1,12 @@
 import Link from "next/link";
 import { Card, CardEmpty, Unset } from "@/components/record/record-card";
-import { ApplyRatesPanel } from "@/components/revenue/apply-rates-panel";
+import { ApplyRatesPanel } from "@/components/accounting/apply-rates-panel";
 import { moneyExact } from "@/lib/format";
 import {
   getRateCardCoverage,
   getRateCardGap,
 } from "@/lib/queries/rate-card-record";
-import { RATE_TIER_LABEL } from "@/lib/revenue/labels";
+import { RATE_TIER_LABEL } from "@/lib/accounting/labels";
 
 /**
  * The Rate card record's cards.

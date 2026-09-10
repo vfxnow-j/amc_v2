@@ -14,15 +14,15 @@ import {
   POCostsCard,
   PODocumentsCard,
   POLinesCard,
-} from "@/components/revenue/po-cards";
-import { ReceivePanel } from "@/components/revenue/receive-panel";
+} from "@/components/accounting/po-cards";
+import { ReceivePanel } from "@/components/accounting/receive-panel";
 import { dayYear, moneyExact } from "@/lib/format";
 import {
   getPOHeader,
   getPOLines,
   getReceivingLocations,
 } from "@/lib/queries/po-record";
-import { PO_STATUS_LABEL } from "@/lib/revenue/labels";
+import { PO_STATUS_LABEL } from "@/lib/accounting/labels";
 
 type Params = { params: Promise<{ id: string }> };
 

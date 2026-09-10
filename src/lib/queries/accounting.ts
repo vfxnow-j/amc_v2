@@ -6,7 +6,7 @@ import {
   UNSETTLED_STATUSES,
   type InvoiceView,
   type POView,
-} from "@/lib/revenue/labels";
+} from "@/lib/accounting/labels";
 
 /** Queries behind the Revenue cluster. */
 

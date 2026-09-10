@@ -14,12 +14,12 @@ import {
   INVOICE_VIEW_LABEL,
   isInvoiceView,
   type InvoiceView,
-} from "@/lib/revenue/labels";
+} from "@/lib/accounting/labels";
 import {
   getInvoiceHeaderStats,
   getInvoiceList,
   getInvoiceViewCounts,
-} from "@/lib/queries/revenue";
+} from "@/lib/queries/accounting";
 
 export const metadata = { title: "Invoices" };
 

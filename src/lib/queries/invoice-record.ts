@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
-import { UNSETTLED } from "@/lib/queries/revenue";
-import { isInvoiceOverdue } from "@/lib/revenue/labels";
+import { UNSETTLED } from "@/lib/queries/accounting";
+import { isInvoiceOverdue } from "@/lib/accounting/labels";
 
 /** Queries behind the Invoice record. One per card, so each Suspends alone. */
 

@@ -1,5 +1,5 @@
 import { requireAuth } from "@/lib/auth-utils";
-import { renderInvoicePdf } from "@/lib/revenue/invoice-pdf";
+import { renderInvoicePdf } from "@/lib/accounting/invoice-pdf";
 
 /**
  * The invoice as a PDF, streamed inline so the browser's own viewer opens it.

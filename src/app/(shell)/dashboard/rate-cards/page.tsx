@@ -6,7 +6,7 @@ import {
 } from "@/components/list/list-table";
 import { PageHeader } from "@/components/shell/page-header";
 import { dayYear } from "@/lib/format";
-import { getRateCards } from "@/lib/queries/revenue";
+import { getRateCards } from "@/lib/queries/accounting";
 
 export const metadata = { title: "Rate cards" };
 

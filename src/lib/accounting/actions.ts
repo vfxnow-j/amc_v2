@@ -6,7 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { recordPayment } from "@/lib/actions/invoices";
 import { receivePurchaseOrder } from "@/lib/actions/purchase-orders";
 import { getRateCardGap } from "@/lib/queries/rate-card-record";
-import { RATE_FIELD } from "@/lib/revenue/labels";
+import { RATE_FIELD } from "@/lib/accounting/labels";
 
 /**
  * The Revenue cluster's writes, as the record screens need them.

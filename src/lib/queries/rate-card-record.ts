@@ -3,7 +3,7 @@ import {
   RATE_FIELD,
   isPricedRateType,
   type PricedRateType,
-} from "@/lib/revenue/labels";
+} from "@/lib/accounting/labels";
 
 /**
  * Queries behind the Rate card record.

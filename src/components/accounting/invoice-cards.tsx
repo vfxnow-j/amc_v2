@@ -1,13 +1,13 @@
 import Link from "next/link";
 import { Card, CardEmpty, Unset } from "@/components/record/record-card";
-import { RecordPaymentPanel } from "@/components/revenue/record-payment-panel";
+import { RecordPaymentPanel } from "@/components/accounting/record-payment-panel";
 import { dayYear, moneyExact } from "@/lib/format";
 import {
   getInvoiceLines,
   getInvoicePayments,
   getSiblingInvoices,
 } from "@/lib/queries/invoice-record";
-import { INVOICE_STATUS_LABEL } from "@/lib/revenue/labels";
+import { INVOICE_STATUS_LABEL } from "@/lib/accounting/labels";
 
 /**
  * The Invoice record's cards.
