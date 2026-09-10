@@ -11,7 +11,7 @@ import { onboardingInviteEmail } from '@/lib/email/templates'
 import { logAudit } from './audit'
 import { notifyNewLead } from './notifications'
 import { generateReservationNumber } from './reservations'
-import { syncReservationDeal } from '@/lib/integrations/hubspot'
+import { syncLeadContactSafely, syncReservationDeal } from '@/lib/integrations/hubspot'
 import {
   applyOnboardingToLead,
   type OnboardingApplied,
@@ -351,8 +351,43 @@ export async function createLead(data: LeadFormData) {
   // Notify all users of new lead (fire-and-forget)
   notifyNewLead(lead).catch(() => {})
 
+  /**
+   * Push the contact out to HubSpot — if, and only if, somebody has turned
+   * that on.
+   *
+   * `syncLeadContactSafely` cannot throw and returns `disabled` without
+   * touching the network unless both `hubspot_enabled` and an access token are
+   * set, which in this instance neither is. So today this is an extra settings
+   * read on the create path and nothing else, and the day the owner decides
+   * the outbound half should be live, it is a toggle rather than a deploy.
+   *
+   * Awaited rather than fired and forgotten, unlike the notification above.
+   * The lead row is already committed, so nothing here can lose it; what
+   * awaiting buys is that the "synced" line is on the record before the screen
+   * re-reads it, instead of appearing a second later with no explanation. The
+   * cost is bounded by the 8-second timeout on every HubSpot call.
+   */
+  const hubspot = await syncLeadContactSafely(lead)
+  if (hubspot.synced && hubspot.created) {
+    await prisma.leadActivity.create({
+      data: {
+        leadId: lead.id,
+        type: 'SYSTEM',
+        title: 'Contact created in HubSpot',
+        description: 'The outbound sync opened a contact for this lead.',
+        metadata: { hubspotContactId: hubspot.contactId },
+        createdById: authResult.userId,
+      },
+    })
+  }
+
   revalidatePath('/dashboard/leads')
-  return serialize(lead)
+  // The sync writes `hubspotContactId` onto the row after this copy was read,
+  // so it is carried across rather than handing the caller a stale null.
+  return serialize({
+    ...lead,
+    hubspotContactId: hubspot.synced ? hubspot.contactId : lead.hubspotContactId,
+  })
 }
 
 // ============================================
