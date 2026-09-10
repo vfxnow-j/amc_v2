@@ -1,4 +1,5 @@
 import type { Role } from "@/lib/roles";
+import type { TileAccent } from "./accents";
 import type { TileId } from "./catalog";
 
 /**
@@ -24,6 +25,19 @@ import type { TileId } from "./catalog";
  * reaches the database — the settings form needs these names for its role
  * picker and the settings form is a client component.
  */
+
+/**
+ * One tile on a company view: which tile, and optionally what colour.
+ *
+ * No geometry, and that is the template/layout split rather than an omission —
+ * an administrator picks what belongs on a view and in what order, and every
+ * user reshapes their own copy. A colour is not geometry: it says which tile
+ * this is, so it survives the reshape and belongs on the template.
+ *
+ * Stored as a bare id string when there is no colour, so an uncoloured view
+ * writes exactly the JSON it wrote before this existed.
+ */
+export type ViewTile = { id: TileId; accent?: TileAccent };
 
 /** A seeded tile: a bare id flows into the next free space, a placed one does not. */
 export type SeedTile =

@@ -2,18 +2,20 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { TileAccentPicker } from "@/components/dashboard/tile-accent-picker";
 import { Notice } from "@/components/feedback/notice";
 import {
   deleteDashboardView,
   saveDashboardView,
 } from "@/lib/actions/dashboard";
+import type { TileAccent } from "@/lib/dashboard/accents";
 import {
   TILE_CATEGORIES,
   TILE_IDS,
   tileMeta,
   type TileId,
 } from "@/lib/dashboard/catalog";
-import { slugifyViewKey } from "@/lib/dashboard/views";
+import { slugifyViewKey, type ViewTile } from "@/lib/dashboard/views";
 import type { Role } from "@/lib/roles";
 import { ROLE_OPTIONS } from "@/lib/settings/roles";
 import { cn } from "@/lib/utils";
@@ -39,6 +41,14 @@ import { cn } from "@/lib/utils";
  * silently orphan every reshaped copy of the view — the label is free to change
  * and does the job a name is for.
  *
+ * Colour is the one thing here that is not about order. An administrator can
+ * give a tile one of the twelve accents so a seeded or company view arrives
+ * already telling its tiles apart, and it is set from the same picker the edit
+ * canvas uses — the choice is the same choice. It rides this form's Save like
+ * every other field on it. What it does *not* do is stick: a colour set here is
+ * the view's starting point, and anyone who reshapes their own copy owns the
+ * colours in it from that moment, exactly as they own the arrangement.
+ *
  * Which view is being edited lives in the URL, and the page keys this component
  * on it, so picking another row remounts the form with that row's values rather
  * than an effect copying props into state on every change.
@@ -50,7 +60,7 @@ export type DashboardViewDraft = {
   label: string;
   access: Role[];
   sortOrder: number;
-  tiles: TileId[];
+  tiles: ViewTile[];
   /** How many people have dragged this view into a shape of their own. */
   reshapedBy: number;
 };
@@ -68,7 +78,7 @@ export function DashboardViewForm({ view }: { view: DashboardViewDraft | null })
   const [keyTouched, setKeyTouched] = useState(Boolean(view));
   const [sortOrder, setSortOrder] = useState(String(view?.sortOrder ?? 0));
   const [access, setAccess] = useState<Role[]>(view?.access ?? []);
-  const [tiles, setTiles] = useState<TileId[]>(view?.tiles ?? []);
+  const [tiles, setTiles] = useState<ViewTile[]>(view?.tiles ?? []);
   const [error, setError] = useState("");
   const [confirming, setConfirming] = useState(false);
 
@@ -84,6 +94,14 @@ export function DashboardViewForm({ view }: { view: DashboardViewDraft | null })
       current.includes(role)
         ? current.filter((entry) => entry !== role)
         : [...current, role],
+    );
+  }
+
+  function colour(id: TileId, accent: TileAccent | undefined) {
+    setTiles((current) =>
+      current.map((tile) =>
+        tile.id === id ? (accent ? { id, accent } : { id }) : tile,
+      ),
     );
   }
 
@@ -132,7 +150,9 @@ export function DashboardViewForm({ view }: { view: DashboardViewDraft | null })
     });
   }
 
-  const unplaced = TILE_IDS.filter((id) => !tiles.includes(id));
+  const unplaced = TILE_IDS.filter(
+    (id) => !tiles.some((tile) => tile.id === id),
+  );
 
   return (
     <form onSubmit={submit} className="flex flex-col gap-4 px-4 pb-4">
@@ -218,7 +238,9 @@ export function DashboardViewForm({ view }: { view: DashboardViewDraft | null })
           </h3>
           <p className="text-detail text-ink-muted">
             Top to bottom is the reading order, which is exactly what a phone
-            shows — placement only applies above 1024px.
+            shows — placement only applies above 1024px. A colour set here is
+            the view&rsquo;s starting point; anyone who reshapes their own copy
+            keeps the colours in it.
           </p>
           {tiles.length === 0 ? (
             <p className="rounded-well bg-sunken px-3 py-2 text-detail text-ink-muted">
@@ -226,10 +248,10 @@ export function DashboardViewForm({ view }: { view: DashboardViewDraft | null })
             </p>
           ) : (
             <ol className="flex flex-col gap-px">
-              {tiles.map((id, index) => (
+              {tiles.map(({ id, accent }, index) => (
                 <li
                   key={id}
-                  className="flex items-baseline gap-2 rounded-row px-2 py-[7px] hover:bg-row-hover"
+                  className="flex items-center gap-2 rounded-row px-2 py-[7px] hover:bg-row-hover"
                 >
                   <span className="text-detail tabular-nums text-ink-faint">
                     {index + 1}
@@ -237,6 +259,11 @@ export function DashboardViewForm({ view }: { view: DashboardViewDraft | null })
                   <span className="min-w-0 flex-1 truncate text-body">
                     {tileMeta(id).title}
                   </span>
+                  <TileAccentPicker
+                    value={accent}
+                    tileTitle={tileMeta(id).title}
+                    onChange={(next) => colour(id, next)}
+                  />
                   <button
                     type="button"
                     aria-label={`Move ${tileMeta(id).title} up`}
@@ -260,7 +287,7 @@ export function DashboardViewForm({ view }: { view: DashboardViewDraft | null })
                     aria-label={`Take ${tileMeta(id).title} off`}
                     onClick={() =>
                       setTiles((current) =>
-                        current.filter((entry) => entry !== id),
+                        current.filter((entry) => entry.id !== id),
                       )
                     }
                     className={cn(BUTTON, "text-ink-muted hover:text-ink")}
@@ -293,7 +320,9 @@ export function DashboardViewForm({ view }: { view: DashboardViewDraft | null })
                       <li key={id}>
                         <button
                           type="button"
-                          onClick={() => setTiles((current) => [...current, id])}
+                          onClick={() =>
+                            setTiles((current) => [...current, { id }])
+                          }
                           className="w-full rounded-row px-2 py-[7px] text-left transition-colors hover:bg-row-hover"
                         >
                           <span className="flex items-baseline gap-2">

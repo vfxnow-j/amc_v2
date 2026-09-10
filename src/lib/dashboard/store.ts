@@ -4,13 +4,13 @@ import { cache } from "react";
 import type { UserRole } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import type { Role } from "@/lib/roles";
-import { type TileId } from "./catalog";
 import { readTiles, type PlacedTile } from "./layout";
 import {
   FALLBACK_VIEW_KEY,
   SEED_VIEWS,
   canOpenView,
   isViewKey,
+  type ViewTile,
 } from "./views";
 
 /**
@@ -216,8 +216,12 @@ export async function canUseView(key: string, role: Role): Promise<boolean> {
 
 export type DashboardViewRow = DashboardView & {
   id: string;
-  /** Ids as stored, already filtered to what the catalog still knows about. */
-  tiles: TileId[];
+  /**
+   * Ids as stored, already filtered to what the catalog still knows about, and
+   * each with the colour the view gives it — the two things an administrator
+   * sets here. Geometry is nobody's business on this screen.
+   */
+  tiles: ViewTile[];
   /** How many people have dragged this view into a shape of their own. */
   reshapedBy: number;
   updatedAt: Date;
@@ -254,7 +258,9 @@ export async function listDashboardViews(): Promise<DashboardViewRow[]> {
     label: row.label,
     access: row.access as Role[],
     sortOrder: row.sortOrder,
-    tiles: readTiles(row.tiles, "SUPER_ADMIN").map((tile) => tile.id),
+    tiles: readTiles(row.tiles, "SUPER_ADMIN").map(({ id, accent }) =>
+      accent ? { id, accent } : { id },
+    ),
     reshapedBy: reshaped.get(row.key) ?? 0,
     updatedAt: row.updatedAt,
   }));

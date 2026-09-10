@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import type { UserRole } from "@/generated/prisma/client";
 import { requireAdmin } from "@/lib/auth-utils";
+import { readAccent } from "@/lib/dashboard/accents";
 import { isTileId } from "@/lib/dashboard/catalog";
 import { readTiles, serializeTiles } from "@/lib/dashboard/layout";
 import { canUseView } from "@/lib/dashboard/store";
@@ -132,12 +133,20 @@ export async function selectDashboardView(viewKey: string): Promise<void> {
  * The key is settled at creation and never changed after. It is the identity a
  * user's saved layout hangs off (`DashboardLayout.templateKey`), so renaming
  * one would silently orphan every reshaped copy of the view.
+ *
+ * A **colour** is the exception to "not where it sits", and it is the exception
+ * for the same reason the rest of the rule holds: an accent says which tile
+ * this is rather than where it goes, so it survives a reshape and belongs to
+ * the company view. It is written as `{ id, accent }` and an uncoloured tile is
+ * still written as the bare id it always was, so a view nobody has coloured
+ * stores byte-identical JSON to what it stored before. Neither form carries
+ * geometry, and `layout.readTiles` flows both in reading order.
  */
 export async function saveDashboardView(input: {
   id?: string;
   key?: string;
   label: string;
-  tiles: string[];
+  tiles: { id: string; accent?: string }[];
   access: string[];
   sortOrder?: number;
 }): Promise<void> {
@@ -147,7 +156,15 @@ export async function saveDashboardView(input: {
   const label = input.label.trim();
   if (!label) throw new Error("A view needs a name.");
 
-  const tiles = input.tiles.filter(isTileId);
+  // Re-validated here rather than trusted, like every other field: this is a
+  // public endpoint with a generated name, and an accent nobody recognises
+  // would be a `data-accent` with no rule behind it on everybody's dashboard.
+  const tiles = input.tiles
+    .filter((tile) => isTileId(tile.id))
+    .map((tile) => {
+      const accent = readAccent(tile.accent);
+      return accent ? { id: tile.id, accent } : tile.id;
+    });
   if (tiles.length === 0) throw new Error("A view needs at least one tile.");
 
   const roles: UserRole[] = input.access.filter((role): role is UserRole =>
