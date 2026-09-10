@@ -3,9 +3,13 @@
 import { revalidatePath } from "next/cache";
 import type { UserRole } from "@/generated/prisma/client";
 import { requireAdmin } from "@/lib/auth-utils";
-import { readAccent } from "@/lib/dashboard/accents";
-import { isTileId } from "@/lib/dashboard/catalog";
-import { readTiles, serializeTiles } from "@/lib/dashboard/layout";
+import { readAccent, type TileAccent } from "@/lib/dashboard/accents";
+import { isTileId, type TileId } from "@/lib/dashboard/catalog";
+import {
+  readTiles,
+  serializeTiles,
+  type PlacedTile,
+} from "@/lib/dashboard/layout";
 import { canUseView } from "@/lib/dashboard/store";
 import { isViewKey, slugifyViewKey } from "@/lib/dashboard/views";
 import { prisma } from "@/lib/prisma";
@@ -142,6 +146,57 @@ export async function selectDashboardView(viewKey: string): Promise<void> {
  * stores byte-identical JSON to what it stored before. Neither form carries
  * geometry, and `layout.readTiles` flows both in reading order.
  */
+
+type ChosenTile = { id: TileId; accent?: TileAccent };
+
+/** A view with no prior geometry: membership and order, nothing placed. */
+function bare(chosen: ChosenTile[]): (string | { id: string; accent: string })[] {
+  return chosen.map((tile) =>
+    tile.accent ? { id: tile.id, accent: tile.accent } : tile.id,
+  );
+}
+
+/**
+ * Keep a view's composed layout through an edit that did not reorder it.
+ *
+ * Settings → Dashboards is a checklist with move controls, not a second drag
+ * canvas, so it sends membership, colour and order — never coordinates. Writing
+ * that straight back used to discard any geometry the row already had, which
+ * mattered the moment the seeded views arrived hand-composed: Business is ten
+ * tiles placed so every row closes to twelve columns, and the first admin who
+ * gave one a colour would have flattened it into reading-order flow without
+ * being told. Colouring a seeded view is precisely the first reason anyone
+ * presses Save on one.
+ *
+ * The rule, and it is the whole of it: **if the same tiles are in the same
+ * order, the layout is kept; if the order changed, the view reflows.** A colour
+ * or a rename cannot cost you a layout, and an admin who deliberately reorders
+ * gets the reflow they asked for rather than tiles that refuse to move because
+ * old coordinates outrank the list they are looking at. Adding or removing a
+ * tile counts as a change of order, because it is one.
+ *
+ * Geometry is read back through `readTiles`, so a stored row that is malformed
+ * contributes nothing rather than throwing — the same rule everything else on
+ * this path follows.
+ */
+function withKeptGeometry(
+  chosen: ChosenTile[],
+  stored: unknown,
+): (string | { id: string; accent: string } | PlacedTile)[] {
+  const previous = readTiles(stored, "SUPER_ADMIN");
+  const sameOrder =
+    previous.length === chosen.length &&
+    previous.every((tile, index) => tile.id === chosen[index].id);
+  if (!sameOrder) return bare(chosen);
+
+  return chosen.map((tile, index) => {
+    const { x, y, w, h } = previous[index];
+    return tile.accent
+      ? { id: tile.id, accent: tile.accent, x, y, w, h }
+      : { id: tile.id, x, y, w, h };
+  }) as (string | { id: string; accent: string } | PlacedTile)[];
+}
+
 export async function saveDashboardView(input: {
   id?: string;
   key?: string;
@@ -159,13 +214,10 @@ export async function saveDashboardView(input: {
   // Re-validated here rather than trusted, like every other field: this is a
   // public endpoint with a generated name, and an accent nobody recognises
   // would be a `data-accent` with no rule behind it on everybody's dashboard.
-  const tiles = input.tiles
-    .filter((tile) => isTileId(tile.id))
-    .map((tile) => {
-      const accent = readAccent(tile.accent);
-      return accent ? { id: tile.id, accent } : tile.id;
-    });
-  if (tiles.length === 0) throw new Error("A view needs at least one tile.");
+  const chosen: ChosenTile[] = input.tiles
+    .filter((tile): tile is { id: TileId; accent?: string } => isTileId(tile.id))
+    .map((tile) => ({ id: tile.id, accent: readAccent(tile.accent) }));
+  if (chosen.length === 0) throw new Error("A view needs at least one tile.");
 
   const roles: UserRole[] = input.access.filter((role): role is UserRole =>
     ["SUPER_ADMIN", "ADMIN", "STAFF", "VIEWER", "FLOW_USER"].includes(role),
@@ -180,6 +232,8 @@ export async function saveDashboardView(input: {
       select: { key: true, label: true, tiles: true, access: true },
     });
     if (!existing) throw new Error("That view no longer exists.");
+
+    const tiles = withKeptGeometry(chosen, existing.tiles);
 
     await prisma.dashboardTemplate.update({
       where: { id: input.id },
@@ -207,14 +261,14 @@ export async function saveDashboardView(input: {
     if (clash) throw new Error(`A view with the key "${key}" already exists.`);
 
     const created = await prisma.dashboardTemplate.create({
-      data: { key, label, tiles, access: roles, sortOrder },
+      data: { key, label, tiles: bare(chosen), access: roles, sortOrder },
       select: { id: true },
     });
     await logAudit({
       action: "CREATE",
       entityType: "Settings",
       entityId: created.id,
-      newValues: { key, label, tiles, access: roles, sortOrder },
+      newValues: { key, label, tiles: bare(chosen), access: roles, sortOrder },
     });
   }
 
