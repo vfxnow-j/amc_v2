@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Tile, TileHeader } from "@/components/dashboard/tile";
 import { dayYear } from "@/lib/format";
 import { getMaintenanceSummary } from "@/lib/queries/dashboard";
 
@@ -20,20 +21,15 @@ export async function MaintenanceCard({ now = new Date() }: { now?: Date }) {
   const summary = await getMaintenanceSummary(now);
 
   return (
-    <section className="flex min-h-0 flex-col rounded-card bg-panel p-[14px] shadow-sm">
-      <header className="mb-2 flex items-baseline gap-2">
-        <h2 className="text-card-title">In service</h2>
-        <span className="text-detail text-ink-muted">
-          {summary.unitsInService} {summary.unitsInService === 1 ? "unit" : "units"}{" "}
-          out of bookable stock
-        </span>
-        <Link
-          href="/dashboard/service/work-orders"
-          className="ml-auto text-detail text-accent-text hover:underline"
-        >
-          Work orders →
-        </Link>
-      </header>
+    <Tile className="flex min-h-0 flex-col">
+      <TileHeader
+        title="In service"
+        meta={`${summary.unitsInService} ${
+          summary.unitsInService === 1 ? "unit" : "units"
+        } out of bookable stock`}
+        href="/dashboard/service/work-orders"
+        hrefLabel="Work orders →"
+      />
 
       <div className="mb-2 flex flex-wrap gap-2">
         <Stat label="Open" value={summary.openWorkOrders} />
@@ -92,7 +88,7 @@ export async function MaintenanceCard({ now = new Date() }: { now?: Date }) {
           close by {dayYear(new Date(+now + 90 * DAY))}.
         </p>
       ) : null}
-    </section>
+    </Tile>
   );
 }
 
@@ -118,11 +114,11 @@ function Stat({
 
 export function CardSkeleton({ rows = 4 }: { rows?: number }) {
   return (
-    <section className="flex flex-col gap-2 rounded-card bg-panel p-[14px] shadow-sm">
+    <Tile className="flex flex-col gap-2">
       <div className="h-[17px] w-40 animate-pulse rounded-row bg-row-alt" />
       {Array.from({ length: rows }, (_, index) => (
         <div key={index} className="h-[26px] animate-pulse rounded-row bg-row-alt" />
       ))}
-    </section>
+    </Tile>
   );
 }

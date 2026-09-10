@@ -1,12 +1,13 @@
 import Link from "next/link";
+import { Tile, TileHeader } from "@/components/dashboard/tile";
 import { getDecisions } from "@/lib/queries/overview";
 
 export async function DecisionsCard() {
   const decisions = await getDecisions();
 
   return (
-    <section className="flex-none rounded-card bg-panel p-[14px] shadow-sm">
-      <h2 className="text-card-title mb-2">Needs a decision</h2>
+    <Tile className="flex-none">
+      <TileHeader title="Needs a decision" />
 
       {decisions.length === 0 ? (
         <p className="text-detail text-ink-muted">
@@ -42,13 +43,13 @@ export async function DecisionsCard() {
           })}
         </ul>
       )}
-    </section>
+    </Tile>
   );
 }
 
 export function SideCardSkeleton({ rows = 2 }: { rows?: number }) {
   return (
-    <section className="flex-none rounded-card bg-panel p-[14px] shadow-sm">
+    <Tile className="flex-none">
       <div className="mb-3 h-4 w-32 animate-pulse rounded-row bg-sunken" />
       <div className="flex flex-col gap-[6px]">
         {Array.from({ length: rows }, (_, index) => (
@@ -58,6 +59,6 @@ export function SideCardSkeleton({ rows = 2 }: { rows?: number }) {
           />
         ))}
       </div>
-    </section>
+    </Tile>
   );
 }

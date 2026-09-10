@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Tile, TileHeader } from "@/components/dashboard/tile";
 import { getDueBack } from "@/lib/queries/overview";
 
 const TIME = new Intl.DateTimeFormat("en-US", {
@@ -20,21 +21,20 @@ export async function DueBackCard() {
   const { rows, total, late } = await getDueBack(now);
 
   return (
-    <section className="flex min-h-0 flex-col overflow-hidden rounded-card bg-panel pt-[14px] shadow-sm">
-      <header className="flex items-center gap-2 px-4 pb-3">
-        <h2 className="text-card-title">Due back &amp; overdue</h2>
-        {late > 0 ? (
-          <span className="rounded-pill bg-accent-tint-strong px-2 py-px text-pill text-accent-on-tint">
-            {late} late
-          </span>
-        ) : null}
-        <Link
-          href="/dashboard/today"
-          className="ml-auto text-detail text-accent-text hover:underline"
-        >
-          Today’s movements →
-        </Link>
-      </header>
+    <Tile pad="flush" className="flex min-h-0 flex-col overflow-hidden">
+      <TileHeader
+        className="mb-0 items-center px-4 pb-3"
+        title="Due back & overdue"
+        badge={
+          late > 0 ? (
+            <span className="rounded-pill bg-accent-tint-strong px-2 py-px text-pill text-accent-on-tint">
+              {late} late
+            </span>
+          ) : null
+        }
+        href="/dashboard/today"
+        hrefLabel="Today’s movements →"
+      />
 
       {rows.length === 0 ? (
         <p className="px-4 pb-4 text-body text-ink-muted">
@@ -93,13 +93,13 @@ export async function DueBackCard() {
           </p>
         </>
       )}
-    </section>
+    </Tile>
   );
 }
 
 export function DueBackCardSkeleton() {
   return (
-    <section className="flex min-h-0 flex-col rounded-card bg-panel pt-[14px] shadow-sm">
+    <Tile pad="flush" className="flex min-h-0 flex-col">
       <div className="px-4 pb-3">
         <div className="h-4 w-40 animate-pulse rounded-row bg-sunken" />
       </div>
@@ -112,6 +112,6 @@ export function DueBackCardSkeleton() {
           />
         ))}
       </div>
-    </section>
+    </Tile>
   );
 }

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Tile, TileHeader } from "@/components/dashboard/tile";
 import { money } from "@/lib/format";
 import { getIdleItems, getTopItems } from "@/lib/queries/dashboard";
 
@@ -12,6 +13,11 @@ import { getIdleItems, getTopItems } from "@/lib/queries/dashboard";
  * cables at the top and be wrong in a way nobody would notice.
  */
 
+/**
+ * `Frame` was here, module-private: the section chrome plus a header of title,
+ * qualifier and a link out. Both of those are now `Tile` and `TileHeader` in
+ * `components/dashboard/tile.tsx`, so every tile agrees on one shape.
+ */
 function Frame({
   title,
   meta,
@@ -26,19 +32,10 @@ function Frame({
   children: React.ReactNode;
 }) {
   return (
-    <section className="flex min-h-0 flex-col rounded-card bg-panel p-[14px] shadow-sm">
-      <header className="mb-2 flex items-baseline gap-2">
-        <h2 className="text-card-title">{title}</h2>
-        <span className="text-detail text-ink-muted">{meta}</span>
-        <Link
-          href={href}
-          className="ml-auto text-detail text-accent-text hover:underline"
-        >
-          {hrefLabel}
-        </Link>
-      </header>
+    <Tile className="flex min-h-0 flex-col">
+      <TileHeader title={title} meta={meta} href={href} hrefLabel={hrefLabel} />
       {children}
-    </section>
+    </Tile>
   );
 }
 

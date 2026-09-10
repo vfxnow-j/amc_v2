@@ -364,6 +364,13 @@
   --nav-bubble-quiet: var(--color-surface-3); /* closed, contains active page */
   --nav-mark-closed: var(--color-surface-4);
 
+  /* The dashboard tile surface. Written in terms of --panel rather than a ramp
+     stop, so it is the panel colour in both modes and in all six themes and
+     needs no dark counterpart. It exists at all so the tile style axis that is
+     coming (a `data-tile` attribute) is one line here rather than a rewrite of
+     every card — see components/dashboard/tile.tsx. */
+  --tile-surface: var(--panel);
+
   /* Modal backdrop. The theme's darkest surface, so it reads as the app
      dimming rather than as a black sheet dropped over it. */
   --scrim: var(--color-surface-13);
@@ -497,6 +504,8 @@
   --color-accent-tint: var(--accent-tint);
   --color-accent-tint-strong: var(--accent-tint-strong);
   --color-accent-on-tint: var(--accent-on-tint);
+
+  --color-tile: var(--tile-surface);
 
   --color-nav-bubble-open: var(--nav-bubble-open);
   --color-nav-bubble-quiet: var(--nav-bubble-quiet);
