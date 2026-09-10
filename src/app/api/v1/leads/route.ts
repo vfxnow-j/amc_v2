@@ -3,7 +3,7 @@ import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { apiPaginated, apiSuccess, parsePagination, parseSearchParams } from "@/lib/api-auth";
 import { logAudit } from "@/lib/actions/audit";
-import { findMatchingLead } from "@/lib/actions/leads";
+import { findMatchingLead } from "@/lib/leads/dedupe";
 import { syncLeadContactSafely } from "@/lib/integrations/hubspot";
 import { notifyNewLead } from "@/lib/actions/notifications";
 import {

@@ -1,6 +1,6 @@
 import crypto from 'crypto'
 import { prisma } from '@/lib/prisma'
-import { findMatchingLead, mergeIntoLead } from '@/lib/actions/leads'
+import { findMatchingLead, mergeIntoLead } from '@/lib/leads/dedupe'
 import { notifyNewLead } from '@/lib/actions/notifications'
 
 async function getConfig() {
