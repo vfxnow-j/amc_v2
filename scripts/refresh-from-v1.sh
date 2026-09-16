@@ -72,7 +72,21 @@ BACKUP="$ROOT/backups/v2-before-refresh-$STAMP.sql.gz"
 DUMP="$ROOT/backups/v1-snapshot-$STAMP.sql.gz"
 
 APPLY=false
-[[ "${1:-}" == "--apply" ]] && APPLY=true
+RESUME=false
+case "${1:-}" in
+  --apply)  APPLY=true ;;
+  # Pick the run back up at step 4, for the one way this script actually
+  # fails: Prisma refuses `db push` when it detects an agent invoked it, and
+  # that refusal lands *after* the restore has replaced v2's public schema.
+  # The database is then v1's data with none of v2's own schema on it, and the
+  # only route forward is steps 4, 4b and 5.
+  #
+  # NEVER re-run from the top to recover. Step 2 begins `drop schema if exists
+  # carry cascade` and rebuilds carry from `public.asset_families`, which no
+  # longer exists once step 3 has run — it would destroy everything set aside
+  # and then fail, turning a recoverable stall into real data loss.
+  --resume) APPLY=true; RESUME=true ;;
+esac
 
 # Every table that exists only in v2, in an order that satisfies its own
 # foreign keys on the way back in (qc_test_runs after work_orders, client_asks
@@ -111,94 +125,100 @@ counts() {
         ||' leads='||(select count(*) from leads)"
 }
 
-say "v1 (live, read-only): $(counts "$V1_DB")"
-say "v2 (this instance):   $(counts "$V2_DB")"
-rule
-say "carried across the refresh, because it exists only in v2:"
-for t in "${CARRIED_TABLES[@]}"; do
-  printf '  %-26s %s rows\n' "$t" "$(psql2 "select count(*) from $t")"
-done
-say "  models grouped:            $(psql2 'select count(*) from assets where "familyId" is not null')"
-say "  credentials + appearance:  $(psql2 'select count(*) from users') users"
-say "  v2-only columns:           clients owner/pin/season/prospect, services.kind, reservation_items.includedInParent"
-rule
-
-# The guard that matters. A v2-only table this script does not carry is a table
-# `prisma db push` will rebuild empty — silently, because nothing else in the
-# run mentions it. Comparing against the database rather than a hand-kept list
-# means the next feature to add one stops the refresh instead of being erased by
-# it. Empty uncarried tables are reported and allowed: there is nothing to lose.
-docker exec "$CONTAINER" psql -U postgres -d "$V1_DB" -tAc \
-  "select table_name from information_schema.tables where table_schema='public' and table_type='BASE TABLE'" \
-  | sort > /tmp/refresh-v1-tables.txt
-docker exec "$CONTAINER" psql -U postgres -d "$V2_DB" -tAc \
-  "select table_name from information_schema.tables where table_schema='public' and table_type='BASE TABLE'" \
-  | sort > /tmp/refresh-v2-tables.txt
-printf '%s\n' "${CARRIED_TABLES[@]}" | sort > /tmp/refresh-carried.txt
-
-UNCARRIED=$(comm -13 /tmp/refresh-v1-tables.txt /tmp/refresh-v2-tables.txt \
-          | comm -23 - /tmp/refresh-carried.txt)
 STOP=false
-if [[ -n "$UNCARRIED" ]]; then
-  say "v2-only tables this script does NOT carry:"
-  while read -r t; do
-    [[ -z "$t" ]] && continue
-    n=$(psql2 "select count(*) from \"$t\"")
-    if [[ "$n" == "0" ]]; then
-      say "  $t — empty, nothing to lose"
-    else
-      say "  $t — $n ROWS, WOULD BE DESTROYED"
-      STOP=true
-    fi
-  done <<< "$UNCARRIED"
+if [[ "$RESUME" != true ]]; then
+  say "v1 (live, read-only): $(counts "$V1_DB")"
+  say "v2 (this instance):   $(counts "$V2_DB")"
   rule
-fi
+  say "carried across the refresh, because it exists only in v2:"
+  for t in "${CARRIED_TABLES[@]}"; do
+    printf '  %-26s %s rows\n' "$t" "$(psql2 "select count(*) from $t")"
+  done
+  say "  models grouped:            $(psql2 'select count(*) from assets where "familyId" is not null')"
+  say "  credentials + appearance:  $(psql2 'select count(*) from users') users"
+  say "  v2-only columns:           clients owner/pin/season/prospect, services.kind, reservation_items.includedInParent"
+  rule
 
-# Columns v1 has grown since the fork that v2's schema does not model. These are
-# dropped by `prisma db push` and the data in them is lost — which is correct,
-# v2 does not have the feature — but it should be a decision, not a surprise in
-# a push warning. On 2026-09-01 this was `packages.rtoTermMonths`: v1 lets one
-# RTO order quote several terms as package options, across 5 orders and 21
-# packages at 12 and 24 months. All five still carry an order-level term, so the
-# record shows a term; what is lost is the per-option alternatives.
-say "documents: $(find "$V1_ROOT/documents" -type f 2>/dev/null | wc -l | tr -d ' ') files in v1, $(find "$ROOT/documents" -type f 2>/dev/null | wc -l | tr -d ' ') here — the rows travel with the database, the files do not"
-rule
-say "columns v1 has that v2 does not model (dropped by db push):"
-docker exec "$CONTAINER" psql -U postgres -d "$V1_DB" -tAc "
-  select '  '||table_name||'.'||column_name
-    from information_schema.columns
-   where table_schema='public'" > /tmp/refresh-v1-cols.txt
-docker exec "$CONTAINER" psql -U postgres -d "$V2_DB" -tAc "
-  select '  '||table_name||'.'||column_name
-    from information_schema.columns
-   where table_schema='public'" > /tmp/refresh-v2-cols.txt
-comm -23 <(sort /tmp/refresh-v1-cols.txt) <(sort /tmp/refresh-v2-cols.txt) \
-  | grep -v '\(chat_messages\|chat_sessions\)\.' || say "  none"
-rule
+  # The guard that matters. A v2-only table this script does not carry is a table
+  # `prisma db push` will rebuild empty — silently, because nothing else in the
+  # run mentions it. Comparing against the database rather than a hand-kept list
+  # means the next feature to add one stops the refresh instead of being erased by
+  # it. Empty uncarried tables are reported and allowed: there is nothing to lose.
+  docker exec "$CONTAINER" psql -U postgres -d "$V1_DB" -tAc \
+    "select table_name from information_schema.tables where table_schema='public' and table_type='BASE TABLE'" \
+    | sort > /tmp/refresh-v1-tables.txt
+  docker exec "$CONTAINER" psql -U postgres -d "$V2_DB" -tAc \
+    "select table_name from information_schema.tables where table_schema='public' and table_type='BASE TABLE'" \
+    | sort > /tmp/refresh-v2-tables.txt
+  printf '%s\n' "${CARRIED_TABLES[@]}" | sort > /tmp/refresh-carried.txt
 
-if [[ "$APPLY" != true ]]; then
-  say "Dry run. Nothing was changed."
-  if [[ "$STOP" == true ]]; then
-    say "It would REFUSE to run: a v2-only table above holds rows and is not carried."
+  UNCARRIED=$(comm -13 /tmp/refresh-v1-tables.txt /tmp/refresh-v2-tables.txt \
+            | comm -23 - /tmp/refresh-carried.txt)
+  STOP=false
+  if [[ -n "$UNCARRIED" ]]; then
+    say "v2-only tables this script does NOT carry:"
+    while read -r t; do
+      [[ -z "$t" ]] && continue
+      n=$(psql2 "select count(*) from \"$t\"")
+      if [[ "$n" == "0" ]]; then
+        say "  $t — empty, nothing to lose"
+      else
+        say "  $t — $n ROWS, WOULD BE DESTROYED"
+        STOP=true
+      fi
+    done <<< "$UNCARRIED"
+    rule
   fi
-  say "Re-run with --apply to:"
-  say "  1. back v2 up to backups/v2-before-refresh-<stamp>.sql.gz"
-  say "  2. snapshot v1 to backups/v1-snapshot-<stamp>.sql.gz"
-  say "  3. replace v2's public schema with that snapshot"
-  say "  4. prisma db push, and copy v1's documents/ tree across"
-  say "  5. restore the carried-across rows, and drop the assistant residue"
-  exit 0
-fi
 
-if [[ "$STOP" == true ]]; then
-  say "REFUSING: a v2-only table listed above holds rows this script does not carry."
-  say "Add it to CARRIED_TABLES (and give it FK guards in step 5) before refreshing."
-  exit 1
+  # Columns v1 has grown since the fork that v2's schema does not model. These are
+  # dropped by `prisma db push` and the data in them is lost — which is correct,
+  # v2 does not have the feature — but it should be a decision, not a surprise in
+  # a push warning. On 2026-09-01 this was `packages.rtoTermMonths`: v1 lets one
+  # RTO order quote several terms as package options, across 5 orders and 21
+  # packages at 12 and 24 months. All five still carry an order-level term, so the
+  # record shows a term; what is lost is the per-option alternatives.
+  say "documents: $(find "$V1_ROOT/documents" -type f 2>/dev/null | wc -l | tr -d ' ') files in v1, $(find "$ROOT/documents" -type f 2>/dev/null | wc -l | tr -d ' ') here — the rows travel with the database, the files do not"
+  rule
+  say "columns v1 has that v2 does not model (dropped by db push):"
+  docker exec "$CONTAINER" psql -U postgres -d "$V1_DB" -tAc "
+    select '  '||table_name||'.'||column_name
+      from information_schema.columns
+     where table_schema='public'" > /tmp/refresh-v1-cols.txt
+  docker exec "$CONTAINER" psql -U postgres -d "$V2_DB" -tAc "
+    select '  '||table_name||'.'||column_name
+      from information_schema.columns
+     where table_schema='public'" > /tmp/refresh-v2-cols.txt
+  comm -23 <(sort /tmp/refresh-v1-cols.txt) <(sort /tmp/refresh-v2-cols.txt) \
+    | grep -v '\(chat_messages\|chat_sessions\)\.' || say "  none"
+  rule
+
+  if [[ "$APPLY" != true ]]; then
+    say "Dry run. Nothing was changed."
+    if [[ "$STOP" == true ]]; then
+      say "It would REFUSE to run: a v2-only table above holds rows and is not carried."
+    fi
+    say "Re-run with --apply to:"
+    say "  1. back v2 up to backups/v2-before-refresh-<stamp>.sql.gz"
+    say "  2. snapshot v1 to backups/v1-snapshot-<stamp>.sql.gz"
+    say "  3. replace v2's public schema with that snapshot"
+    say "  4. prisma db push, and copy v1's documents/ tree across"
+    say "  5. restore the carried-across rows, and drop the assistant residue"
+    exit 0
+  fi
+
+  if [[ "$STOP" == true ]]; then
+    say "REFUSING: a v2-only table listed above holds rows this script does not carry."
+    say "Add it to CARRIED_TABLES (and give it FK guards in step 5) before refreshing."
+    exit 1
+  fi
 fi
 
 # ---------------------------------------------------------------------------
 # 1 · A way back
 # ---------------------------------------------------------------------------
+if [[ "$RESUME" == true ]]; then
+  say "resuming at step 4 - steps 1-3 already ran, carry schema left intact"
+else
 say "backing v2 up to $BACKUP"
 docker exec "$CONTAINER" pg_dump -U postgres "$V2_DB" | gzip > "$BACKUP"
 say "  $(du -h "$BACKUP" | cut -f1)"
@@ -266,6 +286,7 @@ create schema public;
 grant all on schema public to postgres;
 SQL
 gunzip -c "$DUMP" | docker exec -i "$CONTAINER" psql -U postgres -d "$V2_DB" --quiet -v ON_ERROR_STOP=1 > /dev/null
+fi
 
 # ---------------------------------------------------------------------------
 # 4 · v2's own schema back on top
