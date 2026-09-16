@@ -314,3 +314,89 @@ callable Server Function.
 
 **Not verified:** the card with real suggestions and the tile on a dashboard — no asks or
 conversations exist yet, and the tile is not on a saved view. Linking has not been clicked.
+
+---
+
+## Phase 3 — as built (2026-09-15)
+
+Schema in `prisma/manual/2026-09-15-environment-and-agreement-source.sql`, applied by hand,
+additive only: `EnvSection`, `client_environment_items`, `AgreementSource`, and two nullable
+columns on `clients`. Code in `lib/tracker/environment.ts` (pure), `lib/queries/environment.ts`,
+`lib/actions/environment.ts`, `components/tracker/environment-card.tsx` and its editor, mounted
+on the client record under Contacts.
+
+**Only the owned column is stored.** *What we supply* is the account's real order lines grouped
+by asset; *what they asked for* is `ClientAsk`, followed through any lead that became the
+account exactly as the Conversations card follows them. Neither can drift and neither needs
+maintaining. The supplied column keeps the **peak quantity on one order**, not the sum — five
+orders of one workstation is one machine rented five times, not five machines on their floor —
+and component sub-items (`includedInParent`) are skipped so a workstation's own GPU is not
+counted as a second machine.
+
+**Three vocabularies meet in `lib/tracker/environment.ts`.** `AskCategory` is an enum and maps
+cleanly, with `OTHER` going to Services because that is what the spec calls that section.
+`AssetCategory` is a table a person edits, so the mapping names all thirty categories on the
+instance today, falls through to keywords for anything added later, and returns null rather
+than guessing — unplaced lines are listed under "other kit we supply". **Nothing maps to
+Software on purpose:** no asset category is a licence, so that supplied column is empty, and
+that is a true statement about the catalogue rather than a gap in the table.
+
+Each section shows only its own fields (`ENV_SECTION_FIELDS`), and the action drops anything
+outside the section's set rather than saving it.
+
+**Still to come in Phase 4:** the aging signal has its input now (`refreshAt`), and the
+catalogue-gap grid is this card read column-wise. Neither is built.
+
+## The ties between a lead, the tracker and an account (2026-09-15)
+
+Four seams, each closed:
+
+- **An account no longer arrives in the pool with a rep already on it.** A lead's
+  `assignedToId` is its owner, but none of the four routes that opens an account from a lead
+  carried it — conversion, binding, a prospect quote's shell, onboarding. `adoptLeadOwner`
+  (`lib/tracker/lead-link.ts`) runs on all four and **only ever fills a blank**: a second lead
+  binding to an established account is a new contact ringing in, not a change of rep. This was
+  not cosmetic — the queue filed such accounts under Pool rather than their rep's Mine, and
+  "going quiet" raised nothing, because that item has no recipient on an unowned account.
+- **The lead record no longer goes blank on conversion.** `getTrackerRows` drops a converted
+  lead, which is right, but that left the screen people open from the pipeline with no standing
+  on it. `getLeadRelationship` hands back the **account's** row in its place, labelled as the
+  account's and linking to it.
+- **The account record says where it came from.** `getLeadsBehind` lists the enquiries behind
+  it and which route each took — converted and bound are different facts — and explains why
+  calls nobody logged there are in its timeline.
+- **Both cards link to the Tracker**, which is otherwise reachable only from a rail entry
+  administrators can see and STAFF cannot. The open rail question from Phase 1 stands.
+
+## Quoting somebody who is not an account yet (2026-09-15)
+
+Quick Quote's prospect path existed from the start but was reachable one way only: type two
+characters that match no client and notice the line underneath. It is now the **first control
+in the dialog** — "A client we have" or "Somebody new" — with a caption saying what each will
+do. The two paths write different records (an order, versus a lead *and* a provisional account
+*and* a held draft that is never sent), so which one you are on should not be something you
+discover. The no-match shortcut stays. Nothing changed on the server.
+
+## Verification (2026-09-15)
+
+**A signed quote settles the rental agreement.** The portal requires a typed name, a drawn
+signature, and a tick-box that is not pre-ticked saying the signer is authorized *and agrees to
+the rental terms and conditions*. `settleAgreementFromQuote` stamps `agreementSignedAt`,
+`agreementSignerName`, `agreementSource = QUOTE_SIGNATURE` and `agreementReservationId`, and
+files the signed quote against the client as a RENTAL_AGREEMENT so the claim has paper behind
+it.
+
+- It **only fills a blank** — a countersigned template is the stronger record and is never
+  overwritten for a fresher date. `agreementSource` is null on every account signed before this
+  landed, which reads as *unrecorded*, not as either route.
+- It **refuses a `prospectAt` shell.** Their onboarding is what makes them an account and
+  collects its requirements. Note that `sendOrderQuote` and `approveOrder` refuse on that flag
+  but **`createQuoteLink` does not** — a copied link is a real route to an approval on a shell.
+  That gap is older than this work and is left as found.
+- `getClientDocuments` read RESERVATION rows only, so **every CLIENT-filed rental agreement
+  since the requirements layer landed has been invisible** on the Documents card. Both scopes
+  are read now.
+
+**Not verified in a browser:** the environment editor, the lead Relationship card after each of
+the four conversion routes, the Quick Quote toggle, and an approval through the portal. No
+environment item, ask or signed quote exists on this instance yet.
