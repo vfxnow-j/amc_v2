@@ -337,24 +337,66 @@ export function QuickQuote({
             </Notice>
           ) : null}
 
+          {/* The choice, made up front rather than discovered.
+              Quoting somebody new used to be reachable only by typing two
+              characters that matched no client and noticing the line that
+              appeared underneath — which is fine if you already know it is
+              there and invisible if you don't. The two paths write different
+              records (one an order, the other a lead *and* a held draft), so
+              which one you are on is the first thing the dialog should say. */}
+          <div>
+            <span className={LABEL}>Quoting</span>
+            <div className="flex gap-1 rounded-well bg-sunken p-1">
+              {[
+                { key: "client" as const, label: "A client we have" },
+                { key: "prospect" as const, label: "Somebody new" },
+              ].map((option) => {
+                const active = (option.key === "prospect") === Boolean(prospect);
+                return (
+                  <button
+                    key={option.key}
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() => {
+                      setOutcome(null);
+                      if (option.key === "prospect") {
+                        setClient(null);
+                        setProspect(
+                          prospect ?? {
+                            email: "",
+                            // Whatever was typed into the client search is a
+                            // name far more often than a company, and retyping
+                            // it is the sort of friction that loses the call.
+                            name: clientQuery.trim(),
+                            companyName: "",
+                          },
+                        );
+                        setClientQuery("");
+                        setClientHits([]);
+                      } else {
+                        setProspect(null);
+                      }
+                    }}
+                    className={`h-8 flex-1 rounded-row text-pill transition-colors ${
+                      active
+                        ? "bg-accent-solid text-accent-on-solid"
+                        : "text-ink-muted hover:bg-row-hover hover:text-ink"
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="pt-1 text-micro text-ink-faint">
+              {prospect
+                ? "Opens a lead, holds the quote against a provisional account and asks them to onboard. Nothing priced is sent to them."
+                : "Prices against the account, so the order is theirs and nothing is quoted twice."}
+            </p>
+          </div>
+
           {prospect ? (
             <div className="flex flex-col gap-2 rounded-well bg-sunken p-3">
-              <div className="flex items-baseline justify-between gap-2">
-                <span className="text-micro uppercase text-ink-muted">
-                  Somebody new
-                </span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setProspect(null);
-                    setOutcome(null);
-                  }}
-                  className="text-micro text-ink-faint underline hover:text-ink"
-                >
-                  Back to clients
-                </button>
-              </div>
-
               <input
                 type="email"
                 value={prospect.email}
@@ -455,9 +497,6 @@ export function QuickQuote({
                         setOutcome(null);
                         setProspect({
                           email: "",
-                          // Whatever was typed into the search is a name far
-                          // more often than it is a company, and retyping it is
-                          // the sort of friction that loses the call.
                           name: clientQuery.trim(),
                           companyName: "",
                         });
@@ -469,9 +508,7 @@ export function QuickQuote({
                       No match — quote “{clientQuery.trim()}” as somebody new
                     </button>
                     <p className="px-2 pt-1 text-micro text-ink-faint">
-                      Opens a lead, holds the quote against a provisional
-                      account and asks them to onboard. Nothing priced is sent
-                      to them. The full builder is at{" "}
+                      The full builder is at{" "}
                       <Link
                         href="/dashboard/orders/new"
                         className="text-accent-text hover:underline"
