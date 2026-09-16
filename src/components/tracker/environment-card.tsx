@@ -46,11 +46,14 @@ function detailOf(item: OwnedItem, fields: EnvField[]): string {
 function SuppliedRow({ item }: { item: SuppliedItem }) {
   return (
     <li className="rounded-row px-2 py-[3px] text-detail">
-      <span className="truncate">
+      {/* The catalogue holds 200-character configuration strings. Two lines
+          with the whole thing on hover, rather than a hard clip that would cut
+          "VFXnow AP201 Custom SFF PC…" at the word every one of them shares. */}
+      <span className="line-clamp-2 break-words" title={item.name}>
         {item.peak > 1 ? `${item.peak} × ` : ""}
         {item.name}
       </span>
-      <span className="block text-micro text-ink-faint">
+      <span className="block text-balance text-micro text-ink-faint">
         {item.live ? (
           <span className="text-accent-text">Out with them now</span>
         ) : (
@@ -112,7 +115,7 @@ export async function EnvironmentCard({
           const fields = ENV_SECTION_FIELDS[view.section];
 
           return (
-            <section key={view.section} className="rounded-well bg-sunken/50 p-3">
+            <section key={view.section} className="@container rounded-well bg-sunken/50 p-3">
               <h3 className="text-detail font-bold text-ink">
                 {ENV_SECTION_LABEL[view.section]}
               </h3>
@@ -121,13 +124,17 @@ export async function EnvironmentCard({
                   {ENV_SECTION_BLURB[view.section]}
                 </p>
               ) : (
-                <div className="mb-2 mt-2 grid gap-3 sm:grid-cols-3">
+                /* Three across only when the card itself is wide enough, not
+                   when the window is. This sits in one column of a three-column
+                   record page, where a viewport breakpoint gives each column
+                   about 100px and every name clamps to two lines. */
+                <div className="mb-2 mt-2 grid gap-3 @md:grid-cols-3">
                   <Column title="They run" empty={view.owned.length === 0}>
                     {view.owned.map((item) => {
                       const detail = detailOf(item, fields);
                       return (
                         <li key={item.id} className="rounded-row px-2 py-[3px] text-detail">
-                          <span className="truncate">
+                          <span className="line-clamp-2 break-words" title={item.name}>
                             {item.quantity && item.quantity > 1 ? `${item.quantity} × ` : ""}
                             {item.name}
                           </span>
@@ -156,7 +163,7 @@ export async function EnvironmentCard({
                   <Column title="They asked" empty={view.asked.length === 0}>
                     {view.asked.map((ask) => (
                       <li key={ask.id} className="rounded-row px-2 py-[3px] text-detail">
-                        <span className="truncate">
+                        <span className="line-clamp-2 break-words" title={ask.description}>
                           {ask.quantity && ask.quantity > 1 ? `${ask.quantity} × ` : ""}
                           {ask.description}
                         </span>
