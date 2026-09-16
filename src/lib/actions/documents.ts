@@ -3,7 +3,7 @@
 import React from 'react'
 import { revalidatePath } from 'next/cache'
 import { prisma } from '@/lib/prisma'
-import { requireAuth, requireEditor } from '@/lib/auth-utils'
+import { requireAdmin, requireAuth, requireEditor } from '@/lib/auth-utils'
 import { serialize } from '@/lib/utils'
 import { formatDate } from '@/lib/utils/format'
 import fs from 'fs/promises'
@@ -1099,4 +1099,229 @@ export async function restoreDocument(id: string) {
   revalidatePath('/dashboard/settings/documents')
 
   return serialize(restored)
+}
+
+// ---------------------------------------------------------------------------
+// FUNDING REQUESTS
+// ---------------------------------------------------------------------------
+
+/**
+ * Render an equipment funding request to a PDF Buffer server-side (no disk
+ * write, no Document row). Shared by the on-demand route, the on-disk
+ * generator and the accounting email, so all three show the same form.
+ * Returns null if the request can't be found.
+ *
+ * Ported from v1. Unlike v1 it checks for a session: every export of a
+ * "use server" file is callable, and this one reads a whole request.
+ */
+export async function renderFundingRequestPdf(
+  requestId: string
+): Promise<{ buffer: Buffer; filename: string } | null> {
+  const authResult = await requireAuth()
+  if (!authResult.authorized) throw new Error(authResult.error)
+
+  const request = await prisma.fundingRequest.findUnique({
+    where: { id: requestId },
+    include: {
+      client: { select: { name: true } },
+      lease: { select: { leaseNumber: true, leaseName: true, lender: true } },
+      items: { orderBy: { sortOrder: 'asc' } },
+      purchaseOrders: {
+        select: { poNumber: true, status: true, total: true, vendor: { select: { name: true } } },
+        orderBy: { orderDate: 'desc' },
+      },
+      reservations: {
+        select: {
+          reservationNumber: true,
+          status: true,
+          total: true,
+          client: { select: { name: true } },
+        },
+        orderBy: { startDate: 'desc' },
+      },
+    },
+  })
+  if (!request) return null
+
+  const { FundingRequestPDF } = await import('@/components/procurement/funding-request-pdf')
+  const { computeFundingMetrics } = await import('@/lib/utils/funding')
+  const { FUNDING_STATUS_LABEL, CUSTOMER_COMMITMENT_LABEL, FUNDING_PURCHASE_TYPE_LABEL } =
+    await import('@/lib/procurement/funding-labels')
+
+  const n = (v: unknown) => (v === null || v === undefined ? null : Number(v))
+
+  const metrics = computeFundingMetrics({
+    totalEquipmentCost: Number(request.totalEquipmentCost),
+    amountRequested: Number(request.amountRequested),
+    amountBorrowed: n(request.amountBorrowed),
+    financingFees: n(request.financingFees),
+    estimatedTotalInterest: n(request.estimatedTotalInterest),
+    monthlyPayment: n(request.monthlyPayment),
+    customerRentalRate: n(request.customerRentalRate),
+    billableUnits: request.billableUnits,
+    customerRentalCharge: n(request.customerRentalCharge),
+    expectedInitialRevenue: n(request.expectedInitialRevenue),
+    expectedGrossProfit: n(request.expectedGrossProfit),
+    expectedAnnualRevenue: n(request.expectedAnnualRevenue),
+    estimatedResaleValue: n(request.estimatedResaleValue),
+    estimatedPaybackMonths: request.estimatedPaybackMonths,
+    expectedHoldMonths: request.expectedHoldMonths,
+  })
+
+  const data = {
+    requestNumber: request.requestNumber,
+    status: FUNDING_STATUS_LABEL[request.status],
+
+    requestedBy: request.requestedBy,
+    requestDate: request.requestDate,
+    neededByDate: request.neededByDate,
+    amountRequested: Number(request.amountRequested),
+    businessPurpose: request.businessPurpose,
+
+    purchaseType: request.purchaseType ? FUNDING_PURCHASE_TYPE_LABEL[request.purchaseType] : null,
+    equipmentSummary: request.equipmentSummary,
+    items: request.items.map((item) => ({
+      description: item.description,
+      quantity: item.quantity,
+      unitCost: Number(item.unitCost),
+      amount: Number(item.amount),
+    })),
+    totalEquipmentCost: Number(request.totalEquipmentCost),
+    customer: request.client?.name || request.projectName || null,
+    customerCommitment: request.customerCommitment
+      ? CUSTOMER_COMMITMENT_LABEL[request.customerCommitment]
+      : null,
+    customerRentalRate: n(request.customerRentalRate),
+    billableUnits: request.billableUnits,
+    // The stored total can predate the rate x units split; the metric is the
+    // one both this line and the ROI band agree on.
+    customerRentalCharge: metrics.monthlyRentalCharge,
+    expectedInitialRevenue: n(request.expectedInitialRevenue),
+    rentalPeriod: request.rentalPeriod,
+    paymentTerms: request.paymentTerms,
+
+    lender: request.lender,
+    amountBorrowed: n(request.amountBorrowed),
+    interestRatePercent: request.interestRate === null ? null : Number(request.interestRate) * 100,
+    termMonths: request.termMonths,
+    monthlyPayment: n(request.monthlyPayment),
+    financingFees: n(request.financingFees),
+    estimatedTotalInterest: n(request.estimatedTotalInterest),
+    firstPaymentDate: request.firstPaymentDate,
+    expectedPayoffDate: request.expectedPayoffDate,
+
+    expectedGrossProfit: n(request.expectedGrossProfit),
+    estimatedPaybackMonths: request.estimatedPaybackMonths,
+    expectedAnnualUtilization: n(request.expectedAnnualUtilization),
+    expectedHoldMonths: request.expectedHoldMonths,
+    expectedAnnualRevenue: n(request.expectedAnnualRevenue),
+    estimatedResaleValue: n(request.estimatedResaleValue),
+    exitPlan: request.exitPlan,
+
+    alternateUsePlan: request.alternateUsePlan,
+    borrowRationale: request.borrowRationale,
+
+    metrics,
+
+    supportingPOs: request.purchaseOrders.map((po) => ({
+      poNumber: po.poNumber,
+      vendorName: po.vendor?.name || 'Unknown vendor',
+      status: po.status,
+      total: Number(po.total),
+    })),
+    supportingQuotes: request.reservations.map((r) => ({
+      reservationNumber: r.reservationNumber,
+      clientName: r.client?.name || 'Unknown client',
+      status: r.status,
+      total: Number(r.total),
+    })),
+    lease: request.lease,
+
+    operationsApprovedBy: request.operationsApprovedBy,
+    financeApprovedBy: request.financeApprovedBy,
+    executiveApprovedBy: request.executiveApprovedBy,
+    approvalDate: request.approvalDate,
+
+    notes: request.notes,
+  }
+
+  const logoDataUri = await getServerLogoDataUri()
+
+  const { pdf } = await import('@react-pdf/renderer')
+  const doc = React.createElement(FundingRequestPDF, { data, logoDataUri })
+  const stream = await pdf(doc as any).toBuffer()
+  const chunks: Uint8Array[] = []
+  for await (const chunk of stream as AsyncIterable<Uint8Array>) {
+    chunks.push(chunk)
+  }
+  const buffer = Buffer.concat(chunks)
+
+  return { buffer, filename: `Funding-Request-${request.requestNumber}.pdf` }
+}
+
+/**
+ * Generate a funding request PDF server-side and save it as a document, so the
+ * version accounting received is on file. Idempotent — skips if one already
+ * exists, unless `force` is set, in which case the file is rewritten and the
+ * existing Document row updated in place (preserving its ID).
+ *
+ * Ported from v1, with an admin check: it writes to disk and to the documents
+ * table, and the only legitimate caller is the admin-gated submit.
+ */
+export async function generateAndSaveFundingRequestDocument(
+  requestId: string,
+  createdById: string,
+  opts: { force?: boolean } = {}
+): Promise<void> {
+  const authResult = await requireAdmin()
+  if (!authResult.authorized) throw new Error(authResult.error)
+
+  try {
+    const existing = await prisma.document.findFirst({
+      where: {
+        entityType: 'FUNDING_REQUEST',
+        entityId: requestId,
+        documentType: 'FUNDING_REQUEST',
+      },
+    })
+    if (existing && !opts.force) return
+
+    const rendered = await renderFundingRequestPdf(requestId)
+    if (!rendered) return
+    const { buffer, filename } = rendered
+
+    const folder = path.join(DOCUMENTS_ROOT, 'funding-requests', requestId)
+    await fs.mkdir(folder, { recursive: true })
+
+    const filePath = path.join(folder, filename)
+    await fs.writeFile(filePath, buffer)
+
+    if (existing) {
+      await prisma.document.update({
+        where: { id: existing.id },
+        data: {
+          filename,
+          filePath: toRelativePath(filePath),
+          fileSize: buffer.length,
+        },
+      })
+    } else {
+      await prisma.document.create({
+        data: {
+          documentType: 'FUNDING_REQUEST',
+          filename,
+          filePath: toRelativePath(filePath),
+          fileSize: buffer.length,
+          entityType: 'FUNDING_REQUEST',
+          entityId: requestId,
+          createdById,
+        },
+      })
+    }
+
+    revalidatePath(`/dashboard/funding/${requestId}`)
+  } catch (error) {
+    // Non-critical — log but don't break the calling operation
+    console.error('Auto-generate funding request document failed:', error)
+  }
 }

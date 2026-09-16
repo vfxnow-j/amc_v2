@@ -9,6 +9,7 @@ import type { EmailAttachment } from '@/lib/email/send'
 // getResend().batch.send directly and so went around both.
 import { EMAIL_FROM } from '@/lib/email/client'
 import { overdueReminderEmail, systemAlertEmail, newLeadEmail, reservationConfirmedStaffEmail, purchaseOrderSubmittedEmail, insightsDigestEmail, weeklyReportEmail, dailyDigestEmail, dailyTrafficReportEmail, coverageExpiryEmail, type NewLeadEmailData, type ReservationConfirmedEmailData, type PurchaseOrderSubmittedEmailData, type InsightsDigestData, type WeeklyReportData, type DailyDigestData, type DailyOrderRow, type DailyTrafficReportData, type TrafficReportClientGroup, type TrafficReportUnit, type CoverageExpiryEmailData } from '@/lib/email/templates'
+import { fundingRequestSubmittedEmail, type FundingRequestSubmittedEmailData } from '@/lib/email/templates'
 import { coverageTypeLabels } from '@/lib/types'
 import { requireAdmin, requireAuth } from '@/lib/auth-utils'
 
@@ -1083,5 +1084,64 @@ export async function sendCoverageExpiryNotifications(): Promise<{ sent: number;
   } catch (error) {
     console.error('Failed to send coverage expiry notifications:', error)
     return { sent: 0, coverages: 0 }
+  }
+}
+
+// ============================================
+// FUNDING REQUEST SUBMITTED — ACCOUNTING NOTIFICATION
+// ============================================
+
+/**
+ * Send a submitted funding request to the configured 'funding' recipients
+ * (accounting), with the request form attached as a PDF. Ported from v1.
+ *
+ * Two departures. v1's helper had no auth check; in a "use server" file every
+ * export is a callable action, and this one mails whatever it is handed to
+ * staff, so it asks for an admin session like the action that calls it. And it
+ * reads the recipients itself rather than through `getRecipientsForCategory`,
+ * whose category list predates funding in v2 — the stored setting, restored from
+ * v1, already carries the `funding` flag.
+ *
+ * Outbound email is off on this instance: every send goes through `sendEmail`,
+ * which refuses without RESEND_API_KEY and redirects under EMAIL_TEST_REDIRECT.
+ * Never throws — a mail failure must not roll back a submission.
+ */
+export async function notifyFundingRequestSubmitted(
+  data: FundingRequestSubmittedEmailData,
+  attachments?: EmailAttachment[]
+): Promise<{ sent: number; recipients: number; error?: string }> {
+  const authResult = await requireAdmin()
+  if (!authResult.authorized) return { sent: 0, recipients: 0, error: authResult.error }
+
+  try {
+    const setting = await prisma.setting.findUnique({ where: { key: 'notification_recipients' } })
+    const configured = (setting?.value as (NotificationRecipient & { funding?: boolean })[] | null) ?? []
+    const emails = Array.from(
+      new Set(configured.filter((r) => r.funding && r.email).map((r) => r.email.toLowerCase().trim()))
+    )
+    if (emails.length === 0) return { sent: 0, recipients: 0 }
+
+    const template = fundingRequestSubmittedEmail(data)
+
+    // One message per recipient: Resend's batch endpoint takes no attachments.
+    let sent = 0
+    let lastError: string | undefined
+    for (const email of emails) {
+      const { success, error } = await sendEmail({
+        to: email,
+        subject: template.subject,
+        html: template.html,
+        attachments,
+      })
+      if (success) sent += 1
+      else {
+        lastError = error
+        console.error(`Failed to send funding request notification to ${email}:`, error)
+      }
+    }
+    return { sent, recipients: emails.length, error: lastError }
+  } catch (error) {
+    console.error('Failed to send funding request submitted notifications:', error)
+    return { sent: 0, recipients: 0, error: error instanceof Error ? error.message : 'Unknown error' }
   }
 }

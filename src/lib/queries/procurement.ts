@@ -37,15 +37,9 @@ export const FUNDING_STATUSES: FundingRequestStatus[] = [
   "CANCELLED",
 ];
 
-export const FUNDING_STATUS_LABEL: Record<FundingRequestStatus, string> = {
-  DRAFT: "Draft",
-  SUBMITTED: "Submitted",
-  APPROVED: "Approved",
-  DECLINED: "Declined",
-  FUNDED: "Funded",
-  FULFILLED: "Fulfilled",
-  CANCELLED: "Canceled",
-};
+// Defined beside the funding screens, which share it; re-exported so the
+// Overview's import is unchanged.
+export { FUNDING_STATUS_LABEL } from "@/lib/procurement/funding-labels";
 
 /**
  * The committed figure, plus what it is made of.

@@ -155,6 +155,13 @@ const RECORD_ROUTES: {
     find: () => firstId(() => prisma.workOrder.findFirst({ select: { id: true } })),
   },
   {
+    // No rows until a refresh from v1 brings FR-2026-00001 across, so this
+    // reports "no rows to test" rather than passing on nothing.
+    label: "funding request record",
+    path: (id) => `/dashboard/funding/${id}`,
+    find: () => firstId(() => prisma.fundingRequest.findFirst({ select: { id: true } })),
+  },
+  {
     label: "lease record",
     path: (id) => `/dashboard/leases/${id}`,
     find: () => firstId(() => prisma.lease.findFirst({ select: { id: true } })),

@@ -1879,3 +1879,148 @@ export function onboardingInviteEmail(data: {
     `),
   }
 }
+
+// ============================================
+// FUNDING REQUEST SUBMITTED — ACCOUNTING NOTIFICATION
+// ============================================
+
+/**
+ * Ported from v1 unchanged in content. The payback markers are phrased as the
+ * request's own figures ("Payback in 14 months") because that is what they are:
+ * arithmetic over what the requester typed, not a measured return. The email
+ * says so once, above them, rather than letting accounting read a projection as
+ * a result.
+ */
+export type FundingRequestSubmittedEmailData = {
+  requestNumber: string
+  requestedBy: string
+  submittedBy?: string | null
+  requestDate: string
+  neededByDate?: string | null
+  amountRequested: string
+  equipmentCost: string
+  equipmentSummary?: string | null
+  purchaseType?: string | null
+  itemCount: number
+  customer?: string | null
+  commitment?: string | null
+  lender?: string | null
+  monthlyPayment?: string | null
+  customerRentalCharge?: string | null
+  businessPurpose?: string | null
+  paybackMonths?: number | null
+  debtServiceCoverage?: number | null
+  breakEvenMonths?: number | null
+  neverBreaksEven?: boolean
+  supportingPOs: string[]
+  supportingQuotes: string[]
+  requestId: string
+}
+
+export function fundingRequestSubmittedEmail(data: FundingRequestSubmittedEmailData) {
+  const safeNumber = escapeHtml(data.requestNumber)
+  const requestUrl = `${APP_URL}/dashboard/funding/${encodeURIComponent(data.requestId)}`
+
+  const row = (label: string, value: string) => `
+    <tr style="border-top: 1px solid #e4e4e7;">
+      <td style="padding: 8px 0; color: #71717a; font-size: 14px;">${label}</td>
+      <td style="padding: 8px 0; text-align: right; font-weight: 600; color: #18181b;">${value}</td>
+    </tr>`
+
+  let detailsHtml = `
+    <tr>
+      <td style="padding: 8px 0; color: #71717a; font-size: 14px;">Amount Requested</td>
+      <td style="padding: 8px 0; text-align: right; font-weight: 600; color: #18181b;">${escapeHtml(data.amountRequested)}</td>
+    </tr>`
+
+  if (data.purchaseType) detailsHtml += row('Purchase Type', escapeHtml(data.purchaseType))
+  detailsHtml += row('Equipment Cost', escapeHtml(data.equipmentCost))
+  detailsHtml += row('Line Items', String(data.itemCount))
+  detailsHtml += row('Requested By', escapeHtml(data.requestedBy))
+  detailsHtml += row('Request Date', escapeHtml(data.requestDate))
+  if (data.neededByDate) detailsHtml += row('Funding Needed By', escapeHtml(data.neededByDate))
+  if (data.customer) detailsHtml += row('Customer / Project', escapeHtml(data.customer))
+  if (data.commitment) detailsHtml += row('Customer Commitment', escapeHtml(data.commitment))
+  if (data.customerRentalCharge) detailsHtml += row('Customer Rental Charge', escapeHtml(data.customerRentalCharge))
+  if (data.lender) detailsHtml += row('Lender / Source', escapeHtml(data.lender))
+  if (data.monthlyPayment) detailsHtml += row('Monthly Payment', escapeHtml(data.monthlyPayment))
+  if (data.submittedBy) detailsHtml += row('Submitted By', escapeHtml(data.submittedBy))
+
+  const markers: string[] = []
+  if (data.paybackMonths !== null && data.paybackMonths !== undefined) {
+    markers.push(`Payback in <strong>${data.paybackMonths} months</strong>`)
+  }
+  if (data.debtServiceCoverage !== null && data.debtServiceCoverage !== undefined) {
+    markers.push(`Rental covers <strong>${data.debtServiceCoverage.toFixed(2)}x</strong> the payment`)
+  }
+  if (data.breakEvenMonths !== null && data.breakEvenMonths !== undefined) {
+    markers.push(`Break-even at <strong>month ${data.breakEvenMonths}</strong> incl. resale`)
+  } else if (data.neverBreaksEven) {
+    markers.push(`<strong>No break-even</strong> — rentals and resale do not cover cost`)
+  }
+
+  const markersHtml = markers.length
+    ? `<div style="margin: 20px 0; padding: 14px 16px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; color: #166534; font-size: 14px; line-height: 1.8;">
+        <span style="color: #3f3f46; font-size: 13px;">Estimates from the figures on the request — not measured returns.</span><br />
+        ${markers.join('<br />')}
+      </div>`
+    : ''
+
+  const supporting: string[] = []
+  if (data.supportingPOs.length) {
+    supporting.push(`Purchase orders: ${escapeHtml(data.supportingPOs.join(', '))}`)
+  }
+  if (data.supportingQuotes.length) {
+    supporting.push(`Client quotes / orders: ${escapeHtml(data.supportingQuotes.join(', '))}`)
+  }
+
+  const supportingHtml = supporting.length
+    ? `<div style="margin: 20px 0; padding: 14px 16px; background: #f4f4f5; border-radius: 8px; color: #3f3f46; font-size: 14px; line-height: 1.7;">
+        <strong style="color: #18181b;">Supporting documents</strong><br />
+        ${supporting.join('<br />')}
+      </div>`
+    : ''
+
+  const purposeHtml = data.businessPurpose
+    ? `<div style="margin: 20px 0;">
+        <p style="margin: 0 0 6px; color: #71717a; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px;">Business Purpose</p>
+        <p style="margin: 0; color: #3f3f46; line-height: 1.6; white-space: pre-wrap;">${escapeHtml(data.businessPurpose)}</p>
+      </div>`
+    : ''
+
+  const equipmentHtml = data.equipmentSummary
+    ? `<div style="margin: 20px 0;">
+        <p style="margin: 0 0 6px; color: #71717a; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px;">Equipment</p>
+        <p style="margin: 0; color: #3f3f46; line-height: 1.6; white-space: pre-wrap;">${escapeHtml(data.equipmentSummary)}</p>
+      </div>`
+    : ''
+
+  return {
+    subject: `Funding Request: ${safeNumber} — ${escapeHtml(data.amountRequested)}`,
+    html: baseLayout(`
+      <h2 style="margin: 0 0 16px; color: #18181b; font-size: 20px;">Equipment Funding Request</h2>
+      <p style="color: #3f3f46; line-height: 1.6;">
+        A funding request has been submitted for accounting review. The complete request form is attached as a PDF.
+      </p>
+      <div style="margin: 20px 0; padding: 16px; background: #f4f4f5; border-radius: 8px;">
+        <h3 style="margin: 0 0 4px; color: #18181b; font-size: 18px;">${safeNumber}</h3>
+        <p style="margin: 0; color: #71717a; font-size: 14px;">${escapeHtml(data.customer || 'General inventory')}</p>
+      </div>
+      ${purposeHtml}
+      ${equipmentHtml}
+      <table style="width: 100%; margin: 20px 0; border-collapse: collapse;">
+        ${detailsHtml}
+      </table>
+      ${markersHtml}
+      ${supportingHtml}
+      <div style="text-align: center; margin: 24px 0;">
+        <a href="${requestUrl}" style="background: #18181b; color: #ffffff; padding: 12px 32px; border-radius: 6px; text-decoration: none; font-weight: 500; display: inline-block;">
+          View Funding Request
+        </a>
+      </div>
+      <p style="color: #71717a; font-size: 14px; line-height: 1.6;">
+        This is an automated notification from VFXNow AMC.
+      </p>
+    `),
+  }
+}
