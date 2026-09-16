@@ -207,6 +207,15 @@ export const NAV_CLUSTERS: NavCluster[] = [
     roles: ALL_ADMIN,
     pages: [
       {
+        // New in v2 (Phase 5). First because it is the question the cluster is
+        // opened to answer — what is committed, what is late, what is waiting
+        // on money — before anyone goes looking for a particular PO. Its own
+        // prefix, so findNavPage never lets it claim a purchase-order record.
+        id: "procurement-overview",
+        label: "Overview",
+        href: "/dashboard/procurement",
+      },
+      {
         id: "purchase-orders",
         label: "Purchase orders",
         href: "/dashboard/purchase-orders",
