@@ -1,3 +1,4 @@
+import { FUNDING_STATUS_LABEL as FUNDING_REQUEST_STATUS_LABEL } from "@/lib/procurement/funding-labels";
 /**
  * The purchase order's vocabulary, for the forms and the record.
  *
@@ -34,22 +35,13 @@ export const PO_METHOD_LABEL: Record<string, string> = {
 export const PO_METHODS = Object.keys(PO_METHOD_LABEL);
 
 /**
- * A funding request's status, as the PO record shows it beside the link.
- *
- * Written here rather than imported because the funding screens are being
- * built alongside this one and their labels file does not exist yet. The words
- * follow v1's; if the two ever disagree, the funding request's own record is
- * the one to believe.
+ * A funding request's status, as the PO record and the unit trail name it.
+ * Re-exported from the one label map rather than kept as a copy — the three
+ * that existed briefly while Procurement was built in parallel already
+ * disagreed about "Submitted". Widened to string keys because the PO side reads
+ * statuses out of serialized rows.
  */
-export const FUNDING_STATUS_LABEL: Record<string, string> = {
-  DRAFT: "Draft",
-  SUBMITTED: "Submitted",
-  APPROVED: "Approved",
-  DECLINED: "Declined",
-  FUNDED: "Funded",
-  FULFILLED: "Fulfilled",
-  CANCELLED: "Canceled",
-};
+export const FUNDING_STATUS_LABEL: Record<string, string> = FUNDING_REQUEST_STATUS_LABEL;
 
 /** The conditions a received unit can be booked in as. `New` is the default. */
 export const RECEIVE_CONDITIONS = ["New", "Excellent", "Good", "Fair"] as const;
