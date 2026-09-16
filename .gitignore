@@ -47,6 +47,14 @@ yarn-error.log*
 *.sql
 *.sql.gz
 
+# ...but the hand-applied migrations are source, not runtime data. The rule
+# above exists to keep database dumps out and caught these as collateral, so
+# every schema change made by hand since the fork has lived only on the box it
+# was applied to. schema.prisma is tracked and the SQL is reconstructible from
+# `prisma migrate diff`, but reconstructing is not the same as having the file
+# that was actually run.
+!/prisma/manual/*.sql
+
 # local tooling
 .claude/settings.local.json
 
