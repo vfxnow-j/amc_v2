@@ -456,17 +456,10 @@ Ordered by what unblocks dev testing first, not by cluster.
 **2 · Accounting — money in and out.**
 - Invoice create/edit standalone — `createInvoice` `updateInvoice`
   (only `createInvoiceFromReservation` is reachable, from an order)
-- Purchase order create/edit — `createPurchaseOrder` `updatePurchaseOrder`
-  (receiving works; raising one does not)
+- **Purchase orders and funding requests moved to Procurement** (2026-09-16) —
+  PO create/edit, the funding request port, and receiving as the way assets are
+  created are phased in `docs/procurement.md`. Tracked there, not here.
 - Lease create/edit — `createLease` `updateLease` `deleteLease`
-- **Funding requests — not wiring, a port.** v1 has grown the feature since the
-  restore and v2 does not model it at all: `funding_requests`,
-  `funding_request_items`, join tables to purchase orders and reservations, and
-  `purchase_orders.leaseId`. `prisma db push` drops the lot on every refresh, so
-  a refreshed v2 shows no sign it exists — v1 already has one live request
-  (`FR-2026-00001`, SUBMITTED 2026-09-04, $69,990). Port the schema, then
-  `lib/actions/funding-requests.ts` and `/dashboard/funding` from v1. Owner has
-  called it important; **held** as of 2026-09-09, not being built yet.
 
 **3 · Clients — the rest of the cluster.**
 - Account **edit** — `updateClient` exists; the record is read-only
