@@ -155,12 +155,6 @@ export const NAV_CLUSTERS: NavCluster[] = [
         href: "/dashboard/audits",
         from: ["/dashboard/audits", "/dashboard/scan-lists"],
       },
-      {
-        id: "vendors",
-        label: "Vendors",
-        href: "/dashboard/vendors",
-        from: ["/dashboard/vendors"],
-      },
     ],
   },
   {
@@ -229,6 +223,15 @@ export const NAV_CLUSTERS: NavCluster[] = [
         label: "Funding requests",
         href: "/dashboard/funding",
         from: ["/dashboard/funding"],
+      },
+      {
+        // Moved from Inventory, 2026-09-16, on the owner's call. A vendor is who
+        // the business buys from, and every question asked of one — what is on
+        // order, what arrived late, what we spent — is answered by its POs.
+        id: "vendors",
+        label: "Vendors",
+        href: "/dashboard/vendors",
+        from: ["/dashboard/vendors"],
       },
     ],
   },

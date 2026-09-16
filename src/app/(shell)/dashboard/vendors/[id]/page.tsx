@@ -26,7 +26,7 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
 }
 
 /**
- * Inventory → Vendors → the record.
+ * Procurement → Vendors → the record.
  *
  * A vendor is where hardware came from and where a warranty claim goes back to,
  * so the screen is organized around that: what was bought, what of it still
@@ -45,7 +45,7 @@ export default async function VendorRecordPage({ params }: Params) {
   return (
     <>
       <PageHeader
-        eyebrow="Inventory · Vendor"
+        eyebrow="Procurement · Vendor"
         title={vendor.name}
         blurb={
           <>

@@ -61,7 +61,7 @@ async function Table({ search }: { search: string }) {
 }
 
 /**
- * Inventory → Vendors.
+ * Procurement → Vendors.
  *
  * One screen, not two: v1's `/dashboard/settings/vendors` is a byte-for-byte
  * copy of `/dashboard/vendors` apart from its back-link, and the duplicate is
@@ -78,7 +78,7 @@ export default async function VendorsPage({
   return (
     <>
       <PageHeader
-        eyebrow="Inventory"
+        eyebrow="Procurement"
         title="Vendors"
         blurb="Who the hardware came from"
         actions={<ListSearch placeholder="Search vendors, contacts" />}

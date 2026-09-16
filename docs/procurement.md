@@ -28,6 +28,7 @@ through procurement before the books record it.
 | Overview *(Phase 5)* | `/dashboard/procurement` | new |
 | Purchase orders | `/dashboard/purchase-orders` | moved from Accounting |
 | Funding requests | `/dashboard/funding` | v1 `/dashboard/funding` |
+| Vendors | `/dashboard/vendors` | moved from Inventory (owner, 2026-09-16) |
 
 URLs stay on v1's paths, as everywhere else in the rail, so nothing that links to a PO or a
 request breaks. Roles: `SUPER_ADMIN`, `ADMIN` — what Accounting had. Whether STAFF should
@@ -81,6 +82,37 @@ state; `SUBMITTED → DRAFT` on revise. A PO is `DRAFT → SUBMITTED → PARTIAL
    what is awaiting receipt and what is past its expected date, the funding pipeline by
    status, and spend by vendor. Every figure from stored rows; nothing projected that the
    data cannot support.
+6. **Approvals — raise, review, approve or deny.** Asked for by the owner 2026-09-16:
+
+   > a flow … that allows a level of a user to raise orders/quotes/POs etc, which then get
+   > sent to a super admin (with an approve capability) and allows me to approve, or others I
+   > identify. Roles matter, I don't want someone who doesn't know the system to blow it up
+   > and have nice controls. This … would then need to spawn a level of approval emails so
+   > things can be seen, i.e request for purchase — I review, see what its for, approve or
+   > deny — but same level for quotes, etc. depending on role.
+
+   One approval mechanism, not one per record type. A record that needs approval (purchase
+   order, funding request, client quote/order — more later) is **raised** by someone allowed
+   to raise it, **held** in a pending state it cannot leave on its own (a held PO cannot be
+   sent to the vendor, a held quote cannot be sent to the client), and **decided** by an
+   approver: approve, or deny with a reason that goes back to the requester. Every decision is
+   recorded (who, when, what they saw, why) and cannot be edited afterwards. Editing an
+   approved record in a way that changes money sends it back for approval.
+
+   - **Approvers** are the super admin plus people the owner names — a per-user capability,
+     scoped by record type, not a new role. Nobody approves their own request.
+   - **Notifications**: a request raises an in-app notification and an email to the approvers
+     for that type, carrying enough to decide from the email (what, for whom, how much, why)
+     and a link to the record; the decision notifies the requester the same way. Email in
+     v2 is redirected (`lib/email/send.ts`) until go-live, so this is built and proven
+     against the redirect, not real inboxes.
+   - **An approvals queue** — one screen listing everything waiting on the signed-in
+     approver, across types, oldest first.
+   - **Existing hold to reconcile**: orders already have `approveOrder`, and a quote to an
+     unverified prospect is already held (`clients.prospectAt`). Phase 6 folds those in rather
+     than adding a second gate beside them.
+
+   Decisions for the owner before this is built are listed under "Phase 6 — open calls".
 
 ## Rules
 
@@ -105,8 +137,20 @@ both across, because the columns now exist to receive them.
 
 ## Small calls still open (defaults applied until the owner says otherwise)
 
-- **Vendors** stay in Inventory. They arguably belong in Procurement; not moved without asking.
-- **Who raises a PO or a request** — default: SUPER_ADMIN and ADMIN only, as under Accounting.
-  v1 lets any editor (STAFF included) write both.
+- **Who raises a PO or a request** — until Phase 6: SUPER_ADMIN and ADMIN only, as under
+  Accounting. Phase 6 replaces this with raise-then-approve. Note that moving Vendors here
+  took them out of STAFF's rail (Inventory allowed STAFF; Procurement does not) until then.
 - **Accounting's view of POs** — default: none. The payable side of a received PO (a vendor
   bill) is not modelled in either version.
+
+## Phase 6 — open calls (ask before building)
+
+- **Who raises what.** Which roles may raise a PO, a funding request, a quote — STAFF for all
+  three? Does raising open Procurement's rail to STAFF (read their own, or all)?
+- **What needs approval.** Every PO and every quote, or only above an amount (and does a
+  super admin's own PO skip it)? Quotes: every quote, or only a discount/rate below card, a
+  new client, or a value threshold?
+- **Approvers.** Named per type (e.g. POs: owner + one finance person; quotes: owner + sales
+  lead), and is one approval enough or do some types need two (v1's funding request has
+  operations, finance and executive sign-off)?
+- **Email while v2 is not live.** Redirected to a test inbox until go-live — confirm.
