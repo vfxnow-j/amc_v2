@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { logAudit } from "@/lib/actions/audit";
 import { APP_URL } from "@/lib/email/client";
 import type { LeadStatus } from "@/generated/prisma/client";
+import { adoptLeadOwner } from "@/lib/tracker/lead-link";
 
 /**
  * What happens when an onboarding form comes back.
@@ -146,6 +147,10 @@ export async function applyOnboardingToLead(
     clientId = opened.id;
     clientCreated = true;
   }
+
+  // Whoever was assigned the enquiry owns the account it just earned, unless
+  // the account already has somebody. See `adoptLeadOwner`.
+  await adoptLeadOwner(clientId, lead.id);
 
   const client = await prisma.client.findUnique({
     where: { id: clientId },

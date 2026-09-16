@@ -436,3 +436,80 @@ export async function getConversionCandidates(reservationId: string) {
   return { order, closed, asks, conversations, linkedAsks, linkedConversations };
 }
 
+
+/* ── Lead ↔ account ─────────────────────────────────────────────────────── */
+
+/**
+ * The enquiries that became this account.
+ *
+ * Both routes, because they are different facts: a **converted** lead opened
+ * this account, a **bound** one was a second person ringing about an account we
+ * already had. Either way the conversations and asks logged on them show on
+ * this record — `accountWhere` follows exactly these two columns — so the
+ * record should say where they came from rather than leaving somebody to
+ * wonder why a call they never logged here is in the timeline.
+ */
+export async function getLeadsBehind(clientId: string) {
+  const leads = await prisma.lead.findMany({
+    where: { OR: [{ convertedToClientId: clientId }, { boundToClientId: clientId }] },
+    orderBy: { createdAt: "asc" },
+    select: {
+      id: true,
+      name: true,
+      companyName: true,
+      source: true,
+      status: true,
+      createdAt: true,
+      convertedAt: true,
+      boundAt: true,
+      boundToClientId: true,
+      assignedTo: { select: { id: true, name: true } },
+    },
+  });
+  return leads.map((lead) => ({
+    ...lead,
+    bound: lead.boundToClientId === clientId,
+    at: lead.boundAt ?? lead.convertedAt ?? lead.createdAt,
+  }));
+}
+
+export type LeadBehind = Awaited<ReturnType<typeof getLeadsBehind>>[number];
+
+/**
+ * Where a lead stands, whichever side of conversion it is on.
+ *
+ * An open enquiry has a row of its own on the Tracker and shows as Prospect. A
+ * converted or bound one does **not** — `getTrackerRows` drops it, because the
+ * account carries it from then on, and two rows for the same relationship is
+ * precisely the double-counting the tracker exists to avoid. That left the lead
+ * record with nothing to show after conversion, which is the wrong end of a
+ * correct decision: the lead is still the screen somebody opens from the
+ * pipeline. So when the row is gone, the account's row is handed back in its
+ * place, labelled as the account's rather than the lead's.
+ */
+export async function getLeadRelationship(leadId: string) {
+  const lead = await prisma.lead.findUnique({
+    where: { id: leadId },
+    select: {
+      convertedToClientId: true,
+      boundToClientId: true,
+      convertedToClient: { select: { id: true, name: true } },
+      boundToClient: { select: { id: true, name: true } },
+    },
+  });
+  if (!lead) return null;
+
+  const own = await getTrackerRow("lead", leadId);
+  if (own) return { row: own, own: true as const, account: null };
+
+  // Bound wins over converted for the same reason `getLeadHeader` prefers it:
+  // a bound lead can carry both, and the binding is the later, truer answer.
+  const account = lead.boundToClient ?? lead.convertedToClient;
+  if (!account) return { row: null, own: false as const, account: null };
+
+  return {
+    row: await getTrackerRow("client", account.id),
+    own: false as const,
+    account,
+  };
+}

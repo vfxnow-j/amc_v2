@@ -13,6 +13,7 @@ import { notifyNewLead } from './notifications'
 import { generateReservationNumber } from './reservations'
 import { syncLeadContactSafely, syncReservationDeal } from '@/lib/integrations/hubspot'
 import { findMatchingLead, mergeIntoLead, shouldAdvanceStatus } from '@/lib/leads/dedupe'
+import { adoptLeadOwner } from '@/lib/tracker/lead-link'
 import {
   applyOnboardingToLead,
   type OnboardingApplied,
@@ -459,6 +460,10 @@ export async function convertLeadToReservation(
     }
   }
 
+  // The rep who was working the enquiry keeps it. Only fills a blank — an
+  // account already owned by somebody is not reassigned by a conversion.
+  await adoptLeadOwner(clientId, leadId)
+
   // Generate reservation number with correct prefix (SALE/CLD/RTO/RES)
   const reservationNumber = await generateReservationNumber(resType)
 
@@ -568,6 +573,8 @@ export async function bindLeadToOrder(
       leadId: leadId,
     },
   })
+
+  await adoptLeadOwner(reservation.clientId, leadId)
 
   // Update lead: mark as BOUND, link to reservation and client
   const updated = await prisma.lead.update({
@@ -1060,6 +1067,8 @@ export async function linkLeadToProspectOrder(
   if (!lead) return { status: 'error' as const, message: 'Lead not found' }
 
   const advanced = shouldAdvanceStatus(lead.status, 'PROSPECT')
+
+  await adoptLeadOwner(clientId, leadId)
 
   await prisma.lead.update({
     where: { id: leadId },

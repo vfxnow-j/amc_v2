@@ -12,6 +12,7 @@ import {
   isResolved,
 } from "@/components/leads/record-cards";
 import { ConversationsCard } from "@/components/tracker/conversations-card";
+import { LeadRelationshipCard } from "@/components/tracker/relationship-card";
 import { LEAD_SOURCE_LABEL, LEAD_STATUS_LABEL } from "@/lib/clients/labels";
 import { dayYear, money } from "@/lib/format";
 import { getLeadHeader } from "@/lib/queries/lead-record";
@@ -84,6 +85,12 @@ export default async function LeadRecordPage({ params }: Params) {
         <div className="flex min-h-0 flex-col gap-3">
           <Suspense fallback={<CardSkeleton title="Pipeline" rows={2} />}>
             <PipelineCard lead={lead} />
+          </Suspense>
+          {/* The same standing the Tracker shows. An open enquiry has a row of
+              its own and reads as Prospect; once it converts the account
+              carries it, and this says so and points at the account. */}
+          <Suspense fallback={<CardSkeleton title="Relationship" rows={4} />}>
+            <LeadRelationshipCard leadId={lead.id} />
           </Suspense>
           <DetailsCard lead={lead} />
         </div>
