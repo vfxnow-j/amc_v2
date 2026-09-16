@@ -11,20 +11,35 @@
 #   ./scripts/refresh-from-v1.sh --apply    # do it
 #
 # It is NOT a plain restore, because v2's database is not just a copy any more.
-# Three things live only in v2 and would be destroyed by one:
+# The restore drops v2's whole public schema and `prisma db push` builds it
+# back — so anything that exists only in v2 comes back EMPTY unless it is
+# carried. What that covers has grown a long way past the three things this
+# script was written for:
 #
 #   1. The asset grouping — 26 asset families and the models attached to them,
 #      including at least one split corrected by hand. The grouping script is
 #      re-runnable but would not reproduce a hand correction, so the rows are
 #      carried across rather than regenerated.
-#   2. v2's own credentials. The dev sign-in's password hash differs from v1's
-#      by design; restoring v1's would lock the instance out of itself. Password
-#      hashes, MFA secrets and appearance choices stay with v2 for every user
-#      that already exists here. New v1 staff arrive with the restore and get
-#      v1's hash, which is correct — they have never signed in to v2.
-#   3. The Service Center and the asset families themselves: work_orders,
-#      qc_test_runs and asset_families are v2-only tables. `prisma db push`
-#      puts the schema back after the restore.
+#   2. v2's own credentials and appearance. The dev sign-in's password hash
+#      differs from v1's by design; restoring v1's would lock the instance out
+#      of itself. Hashes, MFA secrets, theme, shades and tile style stay with
+#      v2 for every user that already exists here. New v1 staff arrive with the
+#      restore and get v1's hash, which is correct — they have never signed in
+#      to v2.
+#   3. **Every v2-only table** (CARRIED_TABLES below): the Service Center, the
+#      asset families and components, the saved dashboards, and the whole Client
+#      Tracker — conversations, asks and environment profiles. Those last three
+#      hold the only record of what a rep was told on a call. There is no v1 to
+#      re-import them from, so losing them loses them.
+#   4. **v2-only columns on tables v1 also has**: the client tracker's owner,
+#      pin and seasonal months; `clients.prospectAt`, without which a quote held
+#      against an unverified shell becomes sendable and approvable;
+#      `reservation_items.includedInParent`, without which component lines start
+#      contributing to order totals; and `services.kind`.
+#
+# A preflight refuses to apply if a v2-only table this script does not carry has
+# rows in it, so the next feature to add one stops the refresh rather than being
+# silently erased by it.
 #
 # It also copies v1's documents/ tree across, which is easy to forget and fails
 # quietly: Document rows travel with the database, the PDFs they point at do
@@ -59,6 +74,23 @@ DUMP="$ROOT/backups/v1-snapshot-$STAMP.sql.gz"
 APPLY=false
 [[ "${1:-}" == "--apply" ]] && APPLY=true
 
+# Every table that exists only in v2, in an order that satisfies its own
+# foreign keys on the way back in (qc_test_runs after work_orders, client_asks
+# after interactions). The preflight below checks this list against the
+# database rather than trusting it, so adding a v2-only table and forgetting
+# this line stops the refresh instead of losing the table.
+CARRIED_TABLES=(
+  asset_families
+  asset_components
+  dashboard_templates
+  dashboard_layouts
+  work_orders
+  qc_test_runs
+  interactions
+  client_asks
+  client_environment_items
+)
+
 psql1() { docker exec "$CONTAINER" psql -U postgres -d "$V1_DB" -tAc "$1"; }
 psql2() { docker exec "$CONTAINER" psql -U postgres -d "$V2_DB" -tAc "$1"; }
 
@@ -83,11 +115,44 @@ say "v1 (live, read-only): $(counts "$V1_DB")"
 say "v2 (this instance):   $(counts "$V2_DB")"
 rule
 say "carried across the refresh, because it exists only in v2:"
-say "  asset families:      $(psql2 'select count(*) from asset_families')"
-say "  models grouped:      $(psql2 'select count(*) from assets where "familyId" is not null')"
-say "  credentials kept:    $(psql2 'select count(*) from users')"
-say "  work orders:         $(psql2 'select count(*) from work_orders') (schema restored empty if none)"
+for t in "${CARRIED_TABLES[@]}"; do
+  printf '  %-26s %s rows\n' "$t" "$(psql2 "select count(*) from $t")"
+done
+say "  models grouped:            $(psql2 'select count(*) from assets where "familyId" is not null')"
+say "  credentials + appearance:  $(psql2 'select count(*) from users') users"
+say "  v2-only columns:           clients owner/pin/season/prospect, services.kind, reservation_items.includedInParent"
 rule
+
+# The guard that matters. A v2-only table this script does not carry is a table
+# `prisma db push` will rebuild empty — silently, because nothing else in the
+# run mentions it. Comparing against the database rather than a hand-kept list
+# means the next feature to add one stops the refresh instead of being erased by
+# it. Empty uncarried tables are reported and allowed: there is nothing to lose.
+docker exec "$CONTAINER" psql -U postgres -d "$V1_DB" -tAc \
+  "select table_name from information_schema.tables where table_schema='public' and table_type='BASE TABLE'" \
+  | sort > /tmp/refresh-v1-tables.txt
+docker exec "$CONTAINER" psql -U postgres -d "$V2_DB" -tAc \
+  "select table_name from information_schema.tables where table_schema='public' and table_type='BASE TABLE'" \
+  | sort > /tmp/refresh-v2-tables.txt
+printf '%s\n' "${CARRIED_TABLES[@]}" | sort > /tmp/refresh-carried.txt
+
+UNCARRIED=$(comm -13 /tmp/refresh-v1-tables.txt /tmp/refresh-v2-tables.txt \
+          | comm -23 - /tmp/refresh-carried.txt)
+STOP=false
+if [[ -n "$UNCARRIED" ]]; then
+  say "v2-only tables this script does NOT carry:"
+  while read -r t; do
+    [[ -z "$t" ]] && continue
+    n=$(psql2 "select count(*) from \"$t\"")
+    if [[ "$n" == "0" ]]; then
+      say "  $t — empty, nothing to lose"
+    else
+      say "  $t — $n ROWS, WOULD BE DESTROYED"
+      STOP=true
+    fi
+  done <<< "$UNCARRIED"
+  rule
+fi
 
 # Columns v1 has grown since the fork that v2's schema does not model. These are
 # dropped by `prisma db push` and the data in them is lost — which is correct,
@@ -113,6 +178,9 @@ rule
 
 if [[ "$APPLY" != true ]]; then
   say "Dry run. Nothing was changed."
+  if [[ "$STOP" == true ]]; then
+    say "It would REFUSE to run: a v2-only table above holds rows and is not carried."
+  fi
   say "Re-run with --apply to:"
   say "  1. back v2 up to backups/v2-before-refresh-<stamp>.sql.gz"
   say "  2. snapshot v1 to backups/v1-snapshot-<stamp>.sql.gz"
@@ -120,6 +188,12 @@ if [[ "$APPLY" != true ]]; then
   say "  4. prisma db push, and copy v1's documents/ tree across"
   say "  5. restore the carried-across rows, and drop the assistant residue"
   exit 0
+fi
+
+if [[ "$STOP" == true ]]; then
+  say "REFUSING: a v2-only table listed above holds rows this script does not carry."
+  say "Add it to CARRIED_TABLES (and give it FK guards in step 5) before refreshing."
+  exit 1
 fi
 
 # ---------------------------------------------------------------------------
@@ -136,14 +210,46 @@ say "setting aside what is v2's own"
 docker exec -i "$CONTAINER" psql -U postgres -d "$V2_DB" -v ON_ERROR_STOP=1 <<'SQL'
 drop schema if exists carry cascade;
 create schema carry;
+SQL
 
-create table carry.asset_families as select * from public.asset_families;
+# Whole tables, copied as they stand. Column order is not preserved by
+# `db push` — see step 5 — so the copy is read back by name, never by position.
+for t in "${CARRIED_TABLES[@]}"; do
+  docker exec -i "$CONTAINER" psql -U postgres -d "$V2_DB" -v ON_ERROR_STOP=1 \
+    -c "create table carry.\"$t\" as select * from public.\"$t\""  > /dev/null
+done
+
+# Columns that live on tables v1 also has. The restore brings v1's version of
+# the table, `db push` re-adds these as null or default, and step 5 puts the
+# values back by id.
+docker exec -i "$CONTAINER" psql -U postgres -d "$V2_DB" -v ON_ERROR_STOP=1 <<'SQL'
 create table carry.asset_family_map as
   select id, "familyId" from public.assets where "familyId" is not null;
+
 create table carry.user_state as
   select id, email, "passwordHash", "mfaEnabled", "mfaSecret", "mfaDefault",
-         "passwordChangedAt", "colorMode", "themeName"
+         "passwordChangedAt", "colorMode", "themeName", "tileStyle", "navShade",
+         "groundShade", "dashboardView"
   from public.users;
+
+-- The Client Tracker's inputs, plus the flag that holds an unonboarded
+-- prospect's quote shut. Only rows that actually carry something, so the
+-- update in step 5 touches as little as possible.
+create table carry.client_state as
+  select id, "ownerId", "seasonalMonths", "tempPin", "tempPinReason",
+         "tempPinUntil", "tempPinById", "prospectAt", "agreementSource",
+         "agreementReservationId"
+  from public.clients
+ where "ownerId" is not null or "tempPin" is not null or "prospectAt" is not null
+    or "agreementSource" is not null or coalesce(array_length("seasonalMonths", 1), 0) > 0;
+
+-- Without this a component line stops being part of its parent's price and
+-- starts adding to the order total.
+create table carry.item_state as
+  select id, "includedInParent" from public.reservation_items where "includedInParent";
+
+create table carry.service_state as
+  select id, kind from public.services where kind is not null;
 SQL
 
 # ---------------------------------------------------------------------------
@@ -189,29 +295,120 @@ fi
 # ---------------------------------------------------------------------------
 say "restoring what was set aside, and dropping the assistant residue"
 docker exec -i "$CONTAINER" psql -U postgres -d "$V2_DB" -v ON_ERROR_STOP=1 <<'SQL'
--- The grouping, exactly as it was. A model that v1 has since retired simply
--- fails to match and stays ungrouped, which is the right outcome.
--- Named columns, generated from what both tables actually have.
--- `insert ... select *` is wrong here: `prisma db push` recreates the table with
--- the column order of the Prisma model, which is not the order the set-aside
--- copy was made in. That mismatch happened on the 2026-09-01 run and was caught
--- only because two of the columns had incompatible types. Two text columns in
--- the wrong order would have been written silently.
-do $$
+-- Copy a carried table back by NAME, never by position. `prisma db push`
+-- recreates a table in the Prisma model's column order, which is not the order
+-- the set-aside copy was made in. That mismatch happened on the 2026-09-01 run
+-- and was caught only because two of the columns had incompatible types; two
+-- text columns in the wrong order would have been written silently.
+--
+-- Columns the carried copy has and the rebuilt table does not are dropped, and
+-- vice versa — which is what should happen when v2's own schema has moved on.
+create or replace function carry.restore(tbl text) returns void
+language plpgsql as $fn$
 declare cols text;
 begin
   select string_agg(quote_ident(c.column_name), ', ' order by c.ordinal_position)
     into cols
     from information_schema.columns c
-   where c.table_schema = 'public' and c.table_name = 'asset_families'
+   where c.table_schema = 'public' and c.table_name = tbl
      and exists (
        select 1 from information_schema.columns k
-        where k.table_schema = 'carry' and k.table_name = 'asset_families'
+        where k.table_schema = 'carry' and k.table_name = tbl
           and k.column_name = c.column_name);
+  if cols is null then return; end if;
   execute format(
-    'insert into public.asset_families (%s) select %s from carry.asset_families
-       on conflict (id) do nothing', cols, cols);
-end $$;
+    'insert into public.%I (%s) select %s from carry.%I on conflict (id) do nothing',
+    tbl, cols, cols, tbl);
+end $fn$;
+
+-- ── Foreign keys, before anything is inserted ─────────────────────────────
+-- v1 is five weeks further on than the copy these rows were made against, and
+-- it may have deleted something they point at. A required reference that no
+-- longer resolves means the row cannot come back; a NULLABLE one means only
+-- that the link is gone, and dropping the link keeps the row — a conversation
+-- whose client was deleted is still the only record of that conversation.
+
+delete from carry.asset_components c
+ where not exists (select 1 from public.assets a where a.id = c."assetId")
+    or not exists (select 1 from public.assets a where a.id = c."componentAssetId");
+
+delete from carry.dashboard_layouts c
+ where not exists (select 1 from public.users u where u.id = c."userId");
+
+delete from carry.work_orders c
+ where not exists (select 1 from public.asset_units u where u.id = c."assetUnitId");
+
+delete from carry.qc_test_runs c
+ where not exists (select 1 from carry.work_orders w where w.id = c."workOrderId");
+
+delete from carry.client_environment_items c
+ where not exists (select 1 from public.clients x where x.id = c."clientId");
+
+update carry.work_orders c set "assignedTechId" = null
+ where "assignedTechId" is not null
+   and not exists (select 1 from public.users u where u.id = c."assignedTechId");
+update carry.work_orders c set "openedById" = null
+ where "openedById" is not null
+   and not exists (select 1 from public.users u where u.id = c."openedById");
+update carry.work_orders c set "openedFromReservationId" = null
+ where "openedFromReservationId" is not null
+   and not exists (select 1 from public.reservations r where r.id = c."openedFromReservationId");
+
+update carry.interactions c set "clientId" = null
+ where "clientId" is not null
+   and not exists (select 1 from public.clients x where x.id = c."clientId");
+update carry.interactions c set "leadId" = null
+ where "leadId" is not null
+   and not exists (select 1 from public.leads l where l.id = c."leadId");
+update carry.interactions c set "contactId" = null
+ where "contactId" is not null
+   and not exists (select 1 from public.client_contacts k where k.id = c."contactId");
+update carry.interactions c set "createdById" = null
+ where "createdById" is not null
+   and not exists (select 1 from public.users u where u.id = c."createdById");
+update carry.interactions c set "reservationId" = null
+ where "reservationId" is not null
+   and not exists (select 1 from public.reservations r where r.id = c."reservationId");
+
+update carry.client_asks c set "clientId" = null
+ where "clientId" is not null
+   and not exists (select 1 from public.clients x where x.id = c."clientId");
+update carry.client_asks c set "leadId" = null
+ where "leadId" is not null
+   and not exists (select 1 from public.leads l where l.id = c."leadId");
+update carry.client_asks c set "reservationId" = null
+ where "reservationId" is not null
+   and not exists (select 1 from public.reservations r where r.id = c."reservationId");
+update carry.client_asks c set "interactionId" = null
+ where "interactionId" is not null
+   and not exists (select 1 from carry.interactions i where i.id = c."interactionId");
+
+update carry.client_environment_items c set "createdById" = null
+ where "createdById" is not null
+   and not exists (select 1 from public.users u where u.id = c."createdById");
+
+update carry.client_state c set "ownerId" = null
+ where "ownerId" is not null
+   and not exists (select 1 from public.users u where u.id = c."ownerId");
+update carry.client_state c set "tempPinById" = null
+ where "tempPinById" is not null
+   and not exists (select 1 from public.users u where u.id = c."tempPinById");
+update carry.client_state c set "agreementReservationId" = null
+ where "agreementReservationId" is not null
+   and not exists (select 1 from public.reservations r where r.id = c."agreementReservationId");
+SQL
+
+# The tables themselves, in an order that satisfies their own foreign keys.
+for t in "${CARRIED_TABLES[@]}"; do
+  n=$(docker exec "$CONTAINER" psql -U postgres -d "$V2_DB" -tAc \
+        "select carry.restore('$t'); select count(*) from public.\"$t\"" | tail -1)
+  say "  $t: $n"
+done
+
+say "  putting v2-only columns back"
+docker exec -i "$CONTAINER" psql -U postgres -d "$V2_DB" -v ON_ERROR_STOP=1 <<'SQL'
+-- The grouping, exactly as it was. A model v1 has since retired simply fails to
+-- match and stays ungrouped, which is the right outcome.
 update public.assets a
    set "familyId" = m."familyId"
   from carry.asset_family_map m
@@ -227,9 +424,36 @@ update public.users u
        "mfaDefault"        = c."mfaDefault",
        "passwordChangedAt" = c."passwordChangedAt",
        "colorMode"         = c."colorMode",
-       "themeName"         = c."themeName"
+       "themeName"         = c."themeName",
+       "tileStyle"         = c."tileStyle",
+       "navShade"          = c."navShade",
+       "groundShade"       = c."groundShade",
+       "dashboardView"     = c."dashboardView"
   from carry.user_state c
  where u.id = c.id;
+
+update public.clients x
+   set "ownerId"                = c."ownerId",
+       "seasonalMonths"         = c."seasonalMonths",
+       "tempPin"                = c."tempPin",
+       "tempPinReason"          = c."tempPinReason",
+       "tempPinUntil"           = c."tempPinUntil",
+       "tempPinById"            = c."tempPinById",
+       "prospectAt"             = c."prospectAt",
+       "agreementSource"        = c."agreementSource",
+       "agreementReservationId" = c."agreementReservationId"
+  from carry.client_state c
+ where x.id = c.id;
+
+update public.reservation_items i
+   set "includedInParent" = c."includedInParent"
+  from carry.item_state c
+ where i.id = c.id;
+
+update public.services s
+   set kind = c.kind
+  from carry.service_state c
+ where s.id = c.id;
 
 -- Dropped from v2 on 2026-08-24 and not to be reintroduced by a refresh.
 drop table if exists public.chat_messages;
@@ -241,9 +465,13 @@ SQL
 
 rule
 say "v2 now: $(counts "$V2_DB")"
-say "  asset families:  $(psql2 'select count(*) from asset_families')"
-say "  models grouped:  $(psql2 'select count(*) from assets where "familyId" is not null')"
+for t in "${CARRIED_TABLES[@]}"; do
+  printf '  %-26s %s rows\n' "$t" "$(psql2 "select count(*) from $t")"
+done
+say "  models grouped:   $(psql2 'select count(*) from assets where "familyId" is not null')"
 say "  ungrouped models: $(psql2 'select count(*) from assets where "familyId" is null')"
+say "  owned accounts:   $(psql2 'select count(*) from clients where "ownerId" is not null')"
+say "  prospect shells:  $(psql2 'select count(*) from clients where "prospectAt" is not null')"
 rule
 say "next:"
 say "  npx tsx scripts/group-assets.ts           # what the new models would group into"
