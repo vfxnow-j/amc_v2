@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import Link from "next/link";
 import { FilterTabs, FilterTabsSkeleton } from "@/components/list/filter-tabs";
 import { ListSearch } from "@/components/list/list-search";
 import {
@@ -15,6 +16,8 @@ import {
   type FleetView,
 } from "@/lib/queries/families";
 import { getAssetHeaderStats } from "@/lib/queries/inventory";
+import { getSessionUser } from "@/lib/roles";
+import { isAdminRole } from "@/lib/settings/pages";
 
 export const metadata = { title: "Assets" };
 
@@ -124,7 +127,10 @@ async function Table({
             recycled or written off — the units stay on the record either way.
           </>
         ) : (
-          <>There are no assets yet. Register the first one.</>
+          <>
+            There are no assets yet. Hardware enters the fleet by receiving a
+            purchase order — raise one under Procurement.
+          </>
         )
       }
       rows={rows.map((row) => ({
@@ -203,6 +209,8 @@ export default async function AssetsPage({
   const view: FleetView = isView(params.view) ? params.view : "active";
   const search = params.q?.trim() ?? "";
   const page = Math.max(1, Number(params.page) || 1);
+  const user = await getSessionUser();
+  const procurement = user ? isAdminRole(user.role) : false;
 
   return (
     <>
@@ -214,7 +222,43 @@ export default async function AssetsPage({
             <HeaderBlurb />
           </Suspense>
         }
-        actions={<ListSearch placeholder="Search assets, models, manufacturers" />}
+        actions={
+          <>
+            <ListSearch placeholder="Search assets, models, manufacturers" />
+            {/* Adding hardware starts in Procurement: a model and its units are
+                created when a purchase order is received, which is what gives
+                each unit its trail back to the PO, the funding request and the
+                loan. So receiving is the button. Hardware that never had a PO
+                goes in through the asset import, the one other way v2 creates
+                units — single-unit hand registration is not built yet
+                (createAsset / createAssetUnit are ported and wired to nothing;
+                build-plan queue, Inventory). */}
+            {procurement ? (
+              <>
+                <Link
+                  href="/dashboard/settings/import/assets"
+                  title="For hardware that did not come through a purchase order"
+                  className="h-9 flex-none px-2 text-pill leading-9 text-ink-muted hover:text-ink"
+                >
+                  Import
+                </Link>
+                <Link
+                  href="/dashboard/purchase-orders"
+                  title="Purchase orders on order — receive one to add its units"
+                  className="h-9 flex-none rounded-pill bg-sunken px-3 text-pill leading-9 text-ink hover:bg-row-hover"
+                >
+                  Receive a PO
+                </Link>
+                <Link
+                  href="/dashboard/purchase-orders/new"
+                  className="h-9 flex-none rounded-pill bg-accent-solid px-4 text-pill leading-9 text-accent-on-solid transition-colors hover:bg-accent-800"
+                >
+                  Raise a PO
+                </Link>
+              </>
+            ) : null}
+          </>
+        }
       />
 
       <div className="flex flex-wrap items-center gap-2">

@@ -256,7 +256,7 @@ export async function POUnitsCard({ id, received }: { id: string; received: numb
             <li key={unit.id}>
               <Link
                 href={`/dashboard/units/${unit.id}`}
-                className="grid grid-cols-[92px_minmax(0,1fr)_80px] items-baseline gap-2 rounded-row px-2 py-[6px] text-detail hover:bg-row-hover"
+                className="grid grid-cols-[150px_minmax(0,1fr)_80px] items-baseline gap-2 rounded-row px-2 py-[6px] text-detail hover:bg-row-hover"
               >
                 <span className="truncate font-bold tabular-nums">{unit.barcode}</span>
                 <span className="truncate">

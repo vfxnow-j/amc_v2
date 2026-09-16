@@ -253,3 +253,80 @@ export async function getPOReceivedUnits(id: string, take = 12) {
   ]);
   return { rows, total };
 }
+
+/**
+ * Categories a model created on receipt can go in.
+ *
+ * Every category, including the spec-label ones (`RAM: 64GB` and the like) the
+ * SKU-build work retired from use: they still exist and hold parts, so hiding
+ * them would strand a receiver whose part genuinely belongs there.
+ */
+export async function getReceiveCategories() {
+  return prisma.assetCategory.findMany({
+    orderBy: { name: "asc" },
+    select: { id: true, name: true },
+  });
+}
+
+/**
+ * Where a model's units came from, grouped by the purchase order that bought
+ * them — plus the PO that created the model, if one did.
+ *
+ * Counts off `AssetUnit.purchaseOrderId`, so the units that predate it, were
+ * added by hand or imported are counted separately as exactly that, rather than
+ * folded into a total that implies every unit has a trail.
+ */
+export async function getAssetTrail(assetId: string) {
+  const [asset, groups, total] = await Promise.all([
+    prisma.asset.findUnique({
+      where: { id: assetId },
+      select: { purchaseOrderId: true },
+    }),
+    prisma.assetUnit.groupBy({
+      by: ["purchaseOrderId"],
+      where: { assetId, purchaseOrderId: { not: null } },
+      _count: { _all: true },
+    }),
+    prisma.assetUnit.count({ where: { assetId } }),
+  ]);
+  if (!asset) return null;
+
+  const counts = new Map(
+    groups.map((group) => [group.purchaseOrderId as string, group._count._all]),
+  );
+  const ids = new Set(counts.keys());
+  if (asset.purchaseOrderId) ids.add(asset.purchaseOrderId);
+
+  const orders =
+    ids.size === 0
+      ? []
+      : await prisma.purchaseOrder.findMany({
+          where: { id: { in: [...ids] } },
+          orderBy: { orderDate: "desc" },
+          select: {
+            id: true,
+            poNumber: true,
+            status: true,
+            orderDate: true,
+            vendor: { select: { name: true } },
+            lease: { select: { id: true, leaseNumber: true, leaseName: true } },
+            fundingRequests: {
+              orderBy: { createdAt: "desc" },
+              select: { id: true, requestNumber: true },
+            },
+          },
+        });
+
+  const traced = [...counts.values()].reduce((sum, n) => sum + n, 0);
+
+  return {
+    total,
+    traced,
+    untraced: total - traced,
+    orders: orders.map((order) => ({
+      ...order,
+      units: counts.get(order.id) ?? 0,
+      createdModel: order.id === asset.purchaseOrderId,
+    })),
+  };
+}

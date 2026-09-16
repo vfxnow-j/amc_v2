@@ -304,6 +304,22 @@ export async function getUnitOwnership(id: string) {
           endDate: true,
         },
       },
+      // The trail: the PO this unit was received against, the funding requests
+      // that cite that PO, and the loan on the PO. Null for units added by hand
+      // or imported, and for every unit received before receiving stamped it.
+      purchaseOrder: {
+        select: {
+          id: true,
+          poNumber: true,
+          orderDate: true,
+          vendor: { select: { name: true } },
+          lease: { select: { id: true, leaseNumber: true, leaseName: true } },
+          fundingRequests: {
+            orderBy: { createdAt: "desc" },
+            select: { id: true, requestNumber: true, status: true },
+          },
+        },
+      },
       asset: {
         select: {
           depreciationMethod: true,
@@ -339,6 +355,7 @@ export async function getUnitOwnership(id: string) {
     retiredTo: unit.retiredTo,
     vendor: unit.vendor,
     lease: unit.lease,
+    purchaseOrder: unit.purchaseOrder,
     method: unit.asset.depreciationMethod,
     usefulLifeMonths: unit.asset.usefulLifeMonths,
     book: bookValue(

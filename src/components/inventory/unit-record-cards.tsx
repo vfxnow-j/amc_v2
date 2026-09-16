@@ -10,6 +10,7 @@ import {
   getUnitTransfers,
 } from "@/lib/queries/unit-record";
 import { WORK_ORDER_LABEL } from "@/lib/queries/service";
+import { FUNDING_STATUS_LABEL } from "@/lib/procurement/po-labels";
 
 /**
  * The cards the unit record is built from.
@@ -465,6 +466,8 @@ export async function OwnershipCard({ id }: { id: string }) {
         </Field>
       </div>
 
+      <Trail own={own} />
+
       {own.lease || own.loanName ? (
         <div className="mx-4 mb-4 rounded-well bg-sunken p-2 text-detail text-ink-muted">
           Financed by {own.fundingBusiness ?? own.lease?.lender ?? "a lender"}
@@ -501,5 +504,85 @@ export async function OwnershipCard({ id }: { id: string }) {
         </p>
       ) : null}
     </Card>
+  );
+}
+
+type Ownership = NonNullable<Awaited<ReturnType<typeof getUnitOwnership>>>;
+
+/**
+ * Where this unit came from: the purchase order that bought it, the funding
+ * requests that justified that order, and the loan that paid for it.
+ *
+ * Absent is said, not left blank. Most of the fleet predates receiving
+ * recording the PO on a unit, or was added by hand or by import, and a blank
+ * would read as "unknown" when the fact is "not bought through a PO this app
+ * knows about". A unit on a lease with no PO still shows its lease in the
+ * financing note below — that link was set by hand.
+ */
+function Trail({ own }: { own: Ownership }) {
+  const po = own.purchaseOrder;
+
+  if (!po) {
+    return (
+      <p className="mx-4 mb-4 rounded-well bg-sunken p-2 text-detail text-ink-muted">
+        Not received against a purchase order — added by hand, imported, or
+        received before receiving recorded the PO on each unit.
+      </p>
+    );
+  }
+
+  return (
+    <div className="mx-4 mb-4 flex flex-col gap-1 rounded-well bg-sunken p-2 text-detail">
+      <p className="text-micro uppercase text-ink-muted">Came from</p>
+      <p>
+        <Link
+          href={`/dashboard/purchase-orders/${po.id}`}
+          className="font-bold text-accent-text hover:underline"
+        >
+          {po.poNumber}
+        </Link>
+        <span className="text-ink-muted">
+          {" "}
+          · {po.vendor.name} · ordered {dayYear(po.orderDate)}
+        </span>
+      </p>
+      <p className="text-ink-muted">
+        {po.fundingRequests.length === 0 ? (
+          "No funding request cites that PO."
+        ) : (
+          <>
+            Justified by{" "}
+            {po.fundingRequests.map((request, index) => (
+              <span key={request.id}>
+                {index > 0 ? ", " : ""}
+                <Link
+                  href={`/dashboard/funding/${request.id}`}
+                  className="text-accent-text hover:underline"
+                >
+                  {request.requestNumber}
+                </Link>
+                {` (${(FUNDING_STATUS_LABEL[request.status] ?? request.status).toLowerCase()})`}
+              </span>
+            ))}
+          </>
+        )}
+      </p>
+      <p className="text-ink-muted">
+        {po.lease ? (
+          <>
+            Paid for on{" "}
+            <Link
+              href={`/dashboard/leases/${po.lease.id}`}
+              className="text-accent-text hover:underline"
+            >
+              {po.lease.leaseName}
+            </Link>{" "}
+            ({po.lease.leaseNumber})
+          </>
+        ) : (
+          "That PO is not on a loan."
+        )}
+      </p>
+    </div>
   );
 }

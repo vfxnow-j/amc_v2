@@ -18,6 +18,7 @@ import {
   PositionCard,
 } from "@/components/inventory/record-cards";
 import { MarketPricePanel } from "@/components/inventory/market-price-panel";
+import { AssetTrailCard } from "@/components/procurement/po-trail-card";
 import { dayYear, money } from "@/lib/format";
 import { isConfirmedPrice } from "@/lib/market-price";
 import { getAssetHeader } from "@/lib/queries/asset-record";
@@ -140,6 +141,10 @@ export default async function AssetRecordPage({ params }: Params) {
 
         <div className="flex min-h-0 flex-col gap-3">
           <Details asset={asset} />
+          {/* Where the units came from: PO → funding request → loan. */}
+          <Suspense fallback={<CardSkeleton title="Bought on" rows={3} />}>
+            <AssetTrailCard id={id} />
+          </Suspense>
           <MarketPrice asset={asset} />
           <Suspense fallback={<CardSkeleton title="Depreciation" rows={4} />}>
             <DepreciationCard

@@ -18,13 +18,8 @@ import {
 } from "@/components/accounting/po-cards";
 import { POControls } from "@/components/procurement/po-controls";
 import { POFinancingCard } from "@/components/procurement/po-financing";
-import { ReceivePanel } from "@/components/accounting/receive-panel";
 import { dayYear, moneyExact } from "@/lib/format";
-import {
-  getPOHeader,
-  getPOLines,
-  getReceivingLocations,
-} from "@/lib/queries/po-record";
+import { getPOHeader, getPOLines } from "@/lib/queries/po-record";
 import { PO_STATUS_LABEL } from "@/lib/accounting/labels";
 import { PO_METHOD_LABEL, PO_ORDER_TYPE_LABEL } from "@/lib/procurement/po-labels";
 import { getPOFinancing } from "@/lib/procurement/po-queries";
@@ -143,8 +138,8 @@ export default async function PurchaseOrderRecordPage({ params }: Params) {
 
         <div className="flex min-h-0 flex-col gap-3">
           {receivable ? (
-            <Suspense fallback={<CardSkeleton title="Receive" rows={5} />}>
-              <Receiving id={id} shipToId={po.shipToLocation?.id ?? null} />
+            <Suspense fallback={<CardSkeleton title="Receive" rows={3} />}>
+              <Receiving id={id} canReceive={admin} />
             </Suspense>
           ) : (
             <Card title="Receive">
@@ -232,24 +227,14 @@ export default async function PurchaseOrderRecordPage({ params }: Params) {
 }
 
 /**
- * The receive panel, with only the lines that still have something to come.
+ * What is still to come, and the way in to receiving it.
  *
- * A fully received line on a partially received PO is noise at the moment
- * somebody is counting a pallet, and leaving it in invites a second receipt
- * against it — which the action would refuse, but only after the count was
- * typed.
+ * Receiving has its own screen now — it is where models and units are created,
+ * and a pallet of forty units does not fit in a side panel — so the record
+ * says what is outstanding, line by line, and hands off.
  */
-async function Receiving({
-  id,
-  shipToId,
-}: {
-  id: string;
-  shipToId: string | null;
-}) {
-  const [lines, locations] = await Promise.all([
-    getPOLines(id),
-    getReceivingLocations(),
-  ]);
+async function Receiving({ id, canReceive }: { id: string; canReceive: boolean }) {
+  const lines = await getPOLines(id);
   const outstanding = lines.filter((line) => line.remaining > 0);
 
   if (outstanding.length === 0) {
@@ -263,29 +248,42 @@ async function Receiving({
     );
   }
 
-  if (locations.length === 0) {
-    return (
-      <Card title="Receive">
-        <p className="px-4 pb-4 text-body text-ink-muted">
-          There is nowhere to receive into. Add a location before booking
-          hardware in, so a unit is never in stock with no idea where it is.
-        </p>
-      </Card>
-    );
-  }
+  const unlinked = outstanding.filter((line) => line.mode === "unlinked").length;
 
   return (
-    <ReceivePanel
-      purchaseOrderId={id}
-      locations={locations}
-      defaultLocationId={shipToId}
-      lines={outstanding.map((line) => ({
-        id: line.id,
-        description: line.description,
-        remaining: line.remaining,
-        mode: line.mode,
-      }))}
-    />
+    <Card
+      title="Receive"
+      meta={`${outstanding.length} ${outstanding.length === 1 ? "line" : "lines"} still to come`}
+      action={
+        canReceive ? (
+          <Link
+            href={`/dashboard/purchase-orders/${id}/receive`}
+            className="rounded-pill bg-accent-solid px-4 py-[6px] text-pill text-accent-on-solid transition-colors hover:bg-accent-800"
+          >
+            Receive hardware
+          </Link>
+        ) : null
+      }
+    >
+      <ul className="flex flex-col gap-px px-2 pb-2">
+        {outstanding.map((line) => (
+          <li
+            key={line.id}
+            className="grid grid-cols-[minmax(0,1fr)_56px] items-baseline gap-2 rounded-row px-2 py-1 text-detail"
+          >
+            <span className="truncate">{line.description}</span>
+            <span className="text-right tabular-nums text-ink-muted">{line.remaining}</span>
+          </li>
+        ))}
+      </ul>
+      {unlinked > 0 ? (
+        <p className="px-4 pb-4 text-detail text-balance text-ink-muted">
+          {unlinked === 1 ? "One fleet line has" : `${unlinked} fleet lines have`} no
+          model yet — receiving creates {unlinked === 1 ? "it" : "them"}, with the
+          build if there is one.
+        </p>
+      ) : null}
+    </Card>
   );
 }
 
