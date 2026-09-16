@@ -3,9 +3,10 @@
 import { revalidatePath } from 'next/cache'
 import { prisma } from '@/lib/prisma'
 import { auth } from '@/lib/auth'
-import { requireAuth, requireEditor } from '@/lib/auth-utils'
+import { requireAdmin, requireAuth } from '@/lib/auth-utils'
 import { serialize } from '@/lib/utils'
 import { generateBarcode } from '@/lib/utils/barcode'
+import { syncUnitsToPurchaseOrderLease } from '@/lib/funding/lease-sync'
 import {
   generateAndSavePODocument,
   attachPODocumentsToAssets,
@@ -50,6 +51,10 @@ export type POFormData = {
   notes?: string
   items: POItemFormData[]
   fees?: POFeeFormData[]
+  // Create only: the funding request this PO is raised against. Connected in
+  // the same write as the PO, so a PO raised from a request can never exist
+  // without the link back to it.
+  fundingRequestId?: string | null
 }
 
 export type POFilters = {
@@ -196,6 +201,21 @@ export async function getPurchaseOrder(id: string) {
         },
       },
       fees: true,
+      lease: {
+        select: { id: true, leaseNumber: true, leaseName: true, lender: true, status: true },
+      },
+      fundingRequests: {
+        select: {
+          id: true,
+          requestNumber: true,
+          status: true,
+          amountRequested: true,
+          requestedBy: true,
+        },
+        orderBy: { createdAt: 'desc' },
+      },
+      // Units received against this PO — they move with its financing.
+      _count: { select: { assetUnits: true } },
     },
   })
 
@@ -203,8 +223,8 @@ export async function getPurchaseOrder(id: string) {
 }
 
 export async function createPurchaseOrder(data: POFormData) {
-  const authResult = await requireEditor()
-  if (!authResult.authorized) return { success: false as const, error: authResult.error || 'Edit access required' }
+  const authResult = await requireAdmin()
+  if (!authResult.authorized) return { success: false as const, error: authResult.error || 'Admin access required' }
 
   const poNumber = await generatePONumber()
 
@@ -269,6 +289,9 @@ export async function createPurchaseOrder(data: POFormData) {
           amount: fee.amount,
         })),
       },
+      ...(data.fundingRequestId
+        ? { fundingRequests: { connect: { id: data.fundingRequestId } } }
+        : {}),
     },
     include: {
       vendor: true,
@@ -283,8 +306,8 @@ export async function createPurchaseOrder(data: POFormData) {
 }
 
 export async function updatePurchaseOrder(id: string, data: POFormData) {
-  const authResult = await requireEditor()
-  if (!authResult.authorized) return { success: false as const, error: authResult.error || 'Edit access required' }
+  const authResult = await requireAdmin()
+  if (!authResult.authorized) return { success: false as const, error: authResult.error || 'Admin access required' }
 
   const purchaseOrder = await prisma.$transaction(async (tx) => {
     const existing = await tx.purchaseOrder.findUnique({
@@ -452,7 +475,7 @@ export async function updatePurchaseOrder(id: string, data: POFormData) {
 }
 
 export async function submitPurchaseOrder(id: string) {
-  const authResult = await requireEditor()
+  const authResult = await requireAdmin()
   if (!authResult.authorized) throw new Error(authResult.error)
 
   const existing = await prisma.purchaseOrder.findUnique({
@@ -520,7 +543,7 @@ export async function submitPurchaseOrder(id: string) {
 }
 
 export async function revisePurchaseOrder(id: string) {
-  const authResult = await requireEditor()
+  const authResult = await requireAdmin()
   if (!authResult.authorized) throw new Error(authResult.error)
 
   const existing = await prisma.purchaseOrder.findUnique({
@@ -547,7 +570,7 @@ export async function revisePurchaseOrder(id: string) {
 }
 
 export async function cancelPurchaseOrder(id: string) {
-  const authResult = await requireEditor()
+  const authResult = await requireAdmin()
   if (!authResult.authorized) throw new Error(authResult.error)
 
   const existing = await prisma.purchaseOrder.findUnique({
@@ -573,8 +596,139 @@ export async function cancelPurchaseOrder(id: string) {
   return serialize(updated)
 }
 
+// ---------------------------------------------------------------------------
+// ASSIGNMENT — funding requests and loans
+// ---------------------------------------------------------------------------
+
+/**
+ * Assign a purchase order to a loan/lease (or clear it with null). Units
+ * already received against the PO are moved onto the loan too, and units
+ * received later inherit it automatically.
+ *
+ * v2 change: clearing takes the method the PO was actually paid with. v1 reads
+ * the PO's current `purchaseMethod` as the fallback — but assigning a lease has
+ * already overwritten that with LOAN, so taking a PO off its lease in v1 leaves
+ * it and every unit on it owned as LOAN with no lease behind them. The original
+ * method is not recorded anywhere to restore, so the caller has to say.
+ */
+export async function assignPurchaseOrderToLease(
+  poId: string,
+  leaseId: string | null,
+  methodWhenCleared?: string | null
+) {
+  const authResult = await requireAdmin()
+  if (!authResult.authorized) throw new Error(authResult.error)
+
+  const po = await prisma.purchaseOrder.findUnique({
+    where: { id: poId },
+    select: { id: true, purchaseMethod: true },
+  })
+  if (!po) throw new Error('Purchase order not found')
+
+  const lease = leaseId
+    ? await prisma.lease.findUnique({
+        where: { id: leaseId },
+        select: { id: true, leaseName: true, lender: true, totalAmount: true, endDate: true },
+      })
+    : null
+  if (leaseId && !lease) throw new Error('Lease not found')
+
+  const fallback = lease ? po.purchaseMethod : methodWhenCleared ?? po.purchaseMethod
+
+  await prisma.$transaction(async (tx) => {
+    await tx.purchaseOrder.update({
+      where: { id: poId },
+      // A loan-financed PO is a loan purchase, whatever it said before.
+      data: {
+        leaseId,
+        ...(lease
+          ? { purchaseMethod: 'LOAN' }
+          : methodWhenCleared !== undefined
+            ? { purchaseMethod: (methodWhenCleared as never) || null }
+            : {}),
+      },
+    })
+    // v2's sync deliberately leaves `loanAmount` off the units — see lease-sync.
+    await syncUnitsToPurchaseOrderLease(tx, poId, lease, fallback)
+  })
+
+  revalidatePath(`/dashboard/purchase-orders/${poId}`)
+  revalidatePath('/dashboard/purchase-orders')
+  revalidatePath('/dashboard/leases')
+  if (leaseId) revalidatePath(`/dashboard/leases/${leaseId}`)
+  revalidatePath('/dashboard/assets')
+
+  return { success: true }
+}
+
+/** Attach a purchase order to a funding request as supporting evidence. */
+export async function assignPurchaseOrderToFundingRequest(poId: string, requestId: string) {
+  const authResult = await requireAdmin()
+  if (!authResult.authorized) throw new Error(authResult.error)
+
+  await prisma.purchaseOrder.update({
+    where: { id: poId },
+    data: { fundingRequests: { connect: { id: requestId } } },
+  })
+
+  revalidatePath(`/dashboard/purchase-orders/${poId}`)
+  revalidatePath(`/dashboard/funding/${requestId}`)
+  revalidatePath('/dashboard/funding')
+
+  return { success: true }
+}
+
+/** Detach a purchase order from a funding request. */
+export async function unassignPurchaseOrderFromFundingRequest(poId: string, requestId: string) {
+  const authResult = await requireAdmin()
+  if (!authResult.authorized) throw new Error(authResult.error)
+
+  await prisma.purchaseOrder.update({
+    where: { id: poId },
+    data: { fundingRequests: { disconnect: { id: requestId } } },
+  })
+
+  revalidatePath(`/dashboard/purchase-orders/${poId}`)
+  revalidatePath(`/dashboard/funding/${requestId}`)
+  revalidatePath('/dashboard/funding')
+
+  return { success: true }
+}
+
+/**
+ * Funding requests and loans a PO can be assigned to. Requests that are done
+ * with (declined, cancelled) are left out; every lease is offered, since a PO
+ * can be drawn against an older loan.
+ */
+export async function getPurchaseOrderAssignmentOptions() {
+  const authResult = await requireAuth()
+  if (!authResult.authorized) throw new Error(authResult.error)
+
+  const [fundingRequests, leases] = await Promise.all([
+    prisma.fundingRequest.findMany({
+      where: { status: { notIn: ['DECLINED', 'CANCELLED'] } },
+      select: {
+        id: true,
+        requestNumber: true,
+        status: true,
+        amountRequested: true,
+        requestedBy: true,
+        client: { select: { name: true } },
+        projectName: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    }),
+    prisma.lease.findMany({
+      select: { id: true, leaseNumber: true, leaseName: true, lender: true, status: true },
+      orderBy: { createdAt: 'desc' },
+    }),
+  ])
+
+  return serialize({ fundingRequests, leases })
+}
+
 export async function deletePurchaseOrder(id: string) {
-  const authResult = await requireEditor()
+  const authResult = await requireAdmin()
   if (!authResult.authorized) throw new Error(authResult.error)
 
   const existing = await prisma.purchaseOrder.findUnique({
@@ -586,7 +740,7 @@ export async function deletePurchaseOrder(id: string) {
   }
 
   if (existing.status !== 'CANCELLED') {
-    throw new Error('Only canceled purchase orders can be deleted')
+    throw new Error('Only cancelled purchase orders can be deleted')
   }
 
   await prisma.$transaction(async (tx) => {
@@ -611,14 +765,14 @@ export async function deletePurchaseOrder(id: string) {
 }
 
 export async function receivePurchaseOrder(id: string, data: ReceivePOData) {
-  const authResult = await requireEditor()
+  const authResult = await requireAdmin()
   if (!authResult.authorized) throw new Error(authResult.error)
 
   const result = await prisma.$transaction(async (tx) => {
     // Load PO with items
     const po = await tx.purchaseOrder.findUnique({
       where: { id },
-      include: { items: true },
+      include: { items: true, lease: true },
     })
 
     if (!po) {
@@ -700,9 +854,24 @@ export async function receivePurchaseOrder(id: string, data: ReceivePOData) {
               purchasePrice: unit.purchasePrice ?? Number(poItem.unitPrice),
               purchaseDate: po.orderDate,
               receivedDate: data.receivingDate ? new Date(data.receivingDate) : new Date(),
-              // Carry the PO's purchase method through to unit ownership
-              // (legacy POs without a method fall back to CASH).
-              ownershipType: po.purchaseMethod ?? 'CASH',
+              // Carry the PO's purchase method through to unit ownership. A PO
+              // financed by a loan overrides it — the unit belongs to that
+              // lease. Legacy POs without a method fall back to CASH.
+              ownershipType: po.leaseId ? 'LOAN' : po.purchaseMethod ?? 'CASH',
+              // Trail back to the order that bought this unit.
+              purchaseOrderId: po.id,
+              // v2 addition: the unit names who supplied it. v1 left this to
+              // the asset, so a unit's own vendor stayed blank on receipt.
+              vendorId: po.vendorId,
+              // Inherit the financing, so hardware lands on the right loan
+              // without anyone re-keying it after receipt. v1 also writes
+              // `loanAmount: po.lease.totalAmount` here; v2 does not, for the
+              // reason in lease-sync.ts — it stamps the whole loan onto every
+              // unit (data gap 7). The lease link is the fact.
+              leaseId: po.leaseId,
+              loanName: po.lease?.leaseName ?? null,
+              fundingBusiness: po.lease?.lender ?? null,
+              amortizationEndDate: po.lease?.endDate ?? null,
               notes: unit.notes || null,
             },
           })

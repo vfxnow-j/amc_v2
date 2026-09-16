@@ -7,6 +7,8 @@ import {
   getPOFees,
   getPOLines,
 } from "@/lib/queries/po-record";
+import { getPOReceivedUnits } from "@/lib/procurement/po-queries";
+import { UNIT_STATUS_LABEL } from "@/lib/inventory/labels";
 import type { ReceiveMode } from "@/lib/accounting/labels";
 
 /**
@@ -22,7 +24,7 @@ const MODE_NOTE: Record<ReceiveMode, string> = {
   units: "serialized — receiving creates units",
   serials: "for resale — serials captured, no units",
   consumable: "consumable — no units, no serials",
-  unlinked: "no product type linked",
+  unlinked: "no model yet — receiving creates one",
 };
 
 export async function POLinesCard({ id }: { id: string }) {
@@ -176,25 +178,24 @@ function Row({
 }
 
 /**
- * The product types this PO brought into the catalog.
+ * The models this PO brought into the catalog.
  *
- * Deliberately not called "units received": nothing links an `AssetUnit` back to
- * the PO it arrived on, only `Asset.purchaseOrderId` at product-type level. The
- * unit figure is what the asset holds today, which a later PO for the same
- * product would also add to.
+ * Models only — the units it delivered are their own card, counted off
+ * `AssetUnit.purchaseOrderId`. The figure here is what each model holds today,
+ * which a later PO for the same model also adds to, so it is labeled as that.
  */
 export async function POAssetsCard({ id }: { id: string }) {
   const assets = await getPOAssets(id);
 
   return (
     <Card
-      title="Created"
-      meta={assets.length > 0 ? "units held today" : undefined}
+      title="Models created"
+      meta={assets.length > 0 ? "units each holds today" : undefined}
     >
       {assets.length === 0 ? (
         <CardEmpty>
-          No product type was created from this PO. Serialized lines create one
-          when they are received; resale and consumable lines never do.
+          No model was created from this PO. A fleet line with no model gets one
+          when it is received; resale and consumable lines never do.
         </CardEmpty>
       ) : (
         <ul className="flex flex-col gap-px px-2 pb-3">
@@ -212,6 +213,61 @@ export async function POAssetsCard({ id }: { id: string }) {
                 </span>
                 <span className="text-right tabular-nums text-ink-muted">
                   {asset.units || <Unset />}
+                </span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
+  );
+}
+
+/**
+ * The units this PO delivered — the fleet end of the trail.
+ *
+ * Counted off `AssetUnit.purchaseOrderId`, which receiving stamps. Every PO
+ * received before that column existed shows none here even though hardware
+ * arrived, and the empty state says so rather than implying nothing came.
+ */
+export async function POUnitsCard({ id, received }: { id: string; received: number }) {
+  const { rows, total } = await getPOReceivedUnits(id);
+
+  return (
+    <Card
+      title="Units received"
+      meta={
+        total === 0
+          ? undefined
+          : total > rows.length
+            ? `${rows.length} newest of ${total}`
+            : `all ${total}`
+      }
+    >
+      {total === 0 ? (
+        <CardEmpty>
+          {received > 0
+            ? `${received} ${received === 1 ? "item was" : "items were"} received on this PO, but no unit is linked back to it — they arrived before receiving recorded the PO on each unit, or on lines that make no units.`
+            : "Nothing has been received against this PO yet. Units booked in on a fleet line appear here, each linked back to this order."}
+        </CardEmpty>
+      ) : (
+        <ul className="flex flex-col gap-px px-2 pb-3">
+          {rows.map((unit) => (
+            <li key={unit.id}>
+              <Link
+                href={`/dashboard/units/${unit.id}`}
+                className="grid grid-cols-[92px_minmax(0,1fr)_80px] items-baseline gap-2 rounded-row px-2 py-[6px] text-detail hover:bg-row-hover"
+              >
+                <span className="truncate font-bold tabular-nums">{unit.barcode}</span>
+                <span className="truncate">
+                  {unit.asset.name}
+                  <span className="text-ink-faint">
+                    {unit.serialNumber ? ` · ${unit.serialNumber}` : " · no serial"}
+                    {unit.location ? ` · ${unit.location.name}` : ""}
+                  </span>
+                </span>
+                <span className="truncate text-right text-ink-muted">
+                  {UNIT_STATUS_LABEL[unit.status] ?? unit.status}
                 </span>
               </Link>
             </li>

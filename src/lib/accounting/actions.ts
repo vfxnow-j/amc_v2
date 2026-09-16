@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireEditor } from "@/lib/auth-utils";
+import { requireAdmin, requireEditor } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { recordPayment } from "@/lib/actions/invoices";
 import { receivePurchaseOrder } from "@/lib/actions/purchase-orders";
@@ -196,13 +196,15 @@ export type ReceiveOutcome =
  *
  * A location is required because a received unit is a physical object that is
  * now somewhere. The panel defaults it to the PO's ship-to.
+ *
+ * Admin-only, as every Procurement write is (docs/procurement.md).
  */
 export async function receivePOLines(
   purchaseOrderId: string,
   locationId: string,
   lines: { poItemId: string; quantity: number; serials: string[] }[],
 ): Promise<ReceiveOutcome> {
-  const auth = await requireEditor();
+  const auth = await requireAdmin();
   if (!auth.authorized) {
     return { status: "error", message: auth.error ?? "Not allowed." };
   }

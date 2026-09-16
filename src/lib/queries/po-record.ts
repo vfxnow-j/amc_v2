@@ -37,6 +37,8 @@ export async function getPOHeader(id: string) {
       },
       shipToLocation: { select: { id: true, name: true } },
       items: { select: { quantity: true, receivedQuantity: true } },
+      // Units stamped with this PO on receipt — what it put into the fleet.
+      _count: { select: { assetUnits: true } },
     },
   });
 
@@ -58,6 +60,7 @@ export async function getPOHeader(id: string) {
     ordered,
     received,
     outstanding: Math.max(0, ordered - received),
+    unitsReceived: po._count.assetUnits,
   };
 }
 
@@ -131,14 +134,10 @@ export async function getPOFees(id: string) {
 }
 
 /**
- * What this PO put into the fleet.
- *
- * There is no link from `AssetUnit` back to the purchase order it arrived on —
- * only `Asset.purchaseOrderId`, at product-type level. So this reports the asset
- * types the PO created and how many units each holds *now*, which is not the
- * same as how many this PO delivered: a later PO for the same product type adds
- * units to the same asset. The card says so rather than presenting the count as
- * a receipt.
+ * The models this PO created (`Asset.purchaseOrderId`) and how many units each
+ * holds now. Not a receipt count — a later PO for the same model adds units to
+ * it too. What this PO itself delivered is counted off
+ * `AssetUnit.purchaseOrderId`; see `lib/procurement/po-queries`.
  */
 export async function getPOAssets(id: string) {
   const assets = await prisma.asset.findMany({

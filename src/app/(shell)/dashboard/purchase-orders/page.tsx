@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import Link from "next/link";
 import { FilterTabs, FilterTabsSkeleton } from "@/components/list/filter-tabs";
 import { ListSearch } from "@/components/list/list-search";
 import {
@@ -20,6 +21,8 @@ import {
   getPOViewCounts,
   getPurchaseOrders,
 } from "@/lib/queries/accounting";
+import { getSessionUser } from "@/lib/roles";
+import { isAdminRole } from "@/lib/settings/pages";
 
 export const metadata = { title: "Purchase orders" };
 
@@ -150,7 +153,7 @@ async function Table({
 }
 
 /**
- * Revenue → Purchase orders.
+ * Procurement → Purchase orders.
  *
  * The received column shows units received against units ordered rather than a
  * flag, because PARTIAL is the state that actually needs attention: a PO half
@@ -165,18 +168,31 @@ export default async function PurchaseOrdersPage({
   const view: POView = isPOView(params.view) ? params.view : "open";
   const search = params.q?.trim() ?? "";
   const page = Math.max(1, Number(params.page) || 1);
+  const user = await getSessionUser();
 
   return (
     <>
       <PageHeader
-        eyebrow="Accounting"
+        eyebrow="Procurement"
         title="Purchase orders"
         blurb={
           <Suspense fallback="Totalling what's on order…">
             <HeaderBlurb />
           </Suspense>
         }
-        actions={<ListSearch placeholder="Search PO number, vendor" />}
+        actions={
+          <>
+            <ListSearch placeholder="Search PO number, vendor" />
+            {user && isAdminRole(user.role) ? (
+              <Link
+                href="/dashboard/purchase-orders/new"
+                className="h-9 flex-none rounded-pill bg-accent-solid px-4 text-pill leading-9 text-accent-on-solid transition-colors hover:bg-accent-800"
+              >
+                Raise a PO
+              </Link>
+            ) : null}
+          </>
+        }
       />
 
       <div className="flex items-center gap-3">

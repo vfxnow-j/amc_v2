@@ -11,6 +11,8 @@ import {
   getVendorSupply,
   getVendorUnits,
 } from "@/lib/queries/vendor-record";
+import { getSessionUser } from "@/lib/roles";
+import { isAdminRole } from "@/lib/settings/pages";
 
 /** The cards the vendor record is built from. */
 
@@ -152,13 +154,29 @@ export async function VendorAssetsCard({ id }: { id: string }) {
 
 /** Purchase orders, newest first. */
 export async function VendorPurchaseOrdersCard({ id }: { id: string }) {
-  const { rows, total } = await getVendorPurchaseOrders(id);
+  const [{ rows, total }, user] = await Promise.all([
+    getVendorPurchaseOrders(id),
+    getSessionUser(),
+  ]);
+
+  // Where the next order to this vendor starts — the vendor is already chosen.
+  // Admin-only, as every Procurement write is; staff can read the history.
+  const raise =
+    user && isAdminRole(user.role) ? (
+      <Link
+        href={`/dashboard/purchase-orders/new?vendor=${id}`}
+        className="text-detail text-accent-text hover:underline"
+      >
+        Raise a PO
+      </Link>
+    ) : null;
 
   if (total === 0) {
     return (
-      <Card title="Purchase orders">
+      <Card title="Purchase orders" action={raise}>
         <CardEmpty>
-          No purchase order has been raised with this vendor. Units bought before
+          No purchase order has been raised with this vendor
+          {raise ? " — raise one and it appears here" : ""}. Units bought before
           v1 tracked POs won&rsquo;t appear here even though they name the vendor.
         </CardEmpty>
       </Card>
@@ -168,6 +186,7 @@ export async function VendorPurchaseOrdersCard({ id }: { id: string }) {
   return (
     <Card
       title="Purchase orders"
+      action={raise}
       meta={
         total > rows.length
           ? `${rows.length} of ${total} shown`

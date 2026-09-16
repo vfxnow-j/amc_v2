@@ -14,7 +14,10 @@ import {
   POCostsCard,
   PODocumentsCard,
   POLinesCard,
+  POUnitsCard,
 } from "@/components/accounting/po-cards";
+import { POControls } from "@/components/procurement/po-controls";
+import { POFinancingCard } from "@/components/procurement/po-financing";
 import { ReceivePanel } from "@/components/accounting/receive-panel";
 import { dayYear, moneyExact } from "@/lib/format";
 import {
@@ -23,26 +26,15 @@ import {
   getReceivingLocations,
 } from "@/lib/queries/po-record";
 import { PO_STATUS_LABEL } from "@/lib/accounting/labels";
+import { PO_METHOD_LABEL, PO_ORDER_TYPE_LABEL } from "@/lib/procurement/po-labels";
+import { getPOFinancing } from "@/lib/procurement/po-queries";
+import { getSessionUser } from "@/lib/roles";
+import { isAdminRole } from "@/lib/settings/pages";
 
 type Params = { params: Promise<{ id: string }> };
 
 /** The states in which `receivePurchaseOrder` will accept a receipt. */
 const RECEIVABLE = ["SUBMITTED", "PARTIAL"];
-
-const ORDER_TYPE_LABEL: Record<string, string> = {
-  HARDWARE_RENTAL: "Hardware to rent out",
-  HARDWARE_RENTAL_COMPONENTS: "Components for rental hardware",
-  HARDWARE_RESALE: "Hardware to resell",
-  HARDWARE_RESALE_COMPONENTS: "Components for resale hardware",
-};
-
-const METHOD_LABEL: Record<string, string> = {
-  CASH: "Cash",
-  CREDIT: "Credit card",
-  LOAN: "Lease or loan",
-  EXCHANGE: "Transfer",
-  VENDOR_CREDIT: "Vendor credit",
-};
 
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const { id } = await params;
@@ -51,7 +43,7 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
 }
 
 /**
- * Revenue → Purchase orders → the record.
+ * Procurement → Purchase orders → the record.
  *
  * The screen where bought hardware becomes bookable stock. Receiving is the
  * whole point of it, so the receive panel is offered wherever the ported action
@@ -62,18 +54,24 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
  * `receivePurchaseOrder` refuses outside SUBMITTED and PARTIAL, so the panel is
  * only offered where it can work, and the card that replaces it says which step
  * is missing rather than leaving a gap.
+ *
+ * The record also carries the middle of the trail a unit reads back — which
+ * funding requests cite this PO and which loan pays for it — and the controls
+ * that move the PO along. Both are admin writes; everyone who can open the
+ * record can read them.
  */
 export default async function PurchaseOrderRecordPage({ params }: Params) {
   const { id } = await params;
-  const po = await getPOHeader(id);
+  const [po, user] = await Promise.all([getPOHeader(id), getSessionUser()]);
   if (!po) notFound();
+  const admin = user ? isAdminRole(user.role) : false;
 
   const receivable = RECEIVABLE.includes(po.status);
 
   return (
     <>
       <PageHeader
-        eyebrow="Accounting · Purchase order"
+        eyebrow="Procurement · Purchase order"
         title={po.poNumber}
         blurb={
           <>
@@ -98,10 +96,19 @@ export default async function PurchaseOrderRecordPage({ params }: Params) {
               href={`/dashboard/purchase-orders/${po.id}/pdf`}
               target="_blank"
               rel="noopener"
-              className="rounded-pill bg-accent-solid px-4 py-[6px] text-pill text-accent-on-solid transition-colors hover:bg-accent-800"
+              className="h-9 rounded-pill bg-sunken px-3 text-pill leading-9 text-ink hover:bg-row-hover"
             >
               PDF
             </a>
+            {admin ? (
+              <POControls
+                id={po.id}
+                poNumber={po.poNumber}
+                status={po.status}
+                outstanding={po.outstanding}
+                unitsReceived={po.unitsReceived}
+              />
+            ) : null}
           </>
         }
       />
@@ -164,7 +171,15 @@ export default async function PurchaseOrderRecordPage({ params }: Params) {
             />
           </Suspense>
 
-          <Suspense fallback={<CardSkeleton title="Created" rows={3} />}>
+          <Suspense fallback={<CardSkeleton title="Funding & loan" rows={3} />}>
+            <Financing id={id} canEdit={admin} />
+          </Suspense>
+
+          <Suspense fallback={<CardSkeleton title="Units received" rows={4} />}>
+            <POUnitsCard id={id} received={po.received} />
+          </Suspense>
+
+          <Suspense fallback={<CardSkeleton title="Models created" rows={3} />}>
             <POAssetsCard id={id} />
           </Suspense>
 
@@ -175,7 +190,7 @@ export default async function PurchaseOrderRecordPage({ params }: Params) {
               </Field>
               <Field label="Bought as">
                 {po.orderType ? (
-                  ORDER_TYPE_LABEL[po.orderType] ?? po.orderType
+                  PO_ORDER_TYPE_LABEL[po.orderType] ?? po.orderType
                 ) : (
                   <Unset>Not recorded</Unset>
                 )}
@@ -183,7 +198,7 @@ export default async function PurchaseOrderRecordPage({ params }: Params) {
               <Field label="Paid by">
                 {po.purchaseMethod ? (
                   <>
-                    {METHOD_LABEL[po.purchaseMethod] ?? po.purchaseMethod}
+                    {PO_METHOD_LABEL[po.purchaseMethod] ?? po.purchaseMethod}
                     {po.creditTerms ? (
                       <span className="text-ink-muted"> · {po.creditTerms}</span>
                     ) : null}
@@ -272,6 +287,13 @@ async function Receiving({
       }))}
     />
   );
+}
+
+/** Read on the server, changed on the client. */
+async function Financing({ id, canEdit }: { id: string; canEdit: boolean }) {
+  const financing = await getPOFinancing(id);
+  if (!financing) return null;
+  return <POFinancingCard poId={id} canEdit={canEdit} {...financing} />;
 }
 
 function Figure({
