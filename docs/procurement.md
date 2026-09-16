@@ -143,14 +143,18 @@ both across, because the columns now exist to receive them.
 - **Accounting's view of POs** — default: none. The payable side of a received PO (a vendor
   bill) is not modelled in either version.
 
-## Phase 6 — open calls (ask before building)
+## Phase 6 — decided by the owner, 2026-09-16
 
-- **Who raises what.** Which roles may raise a PO, a funding request, a quote — STAFF for all
-  three? Does raising open Procurement's rail to STAFF (read their own, or all)?
-- **What needs approval.** Every PO and every quote, or only above an amount (and does a
-  super admin's own PO skip it)? Quotes: every quote, or only a discount/rate below card, a
-  new client, or a value threshold?
-- **Approvers.** Named per type (e.g. POs: owner + one finance person; quotes: owner + sales
-  lead), and is one approval enough or do some types need two (v1's funding request has
-  operations, finance and executive sign-off)?
-- **Email while v2 is not live.** Redirected to a test inbox until go-live — confirm.
+- **Who raises.** STAFF and up may raise purchase orders, funding requests and quotes.
+  Procurement opens to STAFF in the rail (which returns Vendors to them); VIEWER still reads
+  only.
+- **What is held.** Everything raised by someone who is not an approver for that type is held
+  until approved. An approver's own record goes straight through.
+- **Approvers.** The super admin always. Beyond that, the owner tags individual users as
+  approvers ("say in accounting") — a per-user capability set in Settings → Users, scoped to
+  the record types that person approves. One approval is enough. Nobody approves a record they
+  raised.
+- **Email.** Built fully and sent through v2's existing redirect to a test inbox until
+  go-live; in-app notifications alongside.
+
+Build after Phases 2–4 land: it gates the submit/send paths those phases wire.
