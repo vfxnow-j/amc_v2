@@ -292,17 +292,14 @@ export async function DocumentsCard({ id }: { id: string }) {
     >
       {rows.length === 0 ? (
         <CardEmpty>
-          No documents on this account&rsquo;s orders. Proposals, rental
+          No documents on this account or its orders. Proposals, rental
           agreements and signed delivery notes appear here as they are raised.
         </CardEmpty>
       ) : (
         <ul className="flex flex-col gap-px px-2 pb-3">
-          {rows.map((document) => (
-            <li key={document.id}>
-              <Link
-                href={`/dashboard/orders/${document.orderId}`}
-                className="grid grid-cols-[1fr_120px_96px] items-center gap-2 rounded-row px-2 py-[6px] text-detail hover:bg-row-hover"
-              >
+          {rows.map((document) => {
+            const cells = (
+              <>
                 <span className="truncate">
                   <span className="font-bold">
                     {DOC_LABEL[document.type] ?? document.type}
@@ -315,14 +312,34 @@ export async function DocumentsCard({ id }: { id: string }) {
                   ) : null}
                 </span>
                 <span className="truncate tabular-nums text-ink-muted">
-                  {document.orderNumber ?? <Unset />}
+                  {document.orderNumber ?? (
+                    <span className="tabular-nums text-ink-faint">On the account</span>
+                  )}
                 </span>
                 <span className="text-right tabular-nums text-ink-faint">
                   {dayYear(document.signedAt ?? document.createdAt)}
                 </span>
-              </Link>
-            </li>
-          ))}
+              </>
+            );
+            const grid =
+              "grid grid-cols-[1fr_120px_96px] items-center gap-2 rounded-row px-2 py-[6px] text-detail";
+            return (
+              <li key={document.id}>
+                {/* A document filed against the account itself has no order to
+                    open, so its row is not a link to one. */}
+                {document.orderId ? (
+                  <Link
+                    href={`/dashboard/orders/${document.orderId}`}
+                    className={`${grid} hover:bg-row-hover`}
+                  >
+                    {cells}
+                  </Link>
+                ) : (
+                  <span className={grid}>{cells}</span>
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
     </Card>

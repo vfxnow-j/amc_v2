@@ -467,6 +467,19 @@ export async function approveQuote(
     console.error('Failed to generate signed quote document:', error)
   }
 
+  // The tick-box above the signature pad says they agree to the rental terms
+  // and conditions, so approving here settles the account's rental agreement —
+  // and files the signed quote against the account as the artefact for it. Runs
+  // after the PDF so there is something to file; non-critical in the same way
+  // the history row below is, because the order is approved either way and a
+  // failure here must not report that it isn't.
+  try {
+    const { settleAgreementFromQuote } = await import('@/lib/requirements/quote-terms')
+    await settleAgreementFromQuote(reservation.id, signerName, new Date())
+  } catch (error) {
+    console.error('Failed to settle the rental agreement from a signed quote:', error)
+  }
+
   // Record status history
   try {
     const { recordStatusChange } = await import('./status-history')

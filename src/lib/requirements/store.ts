@@ -340,6 +340,11 @@ export async function signAgreement(
         data: {
           agreementSignedAt: new Date(),
           agreementSignerName: signerName,
+          // Which route this arrived by. The countersigned template is the
+          // stronger of the two records, and `settleAgreementFromQuote` will
+          // not overwrite it with a quote signature.
+          agreementSource: "RENTAL_AGREEMENT",
+          agreementReservationId: reservationId ?? null,
         },
       });
 

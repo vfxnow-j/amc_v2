@@ -107,6 +107,8 @@ export default async function ClientRecordPage({ params }: Params) {
             clientEmail={client.email}
             agreementSignedAt={client.agreementSignedAt}
             agreementSignerName={client.agreementSignerName}
+            agreementSource={client.agreementSource}
+            agreementOrderNumber={client.agreementOrderNumber}
             idVerifiedAt={client.idVerifiedAt}
             coiVerifiedAt={client.coiVerifiedAt}
             skipIdRequirement={client.skipIdRequirement}

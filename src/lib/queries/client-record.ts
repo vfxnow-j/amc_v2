@@ -1,3 +1,4 @@
+import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { UNSETTLED } from "@/lib/queries/accounting";
 import { OPEN_STATUSES } from "@/lib/reservations/status";
@@ -23,6 +24,8 @@ export async function getClientHeader(id: string) {
       createdAt: true,
       agreementSignedAt: true,
       agreementSignerName: true,
+      agreementSource: true,
+      agreementReservationId: true,
       idVerifiedAt: true,
       coiVerifiedAt: true,
       skipIdRequirement: true,
@@ -33,8 +36,20 @@ export async function getClientHeader(id: string) {
 
   if (!client) return null;
 
+  // The order a quote signature settled the agreement on, so the Requirements
+  // card can name it rather than saying only that one exists. A second small
+  // query in the same place, because `agreementReservationId` is a plain column
+  // and not a relation — making it one would be a schema change for a label.
+  const agreementOrder = client.agreementReservationId
+    ? await prisma.reservation.findUnique({
+        where: { id: client.agreementReservationId },
+        select: { reservationNumber: true },
+      })
+    : null;
+
   return {
     ...client,
+    agreementOrderNumber: agreementOrder?.reservationNumber ?? null,
     contacts: client._count.contacts,
     orders: client._count.reservations,
     invoices: client._count.invoices,
@@ -203,12 +218,17 @@ export async function getClientInvoices(id: string, take = 12) {
 }
 
 /**
- * Documents belonging to this client's orders.
+ * This account's documents — its own, and its orders'.
  *
- * `Document` is polymorphic on RESERVATION and PURCHASE_ORDER — nothing attaches
- * to a client directly — so these are gathered through the client's orders. Two
- * queries rather than a join because the link is an untyped `entityId` string,
- * which Prisma cannot traverse as a relation.
+ * The comment this replaces said nothing attaches to a client directly. That
+ * stopped being true when the requirements layer landed: a countersigned rental
+ * agreement is filed against the CLIENT, and a quote signed in the portal now
+ * files one there too. Reading only RESERVATION rows meant the one document an
+ * account is most often opened to check was the one document this card could
+ * not show. Both scopes are read now.
+ *
+ * Two queries rather than a join because the link is an untyped `entityId`
+ * string, which Prisma cannot traverse as a relation.
  *
  * Deleted documents are excluded: `deletedAt` is a soft delete a user set
  * deliberately, and a Trash item reappearing on the client's record would
@@ -219,14 +239,17 @@ export async function getClientDocuments(id: string, take = 12) {
     where: { clientId: id },
     select: { id: true, reservationNumber: true },
   });
-  if (orders.length === 0) return { total: 0, rows: [] };
 
   const orderNumber = new Map(orders.map((o) => [o.id, o.reservationNumber]));
-  const where = {
-    entityType: "RESERVATION",
-    entityId: { in: orders.map((o) => o.id) },
+  const where: Prisma.DocumentWhereInput = {
     deletedAt: null,
-  } as const;
+    OR: [
+      { entityType: "CLIENT", entityId: id },
+      ...(orders.length
+        ? [{ entityType: "RESERVATION", entityId: { in: orders.map((o) => o.id) } }]
+        : []),
+    ],
+  };
 
   const [records, total] = await Promise.all([
     prisma.document.findMany({
@@ -242,6 +265,7 @@ export async function getClientDocuments(id: string, take = 12) {
         signedAt: true,
         createdAt: true,
         entityId: true,
+        entityType: true,
       },
     }),
     prisma.document.count({ where }),
@@ -257,7 +281,9 @@ export async function getClientDocuments(id: string, take = 12) {
       signedBy: document.signedBy,
       signedAt: document.signedAt,
       createdAt: document.createdAt,
-      orderId: document.entityId,
+      // An account-filed document has no order to link to, so the row points
+      // at the account it is already on rather than nowhere.
+      orderId: document.entityType === "CLIENT" ? null : document.entityId,
       orderNumber: orderNumber.get(document.entityId) ?? null,
     })),
   };

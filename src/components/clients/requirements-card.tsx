@@ -11,6 +11,7 @@ import {
   waiveRequirement,
   type RequirementsOutcome,
 } from "@/lib/actions/agreement";
+import type { AgreementSource } from "@/generated/prisma/client";
 import { dayYear } from "@/lib/format";
 
 /**
@@ -44,6 +45,13 @@ export type RequirementsCardProps = {
   clientEmail: string | null;
   agreementSignedAt: Date | null;
   agreementSignerName: string | null;
+  /**
+   * How the agreement arrived. Null on every account signed before this was
+   * recorded, which reads as "unrecorded" and not as either route.
+   */
+  agreementSource: AgreementSource | null;
+  /** The order a quote signature came in on, if that is how it arrived. */
+  agreementOrderNumber: string | null;
   idVerifiedAt: Date | null;
   coiVerifiedAt: Date | null;
   skipIdRequirement: boolean;
@@ -69,6 +77,18 @@ export function RequirementsCard(props: RequirementsCardProps) {
       at: props.agreementSignedAt,
       by: props.agreementSignerName,
       waived: false,
+      // Said out loud, because the two are different facts. A countersigned
+      // template is the contract; a quote signed in the portal is an
+      // acceptance of the same terms, taken under a tick-box that says so.
+      // Whoever is deciding whether to ship deserves to know which they have.
+      how:
+        props.agreementSource === "QUOTE_SIGNATURE"
+          ? props.agreementOrderNumber
+            ? `accepted with ${props.agreementOrderNumber}`
+            : "accepted with a signed quote"
+          : props.agreementSource === "RENTAL_AGREEMENT"
+            ? "signed agreement on file"
+            : null,
     },
     {
       kind: "ID" as Kind,
@@ -76,6 +96,7 @@ export function RequirementsCard(props: RequirementsCardProps) {
       at: props.idVerifiedAt,
       by: null,
       waived: props.skipIdRequirement,
+      how: null,
     },
     {
       kind: "COI" as Kind,
@@ -83,6 +104,7 @@ export function RequirementsCard(props: RequirementsCardProps) {
       at: props.coiVerifiedAt,
       by: null,
       waived: props.skipCoiRequirement,
+      how: null,
     },
   ];
 
@@ -120,6 +142,9 @@ export function RequirementsCard(props: RequirementsCardProps) {
             <span className="truncate">
               {row.label}
               {row.by ? <span className="text-ink-faint"> · {row.by}</span> : null}
+              {row.at && row.how ? (
+                <span className="text-ink-faint"> · {row.how}</span>
+              ) : null}
             </span>
             <span className="flex items-baseline gap-2">
               {row.at ? (
