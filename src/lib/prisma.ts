@@ -1,3 +1,4 @@
+import { assertV2Database } from "@/lib/db-guard";
 import { PrismaClient } from "@/generated/prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { Pool } from "pg";
@@ -7,11 +8,9 @@ const globalForPrisma = globalThis as unknown as {
 };
 
 function createPrismaClient() {
-  const connectionString = process.env.DATABASE_URL;
-
-  if (!connectionString) {
-    throw new Error("DATABASE_URL environment variable is not set");
-  }
+  // Throws unless this is v2's own database. v1 is live and shares the same
+  // container and superuser; see src/lib/db-guard.ts.
+  const connectionString = assertV2Database(process.env.DATABASE_URL);
 
   const pool = new Pool({ connectionString });
   const adapter = new PrismaPg(pool);

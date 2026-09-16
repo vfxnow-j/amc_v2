@@ -105,8 +105,43 @@ CARRIED_TABLES=(
   client_environment_items
 )
 
-psql1() { docker exec "$CONTAINER" psql -U postgres -d "$V1_DB" -tAc "$1"; }
+# ---------------------------------------------------------------------------
+# v1 is live. These are the safeguards that keep it that way.
+# ---------------------------------------------------------------------------
+# Both databases share one container and one superuser, so nothing in Postgres
+# itself separates a read of v1 from a write to it — only the name passed to -d.
+# Three guards, each independent of the others:
+#
+#   1. The names are pinned. Every destructive statement below targets $V2_DB;
+#      if either variable is ever edited, or the two are ever swapped, the script
+#      stops here before it has touched anything.
+#   2. Every v1 session is read-only at the server. V1_RO sets
+#      default_transaction_read_only, so any write that reaches v1 — through a
+#      typo, a copied line, psql1 used where psql2 was meant — is rejected by
+#      Postgres ("cannot execute ... in a read-only transaction") rather than
+#      executed. It guards against mistakes, not intent: a superuser session can
+#      switch it back off, and nothing here does.
+#   3. assert_v2_target confirms, against the live connection rather than a
+#      variable, that the database about to be dropped really is v2.
+if [[ "$V1_DB" != "vfxnow_amc" || "$V2_DB" != "vfxnow_amc_v2" || "$V1_DB" == "$V2_DB" ]]; then
+  printf 'refusing to run: expected V1_DB=vfxnow_amc and V2_DB=vfxnow_amc_v2, got V1_DB=%s V2_DB=%s\n' \
+    "$V1_DB" "$V2_DB" >&2
+  exit 1
+fi
+
+V1_RO=(-e "PGOPTIONS=-c default_transaction_read_only=on")
+
+psql1() { docker exec "${V1_RO[@]}" "$CONTAINER" psql -U postgres -d "$V1_DB" -tAc "$1"; }
 psql2() { docker exec "$CONTAINER" psql -U postgres -d "$V2_DB" -tAc "$1"; }
+
+assert_v2_target() {
+  local actual
+  actual=$(psql2 "select current_database()")
+  if [[ "$actual" != "vfxnow_amc_v2" ]]; then
+    printf 'refusing to continue: expected to be connected to vfxnow_amc_v2, got "%s"\n' "$actual" >&2
+    exit 1
+  fi
+}
 
 say() { printf '%s\n' "$*"; }
 rule() { printf -- '---\n'; }
@@ -116,7 +151,7 @@ rule() { printf -- '---\n'; }
 # ---------------------------------------------------------------------------
 counts() {
   local db=$1
-  docker exec "$CONTAINER" psql -U postgres -d "$db" -tAc "
+  docker exec "${V1_RO[@]}" "$CONTAINER" psql -U postgres -d "$db" -tAc "
     select 'assets='||(select count(*) from assets)
         ||' units='||(select count(*) from asset_units)
         ||' orders='||(select count(*) from reservations)
@@ -144,7 +179,7 @@ if [[ "$RESUME" != true ]]; then
   # run mentions it. Comparing against the database rather than a hand-kept list
   # means the next feature to add one stops the refresh instead of being erased by
   # it. Empty uncarried tables are reported and allowed: there is nothing to lose.
-  docker exec "$CONTAINER" psql -U postgres -d "$V1_DB" -tAc \
+  docker exec "${V1_RO[@]}" "$CONTAINER" psql -U postgres -d "$V1_DB" -tAc \
     "select table_name from information_schema.tables where table_schema='public' and table_type='BASE TABLE'" \
     | sort > /tmp/refresh-v1-tables.txt
   docker exec "$CONTAINER" psql -U postgres -d "$V2_DB" -tAc \
@@ -180,7 +215,7 @@ if [[ "$RESUME" != true ]]; then
   say "documents: $(find "$V1_ROOT/documents" -type f 2>/dev/null | wc -l | tr -d ' ') files in v1, $(find "$ROOT/documents" -type f 2>/dev/null | wc -l | tr -d ' ') here — the rows travel with the database, the files do not"
   rule
   say "columns v1 has that v2 does not model (dropped by db push):"
-  docker exec "$CONTAINER" psql -U postgres -d "$V1_DB" -tAc "
+  docker exec "${V1_RO[@]}" "$CONTAINER" psql -U postgres -d "$V1_DB" -tAc "
     select '  '||table_name||'.'||column_name
       from information_schema.columns
      where table_schema='public'" > /tmp/refresh-v1-cols.txt
@@ -276,10 +311,11 @@ SQL
 # 3 · Snapshot v1 and lay it down over v2's public schema
 # ---------------------------------------------------------------------------
 say "snapshotting v1 to $DUMP"
-docker exec "$CONTAINER" pg_dump -U postgres "$V1_DB" | gzip > "$DUMP"
+docker exec "${V1_RO[@]}" "$CONTAINER" pg_dump -U postgres "$V1_DB" | gzip > "$DUMP"
 say "  $(du -h "$DUMP" | cut -f1)"
 
 say "replacing v2's public schema"
+assert_v2_target
 docker exec -i "$CONTAINER" psql -U postgres -d "$V2_DB" -v ON_ERROR_STOP=1 <<'SQL'
 drop schema public cascade;
 create schema public;
