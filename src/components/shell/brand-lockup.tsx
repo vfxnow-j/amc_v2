@@ -8,7 +8,7 @@ const INTRINSIC = { width: 4009, height: 2681 };
 
 /**
  * Deliberately small. The mark is an identifier, not the point of the screen —
- * the rail's job is the six clusters below it, and the first pass at this took
+ * the rail's job is the clusters below it, and the first pass at this took
  * 113px of vertical before the first nav row: a 124px-wide lockup with a label
  * stacked under it. This is 54px tall including the label, and the artwork is
  * still legible at that size — the "VFX" inside the ring was the limit, and it

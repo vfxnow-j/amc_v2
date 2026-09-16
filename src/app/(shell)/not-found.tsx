@@ -11,7 +11,7 @@ export default function ShellNotFound() {
           <kbd className="rounded-row bg-sunken px-[6px] py-px text-[11px] font-bold">
             ⌘K
           </kbd>{" "}
-          to search the six clusters, or start from Overview.
+          to search every screen, or start from the Dashboard.
         </p>
       </section>
     </>

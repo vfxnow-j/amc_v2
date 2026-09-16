@@ -29,7 +29,7 @@ function isTypingTarget(target: EventTarget | null) {
 }
 
 /**
- * The rail: brand, search, the pinned Dashboard, the six cluster bubbles, user
+ * The rail: brand, search, the pinned Dashboard, the cluster bubbles, user
  * pod.
  *
  * Dashboard sits above the clusters rather than inside one. It was Insight →

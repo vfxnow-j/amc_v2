@@ -1,7 +1,7 @@
 import type { Role } from "@/lib/roles";
 
 /**
- * The v2 information architecture: ~28 sibling routes grouped into six clusters
+ * The v2 information architecture: ~28 sibling routes grouped into seven clusters (six in the handoff; Procurement added 2026-09-16)
  * (design/README.md, "Information architecture").
  *
  * Paths are the live v1 paths, verified against the v1 tree at
@@ -15,6 +15,7 @@ export type ClusterId =
   | "operate"
   | "inventory"
   | "service"
+  | "procurement"
   | "accounting"
   | "clients"
   | "insight";
@@ -193,9 +194,40 @@ export const NAV_CLUSTERS: NavCluster[] = [
     ],
   },
   {
+    // New 2026-09-16, on the owner's ask (docs/procurement.md). Everything
+    // between "we need hardware" and the hardware on the shelf with a barcode:
+    // the case for the money, the order to the vendor, and receiving — which is
+    // where assets and units are born. Purchase orders moved here from
+    // Accounting. It sits before Accounting because the money leaves through
+    // here before the books record it.
+    id: "procurement",
+    code: "PR",
+    label: "Procurement",
+    isNew: true,
+    roles: ALL_ADMIN,
+    pages: [
+      {
+        id: "purchase-orders",
+        label: "Purchase orders",
+        href: "/dashboard/purchase-orders",
+        from: ["/dashboard/purchase-orders"],
+      },
+      {
+        // v1 grew this after v2's restore: the paper equipment funding request,
+        // tracked from request through approval and the loan draw to the
+        // hardware received.
+        id: "funding",
+        label: "Funding requests",
+        href: "/dashboard/funding",
+        from: ["/dashboard/funding"],
+      },
+    ],
+  },
+  {
     // Renamed from Revenue, 2026-09-09. "Revenue" named what comes in, but the
-    // cluster has always held both directions — purchase orders and leases are
-    // money going out. Accounting is what the screens actually are.
+    // cluster held both directions until purchase orders moved to Procurement
+    // (2026-09-16). What is left is what the books record: invoices, payments,
+    // and leases — money owed to a lender.
     id: "accounting",
     code: "AC",
     label: "Accounting",
@@ -224,12 +256,6 @@ export const NAV_CLUSTERS: NavCluster[] = [
         label: "Leases",
         href: "/dashboard/leases",
         from: ["/dashboard/leases"],
-      },
-      {
-        id: "purchase-orders",
-        label: "Purchase orders",
-        href: "/dashboard/purchase-orders",
-        from: ["/dashboard/purchase-orders"],
       },
     ],
   },
@@ -298,7 +324,7 @@ export const NAV_CLUSTERS: NavCluster[] = [
 ];
 
 /**
- * Pinned at the *top* of the rail, above the six clusters.
+ * Pinned at the *top* of the rail, above the clusters.
  *
  * It used to be Insight → Overview, four clicks deep inside a cluster that also
  * holds Reports and Insights. That is the wrong shape for the one screen whose

@@ -80,6 +80,7 @@ model User {
   clientPinsSet        Client[]           @relation("ClientTempPinBy")
   environmentLogged    EnvironmentItem[]
   interactionsLogged   Interaction[]
+  fundingRequests      FundingRequest[]   @relation("FundingRequestRequestedBy")
 
   @@map("users")
 }
@@ -510,7 +511,14 @@ model AssetUnit {
   workOrders           WorkOrder[]
   leaseId              String?               @map("lease_id")
   lease                Lease?                @relation(fields: [leaseId], references: [id])
+  // The PO this unit was received against. Gives every unit a line back to the
+  // order that bought it — and through the order, to the funding request and
+  // the loan that financed it. Null on units created before receiving tracked
+  // it, and on units added by hand or by import.
+  purchaseOrderId      String?
+  purchaseOrder        PurchaseOrder?        @relation(fields: [purchaseOrderId], references: [id])
 
+  @@index([purchaseOrderId])
   @@index([assetId])
   @@index([status])
   @@map("asset_units")
@@ -694,6 +702,7 @@ model Client {
   interactions      Interaction[]
   asks              ClientAsk[]
   environment       EnvironmentItem[]
+  fundingRequests   FundingRequest[]
 
   @@index([ownerId])
   @@map("clients")
@@ -999,14 +1008,16 @@ model Reservation {
   updatedAt   DateTime @updatedAt
 
   // Relations
-  items        ReservationItem[]
-  packages     Package[]
-  workOrders   WorkOrder[]
-  checkouts    Checkout[]
-  invoices     Invoice[]
-  quoteTokens  QuoteToken[]
-  interactions Interaction[]
-  asks         ClientAsk[]
+  items           ReservationItem[]
+  packages        Package[]
+  workOrders      WorkOrder[]
+  checkouts       Checkout[]
+  invoices        Invoice[]
+  quoteTokens     QuoteToken[]
+  interactions    Interaction[]
+  asks            ClientAsk[]
+  // Funding requests that cite this order/quote as customer commitment.
+  fundingRequests FundingRequest[]  @relation("FundingRequestReservations")
 
   @@index([clientId])
   @@index([status])
@@ -1274,11 +1285,21 @@ model PurchaseOrder {
   notes     String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  // The loan/lease financing this order. Set when the funding request behind it
+  // is funded, or assigned directly from the PO. Units received against the PO
+  // inherit it, so the hardware lands on the right loan without re-keying.
+  leaseId   String?
+  lease     Lease?   @relation(fields: [leaseId], references: [id])
 
-  items  POItem[]
-  fees   POFee[]
-  assets Asset[]
+  items      POItem[]
+  fees       POFee[]
+  assets     Asset[]
+  assetUnits AssetUnit[]
 
+  // Funding requests that cite this PO as supporting evidence.
+  fundingRequests FundingRequest[] @relation("FundingRequestPurchaseOrders")
+
+  @@index([leaseId])
   @@map("purchase_orders")
 }
 
@@ -1440,9 +1461,7 @@ enum DocumentType {
   PURCHASE_ORDER
   PROPOSAL
   RENTAL_AGREEMENT
-  // v1 raises these against a funding request. The feature itself is not ported
-  // yet (see docs/build-plan.md, Revenue), but the documents travel with every
-  // refresh, so the type has to exist or `db push` cannot drop the enum value.
+  // Raised against a funding request (docs/procurement.md).
   FUNDING_REQUEST
 }
 
@@ -1866,8 +1885,12 @@ model Lease {
   paidOffDate DateTime?
   notes       String?
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  // Funding requests this loan/lease ultimately funded, and the purchase orders
+  // drawn against it.
+  fundingRequests FundingRequest[]
+  purchaseOrders  PurchaseOrder[]
 
   @@index([status])
   @@map("leases")
@@ -2457,4 +2480,153 @@ model EnvironmentItem {
 enum AgreementSource {
   RENTAL_AGREEMENT
   QUOTE_SIGNATURE
+}
+
+// ---------------------------------------------------------------------------
+// Equipment funding requests — the paper "VFXNow Equipment Funding Request"
+// form, tracked end to end: request -> accounting review -> approval ->
+// funding (loan/lease draw) -> hardware purchased & received. Supporting POs
+// and client quotes hang off the request so the money always has a trail back
+// to the hardware it bought and the revenue it was justified with.
+// ---------------------------------------------------------------------------
+
+enum FundingRequestStatus {
+  DRAFT // Being written up, not yet with accounting
+  SUBMITTED // Sent to accounting for review
+  APPROVED // Approved to fund
+  DECLINED // Rejected
+  FUNDED // Money drawn / loan booked
+  FULFILLED // Hardware purchased and received
+  CANCELLED // Withdrawn
+}
+
+// What the hardware is being bought to do. Drives how the return should be
+// read: rental earns recurring revenue, resale earns a one-time margin, and
+// cloud hardware backs hosted services.
+enum FundingPurchaseType {
+  HARDWARE_RENTAL
+  HARDWARE_RESALE
+  HARDWARE_CLOUD
+}
+
+// How firm the customer demand behind the request is. Mirrors the
+// "Customer Commitment" checkboxes on the paper form.
+enum CustomerCommitment {
+  PO_CONTRACT // Customer PO or signed contract in hand
+  VERBAL // Verbal commitment only
+  GENERAL_INVENTORY // Speculative — no named customer
+}
+
+model FundingRequest {
+  id            String @id @default(cuid())
+  // The "Funding ID (Finance)" on the form. Tie loan/LOC draws, vendor
+  // invoices and fixed assets back to this number.
+  requestNumber String @unique
+
+  status FundingRequestStatus @default(DRAFT)
+
+  // --- 1. Request & purpose ---------------------------------------------
+  requestedBy     String
+  requestedById   String?
+  requestedByUser User?     @relation("FundingRequestRequestedBy", fields: [requestedById], references: [id])
+  requestDate     DateTime  @default(now())
+  neededByDate    DateTime?
+  amountRequested Decimal   @db.Decimal(12, 2)
+  businessPurpose String?
+
+  // --- 2. Equipment & customer ------------------------------------------
+  purchaseType FundingPurchaseType?
+
+  // Free-text summary; itemised detail lives in `items`.
+  equipmentSummary   String?
+  totalEquipmentCost Decimal @default(0) @db.Decimal(12, 2)
+
+  clientId    String?
+  client      Client? @relation(fields: [clientId], references: [id])
+  // Named project when the work isn't tied to a client record yet.
+  projectName String?
+
+  customerCommitment     CustomerCommitment?
+  // How the rental is actually billed: a per-unit monthly rate across a number
+  // of billable units. `customerRentalCharge` is the derived total the ROI
+  // markers divide into cost — kept as a column so requests written before the
+  // rate/unit split, and odd deals with no clean per-unit rate, still work.
+  customerRentalRate     Decimal?            @db.Decimal(12, 2) // Monthly rate per unit
+  billableUnits          Int? // Units billed at that rate
+  customerRentalCharge   Decimal?            @db.Decimal(12, 2) // Total monthly charge (rate x units)
+  expectedInitialRevenue Decimal?            @db.Decimal(12, 2) // Revenue from the initial rental period
+  rentalPeriod           String? // Free text, e.g. "6 months from Mar 1"
+  paymentTerms           String?
+
+  // --- 3. Financing terms -----------------------------------------------
+  lender                 String?
+  amountBorrowed         Decimal?  @db.Decimal(12, 2)
+  // Stored as a fraction (0.0650 = 6.50%), matching Lease.interestRate.
+  interestRate           Decimal?  @db.Decimal(5, 4)
+  termMonths             Int?
+  monthlyPayment         Decimal?  @db.Decimal(12, 2)
+  financingFees          Decimal?  @db.Decimal(12, 2) // Origination / other fees
+  estimatedTotalInterest Decimal?  @db.Decimal(12, 2)
+  firstPaymentDate       DateTime?
+  expectedPayoffDate     DateTime?
+
+  // --- 4. Payback & asset plan ------------------------------------------
+  expectedGrossProfit       Decimal? @db.Decimal(12, 2) // On the initial rental
+  estimatedPaybackMonths    Int?
+  expectedAnnualUtilization Decimal? @db.Decimal(5, 2) // Percent, 0-100
+  expectedHoldMonths        Int?
+  expectedAnnualRevenue     Decimal? @db.Decimal(12, 2) // Ongoing, after the initial rental
+  estimatedResaleValue      Decimal? @db.Decimal(12, 2)
+  exitPlan                  String?
+
+  // --- 5. Key risk / approval rationale ---------------------------------
+  alternateUsePlan String? // If the initial customer cancels
+  borrowRationale  String? // Why borrow instead of rent/lease/existing stock
+
+  // --- Approval ----------------------------------------------------------
+  operationsApprovedBy String?
+  financeApprovedBy    String?
+  executiveApprovedBy  String?
+  approvalDate         DateTime?
+  declineReason        String?
+
+  // --- Lifecycle ---------------------------------------------------------
+  submittedAt DateTime?
+  submittedBy String?
+  fundedAt    DateTime?
+  fulfilledAt DateTime?
+  notes       String?
+
+  // --- Trail -------------------------------------------------------------
+  // The loan/lease this request was ultimately funded by.
+  leaseId String?
+  lease   Lease?  @relation(fields: [leaseId], references: [id])
+
+  items          FundingRequestItem[]
+  purchaseOrders PurchaseOrder[]      @relation("FundingRequestPurchaseOrders")
+  reservations   Reservation[]        @relation("FundingRequestReservations")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([clientId])
+  @@map("funding_requests")
+}
+
+model FundingRequestItem {
+  id               String         @id @default(cuid())
+  fundingRequestId String
+  fundingRequest   FundingRequest @relation(fields: [fundingRequestId], references: [id], onDelete: Cascade)
+
+  description String
+  quantity    Int     @default(1)
+  unitCost    Decimal @default(0) @db.Decimal(12, 2)
+  amount      Decimal @default(0) @db.Decimal(12, 2)
+  sortOrder   Int     @default(0)
+
+  createdAt DateTime @default(now())
+
+  @@index([fundingRequestId])
+  @@map("funding_request_items")
 }

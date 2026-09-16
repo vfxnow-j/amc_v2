@@ -25,7 +25,7 @@ import type { Role } from "@/lib/roles";
  * the Orders screen, not to an order that happens to be called that.
  */
 /**
- * Dashboard and Settings are pinned rows outside the six clusters, so they have
+ * Dashboard and Settings are pinned rows outside the clusters, so they have
  * no cluster code for the mark tile and no cluster name for the right-hand
  * label. They are shown as "Pinned" rather than being given a fake cluster —
  * the rail treats them as a category of their own, and the palette should read
