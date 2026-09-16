@@ -2,7 +2,9 @@ import type { NotificationType } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { IN_FLEET, OPEN_CHECKOUT } from "@/lib/inventory/availability";
 import { UNSETTLED } from "@/lib/queries/accounting";
-import { daysUntil } from "@/lib/format";
+import { day, daysUntil } from "@/lib/format";
+import { getTrackerRows } from "@/lib/queries/tracker";
+import { NEXT_STEP_LABEL } from "@/lib/tracker/labels";
 
 /**
  * What puts rows in the `Notification` table.
@@ -313,6 +315,113 @@ async function warrantyExpiring(now: Date, admins: string[]): Promise<Draft[]> {
  * showed nothing until the next night's run — and would quietly destroy the
  * record of a condition that was true.
  */
+/**
+ * The Client Tracker's follow-ups — four of its five queue items, as the Tracker
+ * page computes them (`queries/tracker`), so a notification can never disagree
+ * with the row it links to. Cadence is left on the page: it is a rhythm to work
+ * through, and a notification per account per cadence would be the wall of
+ * alerts this module exists to avoid.
+ *
+ * **Addressed to the account's owner.** An unowned account is in the pool, and
+ * the pool is a list anyone can claim from — telling every admin about every
+ * pool account would put 85 rows in each feed on the first run. Where the item
+ * belongs to a particular person anyway, it falls back to them: a next step to
+ * whoever logged it, a quote or a rental to whoever built the order. "Going
+ * quiet" has no such person, so an unowned quiet account raises nothing.
+ *
+ * One notification per account per kind, linked to the account (or, for a quote
+ * or a rental, the order), so the quiet period in `raiseNotifications` treats a
+ * still-overdue follow-up as the same alert rather than a new one each day.
+ */
+async function trackerFollowUps(): Promise<Draft[]> {
+  const rows = (await getTrackerRows()).filter((row) => row.reasons.length > 0);
+
+  const stepIds: string[] = [];
+  const orderIds: string[] = [];
+  for (const row of rows) {
+    for (const reason of row.reasons) {
+      if (reason.kind === "NEXT_STEP") stepIds.push(reason.stepId);
+      if (reason.kind === "QUOTE_UNANSWERED" || reason.kind === "RENTAL_ENDING") {
+        orderIds.push(reason.orderId);
+      }
+    }
+  }
+  const [steps, orders] = await Promise.all([
+    stepIds.length
+      ? prisma.interaction.findMany({
+          where: { id: { in: stepIds } },
+          select: { id: true, createdById: true },
+        })
+      : [],
+    orderIds.length
+      ? prisma.reservation.findMany({
+          where: { id: { in: orderIds } },
+          select: { id: true, createdById: true },
+        })
+      : [],
+  ]);
+  const stepBy = new Map(steps.map((step) => [step.id, step.createdById]));
+  const orderBy = new Map(orders.map((order) => [order.id, order.createdById]));
+
+  const drafts: Draft[] = [];
+  for (const row of rows) {
+    const owner = row.owner?.id ?? null;
+    const who = row.company && row.company !== row.name ? `${row.name} · ${row.company}` : row.name;
+
+    const due = row.reasons.filter((reason) => reason.kind === "NEXT_STEP");
+    if (due.length > 0) {
+      const first = due[0];
+      const userId = owner ?? stepBy.get(first.stepId) ?? null;
+      if (userId) {
+        drafts.push({
+          userId,
+          type: "FOLLOW_UP_DUE",
+          title: `Follow-up due · ${who}`,
+          message: `${NEXT_STEP_LABEL[first.step]} was due ${day(first.due)} — ${first.summary}${
+            due.length > 1 ? `, and ${plural(due.length - 1, "more step")}` : ""
+          }.`,
+          link: row.href,
+        });
+      }
+    }
+
+    for (const reason of row.reasons) {
+      if (reason.kind === "QUOTE_UNANSWERED" || reason.kind === "RENTAL_ENDING") {
+        const userId = owner ?? orderBy.get(reason.orderId) ?? null;
+        if (!userId) continue;
+        drafts.push(
+          reason.kind === "QUOTE_UNANSWERED"
+            ? {
+                userId,
+                type: "QUOTE_UNANSWERED",
+                title: `Quote unanswered · ${who}`,
+                message: `${reason.orderNumber} went out and nobody has logged a conversation with them since. Worth a call before it goes cold.`,
+                link: `/dashboard/orders/${reason.orderId}`,
+              }
+            : {
+                userId,
+                type: "RENTAL_ENDING",
+                title: `Rental coming back · ${who}`,
+                message: `${reason.orderNumber} is due back ${day(reason.endDate)}. Extend it, offer a buy-out, or ask about the next project.`,
+                link: `/dashboard/orders/${reason.orderId}`,
+              },
+        );
+      }
+    }
+
+    if (owner && row.reasons.some((reason) => reason.kind === "GOING_QUIET")) {
+      drafts.push({
+        userId: owner,
+        type: "ACCOUNT_QUIET",
+        title: `Going quiet · ${who}`,
+        message: `${row.temperature.reason}. ${row.band === "WARM" ? "It has just cooled from Hot" : "Nobody has spoken to them in a month"} — ${row.play.play.toLowerCase()}.`,
+        link: row.href,
+      });
+    }
+  }
+  return drafts;
+}
+
 export async function raiseNotifications(now: Date = new Date()): Promise<RaiseResult> {
   // Read once and handed down. Three of the five rules go to every admin, and
   // each used to ask for the list itself — the same query three times a sweep.
@@ -325,6 +434,7 @@ export async function raiseNotifications(now: Date = new Date()): Promise<RaiseR
       approvalRequests(),
       coverageExpiring(now, admins),
       warrantyExpiring(now, admins),
+      trackerFollowUps(),
     ])
   ).flat();
 

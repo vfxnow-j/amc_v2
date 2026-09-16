@@ -25,6 +25,10 @@ export const NOTIFICATION_TYPES: NotificationType[] = [
   "OVERDUE_RETURN",
   "INVOICE_REMINDER",
   "APPROVAL_REQUEST",
+  "FOLLOW_UP_DUE",
+  "QUOTE_UNANSWERED",
+  "ACCOUNT_QUIET",
+  "RENTAL_ENDING",
   "COVERAGE_EXPIRING",
   "WARRANTY_EXPIRING",
   "SYSTEM",
@@ -34,6 +38,10 @@ export const NOTIFICATION_LABEL: Record<NotificationType, string> = {
   OVERDUE_RETURN: "Overdue returns",
   INVOICE_REMINDER: "Unpaid invoices",
   APPROVAL_REQUEST: "Approvals waiting on you",
+  FOLLOW_UP_DUE: "Follow-ups due",
+  QUOTE_UNANSWERED: "Quotes nobody has chased",
+  ACCOUNT_QUIET: "Accounts going quiet",
+  RENTAL_ENDING: "Rentals coming back",
   COVERAGE_EXPIRING: "Coverage expiring",
   WARRANTY_EXPIRING: "Warranty expiring",
   SYSTEM: "System",
@@ -44,6 +52,10 @@ export const NOTIFICATION_TAG: Record<NotificationType, string> = {
   OVERDUE_RETURN: "Overdue",
   INVOICE_REMINDER: "Invoice",
   APPROVAL_REQUEST: "Approval",
+  FOLLOW_UP_DUE: "Follow-up",
+  QUOTE_UNANSWERED: "Quote",
+  ACCOUNT_QUIET: "Quiet",
+  RENTAL_ENDING: "Rental end",
   COVERAGE_EXPIRING: "Coverage",
   WARRANTY_EXPIRING: "Warranty",
   SYSTEM: "System",
@@ -62,6 +74,14 @@ export const NOTIFICATION_TRIGGER: Record<NotificationType, string> = {
     "An invoice is unsettled and past its due date. Goes to admins.",
   APPROVAL_REQUEST:
     "A checkout is waiting on your approval. Goes to the named approver only.",
+  FOLLOW_UP_DUE:
+    "A next step logged on an account or lead is due. Goes to the account's owner, or to whoever logged it if nobody owns the account.",
+  QUOTE_UNANSWERED:
+    "A quote has been out five days with no conversation logged since. Goes to the account's owner, or to whoever built the order.",
+  ACCOUNT_QUIET:
+    "A Hot account nobody has spoken to in 30 days, or one that has just cooled to Warm. Goes to the account's owner only.",
+  RENTAL_ENDING:
+    "A rental comes back within 14 days and nobody has called about extending it. Goes to the account's owner, or to whoever built the order.",
   COVERAGE_EXPIRING:
     "A service coverage ends within 30 days. Goes to admins.",
   WARRANTY_EXPIRING:
@@ -102,6 +122,10 @@ export const DEFAULT_PREFERENCES: NotificationPreferences = {
     OVERDUE_RETURN: { inApp: true, email: true },
     INVOICE_REMINDER: { inApp: true, email: true },
     APPROVAL_REQUEST: { inApp: true, email: true },
+    FOLLOW_UP_DUE: { inApp: true, email: true },
+    QUOTE_UNANSWERED: { inApp: true, email: true },
+    ACCOUNT_QUIET: { inApp: true, email: true },
+    RENTAL_ENDING: { inApp: true, email: true },
     COVERAGE_EXPIRING: { inApp: true, email: true },
     WARRANTY_EXPIRING: { inApp: true, email: true },
     SYSTEM: { inApp: true, email: false },

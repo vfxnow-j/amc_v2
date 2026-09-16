@@ -17,6 +17,8 @@ import {
   OrdersCard,
 } from "@/components/clients/record-cards";
 import { RequirementsCard } from "@/components/clients/requirements-card";
+import { ConversationsCard } from "@/components/tracker/conversations-card";
+import { RelationshipCard } from "@/components/tracker/relationship-card";
 import { dayYear } from "@/lib/format";
 import { getClientHeader } from "@/lib/queries/client-record";
 import { readTemplateMeta } from "@/lib/requirements/store";
@@ -86,8 +88,14 @@ export default async function ClientRecordPage({ params }: Params) {
         }
       />
 
-      <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[1fr_1fr_1fr]">
+      <div className="grid flex-1 gap-3 lg:grid-cols-[1fr_1fr_1fr]">
         <div className="flex min-h-0 flex-col gap-3">
+          <Suspense fallback={<CardSkeleton title="Relationship" rows={4} />}>
+            <RelationshipCard
+              clientId={id}
+              viewer={viewer ? { id: viewer.id, role: viewer.role } : null}
+            />
+          </Suspense>
           <Suspense fallback={<CardSkeleton title="Credit position" rows={3} />}>
             <CreditCard id={id} terms={client.paymentTerms} />
           </Suspense>
@@ -141,6 +149,12 @@ export default async function ClientRecordPage({ params }: Params) {
         </div>
 
         <div className="flex min-h-0 flex-col gap-3">
+          <Suspense fallback={<CardSkeleton title="Conversations" rows={6} />}>
+            <ConversationsCard
+              target={{ clientId: id }}
+              canEdit={role === "SUPER_ADMIN" || role === "ADMIN" || role === "STAFF"}
+            />
+          </Suspense>
           <Suspense fallback={<CardSkeleton title="Orders" rows={8} />}>
             <OrdersCard id={id} />
           </Suspense>

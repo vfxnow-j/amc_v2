@@ -2583,6 +2583,16 @@ export async function markLost(id: string, reason?: string) {
     })
   }
 
+  // Asks this order had answered go back to Lost with it (docs/client-tracker.md,
+  // Conversion). Non-critical in the same way the history row below is: the
+  // order is already lost, and a failure here must not report that it isn't.
+  try {
+    const { loseAsksLinkedTo } = await import('@/lib/tracker/order-outcome')
+    await loseAsksLinkedTo(id, reason || null)
+  } catch (error) {
+    console.error('Failed to close asks linked to a lost order:', error)
+  }
+
   try {
     const { recordStatusChange } = await import('./status-history')
     await recordStatusChange({

@@ -76,6 +76,9 @@ model User {
   workOrdersOpened     WorkOrder[]        @relation("WorkOrderOpenedBy")
   workOrdersAssigned   WorkOrder[]        @relation("WorkOrderAssignedTech")
   dashboardLayouts     DashboardLayout[]
+  ownedClients         Client[]           @relation("ClientOwner")
+  clientPinsSet        Client[]           @relation("ClientTempPinBy")
+  interactionsLogged   Interaction[]
 
   @@map("users")
 }
@@ -648,6 +651,23 @@ model Client {
   // Only ever set forward, so existing rows need no backfill.
   prospectAt DateTime?
 
+  // Client Tracker (docs/client-tracker.md). These are the *inputs* a person
+  // supplies; the band and the tier are derived at read time and never stored,
+  // because a stored classification goes stale the way Reservation.subtotal did.
+  //
+  // ownerId: the rep who owns the relationship. Null = in the claimable pool.
+  // seasonalMonths: usual booking months (1–12) for an event-based account;
+  //   empty means not seasonal.
+  // tempPin*: an ad-hoc override of the band, always with a reason and an expiry.
+  ownerId        String?
+  owner          User?            @relation("ClientOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  seasonalMonths Int[]            @default([])
+  tempPin        TemperatureBand?
+  tempPinReason  String?
+  tempPinUntil   DateTime?
+  tempPinById    String?
+  tempPinBy      User?            @relation("ClientTempPinBy", fields: [tempPinById], references: [id], onDelete: SetNull)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -662,7 +682,10 @@ model Client {
   boundLeads        Lead[]                   @relation("LeadBoundToClient")
   requirementTokens ClientRequirementToken[]
   inventoryAudits   InventoryAudit[]
+  interactions      Interaction[]
+  asks              ClientAsk[]
 
+  @@index([ownerId])
   @@map("clients")
 }
 
@@ -677,6 +700,8 @@ model ClientContact {
   isPrimary Boolean @default(false)
   notes     String?
   leadId    String? // If created from a bound lead
+
+  interactions Interaction[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -964,12 +989,14 @@ model Reservation {
   updatedAt   DateTime @updatedAt
 
   // Relations
-  items       ReservationItem[]
-  packages    Package[]
-  workOrders  WorkOrder[]
-  checkouts   Checkout[]
-  invoices    Invoice[]
-  quoteTokens QuoteToken[]
+  items        ReservationItem[]
+  packages     Package[]
+  workOrders   WorkOrder[]
+  checkouts    Checkout[]
+  invoices     Invoice[]
+  quoteTokens  QuoteToken[]
+  interactions Interaction[]
+  asks         ClientAsk[]
 
   @@index([clientId])
   @@index([status])
@@ -1326,6 +1353,12 @@ enum NotificationType {
   INVOICE_REMINDER
   APPROVAL_REQUEST
   SYSTEM
+  // Client Tracker follow-ups (docs/client-tracker.md, Phase 2). Raised by the
+  // daily sweep from the same derived queue the Tracker page shows.
+  FOLLOW_UP_DUE
+  QUOTE_UNANSWERED
+  ACCOUNT_QUIET
+  RENTAL_ENDING
 }
 
 model Notification {
@@ -1739,7 +1772,9 @@ model Lead {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  activities LeadActivity[]
+  activities   LeadActivity[]
+  interactions Interaction[]
+  asks         ClientAsk[]
 
   @@index([status])
   @@index([assignedToId])
@@ -2166,3 +2201,174 @@ model DashboardLayout {
   @@unique([userId, templateKey])
   @@map("dashboard_layouts")
 }
+
+// ============================================
+// CLIENT TRACKER
+// ============================================
+//
+// The spec is docs/client-tracker.md. Only what a person supplies is stored
+// here — conversations, asks — and the account's band and tier are derived
+// from these rows, the account's orders and today's date by
+// lib/tracker/temperature.ts. Nothing here is a cached classification.
+
+/// A band an account can be pinned to. PROSPECT is not here: a lead is a
+/// prospect by being a lead, and pinning an account to it would mean nothing.
+enum TemperatureBand {
+  HOT
+  WARM
+  COLD
+  SEASONAL
+  DEAD
+}
+
+/// GPL is a sister company. Its orders are not in this database, so a GPL
+/// conversation or ask is the only record of that side of the relationship.
+enum Business {
+  VFXNOW
+  GPL
+}
+
+enum InteractionChannel {
+  CALL
+  EMAIL
+  TEXT
+  VIDEO
+  MEETING
+  IN_PERSON
+  EVENT
+}
+
+enum InteractionDirection {
+  OUTBOUND
+  INBOUND
+}
+
+/// Whether anybody was actually reached. The unanswered-outreach rule for DEAD
+/// reads this, so "left a voicemail" must never be logged as CONNECTED.
+enum InteractionReach {
+  CONNECTED
+  NO_ANSWER
+  VOICEMAIL
+  NO_REPLY
+}
+
+/// Axis 1 of a graded conversation, weakest to strongest. CURIOUS and above
+/// count as a move for temperature; NO_GO and NOT_NOW do not.
+enum InteractionIntent {
+  NO_GO
+  NOT_NOW
+  CURIOUS
+  PROSPECTING
+  READY_TO_BUY
+}
+
+/// Axis 2: what happens next.
+enum NextStepKind {
+  FOLLOW_UP
+  SEND_QUOTE
+  DEMO
+  SITE_VISIT
+  NONE
+}
+
+model Interaction {
+  id String @id @default(cuid())
+
+  // At least one of clientId / leadId, enforced in the action. A conversation
+  // logged on a lead stays on the lead; the account shows it by following
+  // Lead.convertedToClientId / boundToClientId at read time, so no conversion
+  // path can forget to carry it across.
+  clientId  String?
+  client    Client?        @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  leadId    String?
+  lead      Lead?          @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  contactId String?
+  contact   ClientContact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+
+  business  Business             @default(VFXNOW)
+  channel   InteractionChannel
+  direction InteractionDirection @default(OUTBOUND)
+  reach     InteractionReach
+  intent    InteractionIntent?
+
+  nextStep       NextStepKind @default(NONE)
+  nextStepAt     DateTime?
+  nextStepDoneAt DateTime?
+
+  summary String
+  notes   String?
+
+  // The order this conversation led to. Set by the Phase 2 conversion
+  // suggestion, only ever on a person's confirmation.
+  reservationId String?
+  reservation   Reservation? @relation(fields: [reservationId], references: [id], onDelete: SetNull)
+
+  occurredAt  DateTime
+  createdById String?
+  createdBy   User?    @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  asks ClientAsk[]
+
+  @@index([clientId, occurredAt])
+  @@index([leadId, occurredAt])
+  @@index([nextStepAt])
+  @@map("interactions")
+}
+
+enum AskCategory {
+  WORKSTATION
+  GPU
+  STORAGE
+  NETWORK
+  REMOTE_ACCESS
+  SOFTWARE
+  CLOUD
+  PRO_SERVICES
+  MANAGED_SERVICES
+  LOGISTICS
+  OTHER
+}
+
+enum AskStatus {
+  OPEN
+  QUOTED
+  WON
+  LOST
+  CANT_SUPPLY
+}
+
+/// Something a client asked for. No estimated value in Phase 1: if one is ever
+/// added it is labelled an estimate everywhere and never summed with booked
+/// value.
+model ClientAsk {
+  id String @id @default(cuid())
+
+  clientId      String?
+  client        Client?      @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  leadId        String?
+  lead          Lead?        @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  interactionId String?
+  interaction   Interaction? @relation(fields: [interactionId], references: [id], onDelete: SetNull)
+
+  business    Business    @default(VFXNOW)
+  category    AskCategory
+  description String
+  quantity    Int?
+  status      AskStatus   @default(OPEN)
+
+  reservationId String?
+  reservation   Reservation? @relation(fields: [reservationId], references: [id], onDelete: SetNull)
+  lostReason    String?
+  closedAt      DateTime?
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([clientId, status])
+  @@index([leadId, status])
+  @@map("client_asks")
+}
+

@@ -11,9 +11,11 @@ import {
   PipelineCard,
   isResolved,
 } from "@/components/leads/record-cards";
+import { ConversationsCard } from "@/components/tracker/conversations-card";
 import { LEAD_SOURCE_LABEL, LEAD_STATUS_LABEL } from "@/lib/clients/labels";
 import { dayYear, money } from "@/lib/format";
 import { getLeadHeader } from "@/lib/queries/lead-record";
+import { getSessionUser } from "@/lib/roles";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -43,8 +45,10 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
  */
 export default async function LeadRecordPage({ params }: Params) {
   const { id } = await params;
-  const lead = await getLeadHeader(id);
+  const [lead, viewer] = await Promise.all([getLeadHeader(id), getSessionUser()]);
   if (!lead) notFound();
+  const canEdit =
+    viewer?.role === "SUPER_ADMIN" || viewer?.role === "ADMIN" || viewer?.role === "STAFF";
 
   return (
     <>
@@ -76,7 +80,7 @@ export default async function LeadRecordPage({ params }: Params) {
         }
       />
 
-      <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[1fr_1fr_1fr]">
+      <div className="grid flex-1 gap-3 lg:grid-cols-[1fr_1fr_1fr]">
         <div className="flex min-h-0 flex-col gap-3">
           <Suspense fallback={<CardSkeleton title="Pipeline" rows={2} />}>
             <PipelineCard lead={lead} />
@@ -85,6 +89,12 @@ export default async function LeadRecordPage({ params }: Params) {
         </div>
 
         <div className="flex min-h-0 flex-col gap-3">
+          {/* Conversations logged here follow the lead onto its account when it
+              converts or binds — read through the lead, never copied. The
+              Activity log below stays the lead's own audit trail. */}
+          <Suspense fallback={<CardSkeleton title="Conversations" rows={6} />}>
+            <ConversationsCard target={{ leadId: lead.id }} canEdit={canEdit} />
+          </Suspense>
           <Suspense fallback={<CardSkeleton title="Activity" rows={8} />}>
             <ActivityCard id={lead.id} />
           </Suspense>

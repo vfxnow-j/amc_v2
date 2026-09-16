@@ -733,6 +733,14 @@ export async function denyQuote(token: string, reason?: string) {
     })
   } catch { /* non-critical */ }
 
+  // Asks this order had answered go back to Lost with it — the same rule markLost follows.
+  try {
+    const { loseAsksLinkedTo } = await import('@/lib/tracker/order-outcome')
+    await loseAsksLinkedTo(reservation.id, reason ? `Client declined: ${reason}` : 'Client declined the quote')
+  } catch (error) {
+    console.error('Failed to close asks linked to a declined quote:', error)
+  }
+
   // Send internal notification
   try {
     const { quoteDeniedEmail } = await import('@/lib/email/templates')

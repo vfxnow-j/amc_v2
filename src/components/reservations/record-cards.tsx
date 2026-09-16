@@ -56,6 +56,13 @@ export async function LinesCard({
   window?: { start: string; end: string };
 }) {
   const lines = await getReservationLines(id);
+  // One set of tracks for the line, its components and the configured total,
+  // so the figures stay in columns. The rate column is sized for what it holds:
+  // an editable rate is an input plus a basis select ("2700.00 /project"), and at
+  // 96px both were clipped to "27C /projec".
+  const tracks = editable
+    ? "grid-cols-[minmax(0,1fr)_58px_150px_96px_20px]"
+    : "grid-cols-[minmax(0,1fr)_58px_130px_96px]";
   const unitCount = lines.reduce((sum, line) => sum + line.units.length, 0);
 
   if (lines.length === 0) {
@@ -81,13 +88,9 @@ export async function LinesCard({
         {lines.map((line) => (
           <li key={line.id} className="rounded-bubble bg-row-alt p-2">
             <div
-              className={`grid items-baseline gap-2 px-1 ${
-                editable
-                  ? "grid-cols-[1fr_58px_96px_96px_20px]"
-                  : "grid-cols-[1fr_58px_96px_96px]"
-              }`}
+              className={`grid items-baseline gap-2 px-1 ${tracks}`}
             >
-              <span className="truncate font-bold">
+              <span className="min-w-0 break-words font-bold">
                 {line.label}
                 {line.packageName && line.packageName !== "Default" ? (
                   <span className="font-normal text-ink-faint">
@@ -142,9 +145,9 @@ export async function LinesCard({
                 {line.components.map((part) => (
                   <li
                     key={part.id}
-                    className="grid grid-cols-[1fr_58px_96px_96px] items-baseline gap-2 rounded-row px-2 py-[5px] text-detail hover:bg-row-hover"
+                    className={`grid ${tracks} items-baseline gap-2 rounded-row px-2 py-[5px] text-detail hover:bg-row-hover`}
                   >
-                    <span className="truncate text-ink-muted">
+                    <span className="min-w-0 break-words text-ink-muted">
                       <span className="text-ink-faint">↳ </span>
                       {part.label}
                     </span>
@@ -162,7 +165,7 @@ export async function LinesCard({
                   </li>
                 ))}
                 {line.components.some((part) => !part.includedInParent) ? (
-                  <li className="grid grid-cols-[1fr_58px_96px_96px] items-baseline gap-2 px-2 pt-[3px] text-detail">
+                  <li className={`grid ${tracks} items-baseline gap-2 px-2 pt-[3px] text-detail`}>
                     <span className="col-span-3 text-right text-ink-muted">
                       Configured
                     </span>
@@ -190,10 +193,10 @@ export async function LinesCard({
                       className="grid grid-cols-[104px_1fr_112px_84px] items-center gap-2 rounded-row px-2 py-[5px] text-detail hover:bg-row-hover"
                     >
                       <span className="truncate font-bold">{unit.barcode}</span>
-                      <span className="truncate text-ink-muted">
+                      <span className="min-w-0 break-words text-ink-muted">
                         {unit.serialNumber ?? "No serial recorded"}
                       </span>
-                      <span className="truncate text-ink-faint">
+                      <span className="min-w-0 break-words text-ink-faint">
                         {unit.locationName ?? "Location unknown"}
                       </span>
                       <span className={TONE_CLASS[state.tone]}>
@@ -250,13 +253,13 @@ export async function ActivityCard({ id }: { id: string }) {
               className="rounded-row px-2 py-[6px] text-detail hover:bg-row-hover"
             >
               <span className="flex items-baseline gap-2">
-                <span className="truncate">{entry.what}</span>
+                <span className="min-w-0 break-words">{entry.what}</span>
                 <span className="ml-auto flex-none text-ink-faint">
                   {STAMP.format(entry.at)}
                 </span>
               </span>
               {entry.who || entry.notes ? (
-                <span className="block truncate text-ink-faint">
+                <span className="block whitespace-pre-line break-words text-ink-faint">
                   {[entry.who, entry.notes].filter(Boolean).join(" · ")}
                 </span>
               ) : null}

@@ -20,6 +20,7 @@ import {
 import { OrderBillingCard } from "@/components/orders/billing-card";
 import { OrderDocumentsCard } from "@/components/orders/documents-card";
 import { ShippingCard } from "@/components/orders/shipping-card";
+import { ConversionCard } from "@/components/tracker/conversion-card";
 import { getSessionUser } from "@/lib/roles";
 import { OrderActionBar } from "@/components/orders/order-action-bar";
 import { StageStrip, StageStripSkeleton } from "@/components/orders/stage-strip";
@@ -161,7 +162,7 @@ export default async function OrderRecordPage({ params }: Params) {
         </Suspense>
       ) : null}
 
-      <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[1.6fr_1fr]">
+      <div className="grid flex-1 gap-3 lg:grid-cols-[1.6fr_1fr]">
         {/* Lines can be taken off while the order is still live. The ported
             action refuses on a closed order, so the control is not offered on
             one either — the screen and the server agree rather than the screen
@@ -182,6 +183,12 @@ export default async function OrderRecordPage({ params }: Params) {
               happens: prepare the order, then scan units out against it. */}
           <Suspense fallback={<CardSkeleton title="Move it on" rows={2} />}>
             <OrderActionBar id={id} type={header.type} />
+          </Suspense>
+
+          {/* What this order may be the answer to — open asks and recent buying
+              conversations on the account. Renders nothing when there are none. */}
+          <Suspense fallback={null}>
+            <ConversionCard id={id} canEdit={!!user && user.role !== "VIEWER"} />
           </Suspense>
 
           {/* checkoutReservationItem refuses before PREPARING, and an order with

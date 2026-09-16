@@ -68,7 +68,9 @@ export type TileId =
   | "ar-aging"
   | "sale-margin"
   | "bench-load"
-  | "calendar-strip";
+  | "calendar-strip"
+  // Client Tracker, Phase 2: the follow-up queue.
+  | "tracker-queue";
 
 /* ── Shape ───────────────────────────────────────────────────────────────── */
 
@@ -352,6 +354,23 @@ export const TILE_CATALOG: Record<TileId, TileMeta> = {
       max: { w: 12, h: 12 },
     },
     access: "everyone",
+    readsRange: false,
+  },
+
+  "tracker-queue": {
+    id: "tracker-queue",
+    title: "Who to call",
+    blurb: "Accounts with a follow-up due, most urgent first — yours before everyone's.",
+    category: "Needs a person",
+    size: {
+      default: { w: 6, h: 6 },
+      min: { w: 4, h: 4 },
+      max: { w: 12, h: 12 },
+    },
+    // Admin-only because the Clients cluster is: it names accounts, owners and
+    // what each is worth, and the tile should not show a VIEWER what the rail
+    // does not.
+    access: "admin",
     readsRange: false,
   },
 

@@ -5,6 +5,7 @@ import type {
   ReservationType,
 } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
+import { STATUS_LABEL } from "@/lib/reservations/status";
 
 /**
  * Queries behind Operate → Reservations → the record.
@@ -307,6 +308,18 @@ export type ActivityEntry = {
  * share of it needs an entityId filter plus a readable rendering of the JSON
  * diff, which is its own piece of work.
  */
+/**
+ * A stored status as the rest of the record says it. History rows are free
+ * strings and carry v1 values the enum no longer has ("CONFIRMED", "SALE"), so
+ * an unknown one is sentence-cased rather than printed as a constant.
+ */
+function statusWord(status: string): string {
+  const known = STATUS_LABEL[status as ReservationStatus];
+  if (known) return known;
+  const words = status.toLowerCase().replace(/_/g, " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
 export async function getReservationActivity(
   id: string,
   take = 12,
@@ -329,8 +342,8 @@ export async function getReservationActivity(
     id: entry.id,
     at: entry.createdAt,
     what: entry.fromStatus
-      ? `${entry.fromStatus} → ${entry.toStatus}`
-      : `Created as ${entry.toStatus}`,
+      ? `${statusWord(entry.fromStatus)} → ${statusWord(entry.toStatus)}`
+      : `Created as ${statusWord(entry.toStatus).toLowerCase()}`,
     who: entry.changedBy?.name ?? null,
     notes: entry.notes,
   }));

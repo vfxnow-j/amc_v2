@@ -23,6 +23,7 @@ import {
   SaleMarginTile,
 } from "@/components/dashboard/tiles/money";
 import { PurchaseOrdersTile } from "@/components/dashboard/tiles/purchasing";
+import { TrackerQueueTile } from "@/components/dashboard/tiles/tracker";
 import {
   RecurringHealthTile,
   YearToDateTile,
@@ -210,6 +211,11 @@ export const TILE_REGISTRY: Record<TileId, TileEntry> = {
   "data-flags": {
     meta: TILE_CATALOG["data-flags"],
     Component: DataFlagsTile,
+    fallback: <CardSkeleton rows={6} />,
+  },
+  "tracker-queue": {
+    meta: TILE_CATALOG["tracker-queue"],
+    Component: TrackerQueueTile,
     fallback: <CardSkeleton rows={6} />,
   },
 
