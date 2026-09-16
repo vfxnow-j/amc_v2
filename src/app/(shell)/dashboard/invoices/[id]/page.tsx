@@ -119,7 +119,7 @@ export default async function InvoiceRecordPage({ params }: Params) {
         </p>
       </section>
 
-      <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[1.6fr_1fr]">
+      <div className="grid flex-1 gap-3 lg:grid-cols-[1.6fr_1fr]">
         <Suspense fallback={<CardSkeleton title="Lines" rows={10} />}>
           <LinesCard
             id={id}

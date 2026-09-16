@@ -115,7 +115,7 @@ export default async function AssetRecordPage({ params }: Params) {
         <FleetStrip id={id} />
       </Suspense>
 
-      <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[1fr_1.3fr_1fr]">
+      <div className="grid flex-1 gap-3 lg:grid-cols-[1fr_1.3fr_1fr]">
         <div className="flex min-h-0 flex-col gap-3">
           <Suspense
             fallback={<CardSkeleton title="Revenue to date" rows={3} />}

@@ -57,7 +57,7 @@ export default async function SettingsIndexPage() {
         }
       />
 
-      <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-2">
+      <div className="grid flex-1 gap-3 lg:grid-cols-2">
         {groups.map(({ group, pages: groupPages }) => (
           <Suspense
             key={group}

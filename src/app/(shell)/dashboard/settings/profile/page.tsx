@@ -43,7 +43,7 @@ export default async function ProfilePage() {
     <>
       <SettingsHeader id="profile" blurb={user.email} />
 
-      <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[1fr_1fr]">
+      <div className="grid flex-1 gap-3 lg:grid-cols-[1fr_1fr]">
         <div className="flex min-h-0 flex-col gap-3">
           <Suspense fallback={<CardSkeleton title="Account" rows={3} />}>
             <AccountCard id={user.id} name={user.name} email={user.email} title={user.title} />

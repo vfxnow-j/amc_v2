@@ -119,7 +119,7 @@ export function LineEditor({
               event.currentTarget.blur();
             }
           }}
-          className={`${CELL} w-[54px]`}
+          className={`${CELL} w-[68px]`}
         />
         {isOneTime ? (
           <span className="text-micro text-ink-faint">once</span>
@@ -132,7 +132,7 @@ export function LineEditor({
               setType(event.target.value);
               commitRate(event.target.value);
             }}
-            className="rounded-row border-0 bg-transparent text-micro text-ink-faint outline-none hover:bg-row-hover"
+            className="min-w-[78px] rounded-row border-0 bg-transparent text-micro text-ink-faint outline-none hover:bg-row-hover"
           >
             {PRICING.map((option) => (
               <option key={option} value={option}>

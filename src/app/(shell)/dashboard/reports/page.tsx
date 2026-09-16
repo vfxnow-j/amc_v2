@@ -53,7 +53,7 @@ export default function ReportsPage() {
         </ul>
       </Card>
 
-      <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-2">
+      <div className="grid flex-1 gap-3 lg:grid-cols-2">
         <Suspense fallback={<CardSkeleton title="Where the time went" rows={8} />}>
           <UtilizationCard />
         </Suspense>

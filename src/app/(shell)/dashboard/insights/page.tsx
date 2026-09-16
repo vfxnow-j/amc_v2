@@ -43,7 +43,7 @@ export default function InsightsPage() {
         blurb="What the data says, what it can't agree with itself about, and what nobody has filled in."
       />
 
-      <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[1.35fr_1fr]">
+      <div className="grid flex-1 gap-3 lg:grid-cols-[1.35fr_1fr]">
         <Suspense fallback={<CardSkeleton title="Suggestions" rows={12} />}>
           <SuggestionsCard />
         </Suspense>

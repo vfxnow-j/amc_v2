@@ -90,7 +90,7 @@ export default async function AuditRecordPage({ params }: Params) {
         <AuditProgressStrip id={id} />
       </Suspense>
 
-      <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[1.6fr_1fr]">
+      <div className="grid flex-1 gap-3 lg:grid-cols-[1.6fr_1fr]">
         <Suspense fallback={<CardSkeleton title="Items" rows={14} />}>
           <AuditItemsCard id={id} />
         </Suspense>

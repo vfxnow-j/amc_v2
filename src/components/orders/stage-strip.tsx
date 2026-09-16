@@ -63,13 +63,13 @@ export async function StageStrip({ id }: { id: string }) {
                 }`}
               />
               <span
-                className={`truncate text-detail ${
+                className={`break-words text-detail leading-tight ${
                   current ? "font-bold text-ink" : done ? "text-ink" : "text-ink-faint"
                 }`}
               >
                 {stageLabel(stage)}
               </span>
-              <span className="truncate text-micro text-ink-faint">
+              <span className="break-words text-micro text-ink-faint">
                 {at
                   ? dayYear(at)
                   : current

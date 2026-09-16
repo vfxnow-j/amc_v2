@@ -85,7 +85,7 @@ async function LeaseRecord({ id }: { id: string }) {
         </p>
       </section>
 
-      <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[1.6fr_1fr]">
+      <div className="grid flex-1 gap-3 lg:grid-cols-[1.6fr_1fr]">
         <Suspense fallback={<CardSkeleton title="Hardware financed" rows={12} />}>
           <LeaseUnitsCard id={id} />
         </Suspense>

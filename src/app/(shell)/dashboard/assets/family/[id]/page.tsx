@@ -123,7 +123,7 @@ export default async function FamilyRecordPage({ params }: Params) {
         </p>
       </section>
 
-      <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[1.7fr_1fr]">
+      <div className="grid flex-1 gap-3 lg:grid-cols-[1.7fr_1fr]">
         <Suspense fallback={<ListTableSkeleton />}>
           <ListTable
             columns={COLUMNS}

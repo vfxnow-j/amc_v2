@@ -90,12 +90,12 @@ export async function OrderDocumentsCard({
                   />
                 )}
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate font-bold">
+                  <span className="block break-words font-bold">
                     {document.isSigned && document.type === "PROPOSAL"
                       ? "Signed quote"
                       : TYPE_LABEL[document.type]}
                   </span>
-                  <span className="block truncate text-ink-faint">
+                  <span className="block break-words text-ink-faint">
                     {document.isSigned && document.signedBy
                       ? `Signed by ${document.signedBy}${
                           document.signedAt ? ` · ${dayYear(document.signedAt)}` : ""

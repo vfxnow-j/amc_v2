@@ -67,7 +67,7 @@ export default async function WorkOrderPage({ params }: Params) {
         }
       />
 
-      <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[1.5fr_1fr]">
+      <div className="grid flex-1 gap-3 lg:grid-cols-[1.5fr_1fr]">
         <Card
           title="Test runs"
           meta={

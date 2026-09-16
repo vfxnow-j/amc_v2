@@ -85,7 +85,7 @@ export default async function LocationRecordPage({ params }: Params) {
 
       <Stock tally={tally} gone={gone} />
 
-      <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[1.4fr_1fr_1fr]">
+      <div className="grid flex-1 gap-3 lg:grid-cols-[1.4fr_1fr_1fr]">
         <div className="flex min-h-0 flex-col gap-3">
           <Suspense fallback={<CardSkeleton title="On the shelf" rows={12} />}>
             <LocationUnitsCard id={id} gone={gone} />

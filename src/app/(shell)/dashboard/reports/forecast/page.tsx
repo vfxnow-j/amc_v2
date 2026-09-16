@@ -59,7 +59,7 @@ async function Body() {
   ]);
 
   return (
-    <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[1.4fr_1fr]">
+    <div className="grid flex-1 gap-3 lg:grid-cols-[1.4fr_1fr]">
       <div className="flex min-h-0 flex-col gap-3">
         <Card
           title="Next three months"

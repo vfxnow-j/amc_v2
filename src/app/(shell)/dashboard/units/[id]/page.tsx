@@ -85,7 +85,7 @@ export default async function UnitRecordPage({ params }: Params) {
 
       <Whereabouts unit={unit} />
 
-      <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[1.4fr_1fr_1fr]">
+      <div className="grid flex-1 gap-3 lg:grid-cols-[1.4fr_1fr_1fr]">
         <div className="flex min-h-0 flex-col gap-3">
           <Suspense fallback={<CardSkeleton title="Movements" rows={10} />}>
             <MovementsCard id={id} />

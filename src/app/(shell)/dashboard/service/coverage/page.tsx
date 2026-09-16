@@ -33,7 +33,7 @@ export default async function CoveragePage() {
         blurb={`${expiring.length} coverage ${expiring.length === 1 ? "window" : "windows"} closing within 90 days · ${rma.length} ${rma.length === 1 ? "unit" : "units"} away at a vendor`}
       />
 
-      <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-2">
+      <div className="grid flex-1 gap-3 lg:grid-cols-2">
         <Card
           title="Coverage closing"
           meta={expiring.length > 0 ? "next 90 days, and anything already lapsed" : undefined}
