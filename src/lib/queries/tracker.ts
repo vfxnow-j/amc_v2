@@ -296,7 +296,7 @@ export async function getTrackerRow(kind: "client" | "lead", id: string) {
  * that became it. Followed at read time, so no conversion path has to remember
  * to move anything.
  */
-function accountWhere(target: { clientId: string } | { leadId: string }) {
+export function accountWhere(target: { clientId: string } | { leadId: string }) {
   if ("leadId" in target) return { leadId: target.leadId };
   return {
     OR: [

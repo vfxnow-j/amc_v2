@@ -78,6 +78,7 @@ model User {
   dashboardLayouts     DashboardLayout[]
   ownedClients         Client[]           @relation("ClientOwner")
   clientPinsSet        Client[]           @relation("ClientTempPinBy")
+  environmentLogged    EnvironmentItem[]
   interactionsLogged   Interaction[]
 
   @@map("users")
@@ -638,6 +639,14 @@ model Client {
   idVerifiedAt        DateTime?
   coiVerifiedAt       DateTime?
 
+  // How the agreement was signed, and against which order if it came in on a
+  // quote. A quote in the portal is signed under the rental terms and
+  // conditions, so approving one settles the agreement for the account — but
+  // "signed with RES-2026-00123" and "returned the countersigned template" are
+  // different facts and the Requirements card prints which.
+  agreementSource        AgreementSource?
+  agreementReservationId String?
+
   // Verification opt-outs (admin-configurable)
   skipIdRequirement  Boolean @default(false)
   skipCoiRequirement Boolean @default(false)
@@ -684,6 +693,7 @@ model Client {
   inventoryAudits   InventoryAudit[]
   interactions      Interaction[]
   asks              ClientAsk[]
+  environment       EnvironmentItem[]
 
   @@index([ownerId])
   @@map("clients")
@@ -2372,3 +2382,79 @@ model ClientAsk {
   @@map("client_asks")
 }
 
+// ============================================
+// CLIENT ENVIRONMENT PROFILE
+// docs/client-tracker.md, "The environment profile" (Phase 3)
+// ============================================
+
+/// The five halves of an account's estate. Deliberately coarse: the point of a
+/// section is that "they own a NAS" and "we rent them storage" land in the same
+/// row of the same grid, so the empty cells read as cross-sell openings.
+enum EnvSection {
+  WORKSTATION
+  STORAGE
+  NETWORK
+  SOFTWARE
+  SERVICES
+}
+
+/// Something the client owns **elsewhere** — kit we did not supply.
+///
+/// Only the owned side is stored. The other two columns of the profile are
+/// derived at read time: *what we supply* from the account's real order lines
+/// through `AssetCategory`, and *what they have asked for* from `ClientAsk`.
+/// Storing either would be a second copy of a fact this database already holds,
+/// and it would go stale the way a stored temperature would.
+///
+/// Most columns are nullable because each section uses a different handful of
+/// them; `lib/tracker/environment.ts` holds which fields belong to which
+/// section, and the form only ever shows those.
+model EnvironmentItem {
+  id       String     @id @default(cuid())
+  clientId String
+  client   Client     @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  section  EnvSection
+
+  /// What it is, as a person would say it: "Dell Precision 7960", "Nuke 15".
+  name     String
+  vendor   String?
+  quantity Int?
+
+  // WORKSTATION
+  os  String?
+  gpu String?
+
+  // STORAGE
+  capacityTb  Decimal? @db.Decimal(10, 2)
+  percentUsed Int?
+  protocol    String?
+  backup      String?
+
+  // NETWORK
+  speed String?
+
+  /// When it is due for replacement. Drives the Phase 4 aging signal; until
+  /// then it is simply shown.
+  refreshAt DateTime?
+  notes     String?
+
+  createdById String?
+  createdBy   User?    @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([clientId, section])
+  @@map("client_environment_items")
+}
+
+/// How an account's rental agreement came to be signed.
+///
+/// `RENTAL_AGREEMENT` is the countersigned template from `/requirements/[token]`.
+/// `QUOTE_SIGNATURE` is a client signing a quote in the portal, which is signed
+/// under the rental terms and conditions — the portal says so above the pad.
+/// Kept apart because the Requirements card should be able to say which, and
+/// because only one of the two produces a standalone agreement PDF.
+enum AgreementSource {
+  RENTAL_AGREEMENT
+  QUOTE_SIGNATURE
+}

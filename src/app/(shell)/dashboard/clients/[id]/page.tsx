@@ -18,6 +18,7 @@ import {
 } from "@/components/clients/record-cards";
 import { RequirementsCard } from "@/components/clients/requirements-card";
 import { ConversationsCard } from "@/components/tracker/conversations-card";
+import { EnvironmentCard } from "@/components/tracker/environment-card";
 import { RelationshipCard } from "@/components/tracker/relationship-card";
 import { dayYear } from "@/lib/format";
 import { getClientHeader } from "@/lib/queries/client-record";
@@ -160,6 +161,16 @@ export default async function ClientRecordPage({ params }: Params) {
           </Suspense>
           <Suspense fallback={<CardSkeleton title="Contacts" rows={4} />}>
             <ContactsCard id={id} />
+          </Suspense>
+          {/* Below the orders it is derived from: the "we supply" column is
+              those same orders, read through inventory's categories. */}
+          <Suspense fallback={<CardSkeleton title="Environment" rows={10} />}>
+            <EnvironmentCard
+              clientId={id}
+              canEdit={
+                role === "SUPER_ADMIN" || role === "ADMIN" || role === "STAFF"
+              }
+            />
           </Suspense>
         </div>
 
