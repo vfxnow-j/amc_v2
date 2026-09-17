@@ -30,12 +30,16 @@
 #      asset families and components, the saved dashboards, and the whole Client
 #      Tracker — conversations, asks and environment profiles. Those last three
 #      hold the only record of what a rep was told on a call. There is no v1 to
-#      re-import them from, so losing them loses them.
+#      re-import them from, so losing them loses them. The same is true of the
+#      approval history (who cleared which purchase order, request or quote, at
+#      what amount, and why one was denied) and of who is allowed to approve.
 #   4. **v2-only columns on tables v1 also has**: the client tracker's owner,
 #      pin and seasonal months; `clients.prospectAt`, without which a quote held
 #      against an unverified shell becomes sendable and approvable;
 #      `reservation_items.includedInParent`, without which component lines start
-#      contributing to order totals; and `services.kind`.
+#      contributing to order totals; `services.kind`; and
+#      `purchase_orders.raisedById`, without which a STAFF member's own draft PO
+#      stops being theirs to edit or submit.
 #
 # A preflight refuses to apply if a v2-only table this script does not carry has
 # rows in it, so the next feature to add one stops the refresh rather than being
@@ -103,6 +107,8 @@ CARRIED_TABLES=(
   interactions
   client_asks
   client_environment_items
+  approval_requests
+  user_approval_scopes
 )
 
 # ---------------------------------------------------------------------------
@@ -171,7 +177,7 @@ if [[ "$RESUME" != true ]]; then
   done
   say "  models grouped:            $(psql2 'select count(*) from assets where "familyId" is not null')"
   say "  credentials + appearance:  $(psql2 'select count(*) from users') users"
-  say "  v2-only columns:           clients owner/pin/season/prospect, services.kind, reservation_items.includedInParent"
+  say "  v2-only columns:           clients owner/pin/season/prospect, services.kind, reservation_items.includedInParent, purchase_orders.raisedById"
   rule
 
   # The guard that matters. A v2-only table this script does not carry is a table
@@ -305,6 +311,13 @@ create table carry.item_state as
 
 create table carry.service_state as
   select id, kind from public.services where kind is not null;
+
+-- Who raised a PO in v2. Only v2-raised POs carry one, and those are exactly
+-- the rows a restore from v1 deletes — so today this usually restores nothing.
+-- It is carried anyway so the day v2 is the system of record, this is not the
+-- column somebody forgets.
+create table carry.po_state as
+  select id, "raisedById" from public.purchase_orders where "raisedById" is not null;
 SQL
 
 # ---------------------------------------------------------------------------
@@ -453,6 +466,25 @@ update carry.client_state c set "tempPinById" = null
 update carry.client_state c set "agreementReservationId" = null
  where "agreementReservationId" is not null
    and not exists (select 1 from public.reservations r where r.id = c."agreementReservationId");
+
+-- Approval history is kept whole even when the record it was about is gone: a
+-- v2-raised PO or order does not survive the restore, but that somebody
+-- approved it at a given amount is still a fact, and recordId is not a foreign
+-- key for exactly that reason. The people are nullable links with their names
+-- snapshotted beside them, so a departed user loses the link, not the row.
+update carry.approval_requests c set "requestedById" = null
+ where "requestedById" is not null
+   and not exists (select 1 from public.users u where u.id = c."requestedById");
+update carry.approval_requests c set "decidedById" = null
+ where "decidedById" is not null
+   and not exists (select 1 from public.users u where u.id = c."decidedById");
+
+-- A scope belongs to a person; without them it means nothing.
+delete from carry.user_approval_scopes c
+ where not exists (select 1 from public.users u where u.id = c."userId");
+update carry.user_approval_scopes c set "grantedById" = null
+ where "grantedById" is not null
+   and not exists (select 1 from public.users u where u.id = c."grantedById");
 SQL
 
 # The tables themselves, in an order that satisfies their own foreign keys.
@@ -511,6 +543,12 @@ update public.services s
    set kind = c.kind
   from carry.service_state c
  where s.id = c.id;
+
+update public.purchase_orders p
+   set "raisedById" = c."raisedById"
+  from carry.po_state c
+ where p.id = c.id
+   and exists (select 1 from public.users u where u.id = c."raisedById");
 
 -- Dropped from v2 on 2026-08-24 and not to be reintroduced by a refresh.
 drop table if exists public.chat_messages;

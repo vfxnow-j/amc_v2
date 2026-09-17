@@ -58,29 +58,34 @@ model User {
   // Relations
   accounts             Account[]
   sessions             Session[]
-  checkoutsCreated     Checkout[]         @relation("CheckoutCreatedBy")
-  checkoutsCheckedIn   Checkout[]         @relation("CheckoutCheckedInBy")
+  checkoutsCreated     Checkout[]          @relation("CheckoutCreatedBy")
+  checkoutsCheckedIn   Checkout[]          @relation("CheckoutCheckedInBy")
   approvalsGiven       CheckoutApproval[]
   auditLogs            AuditLog[]
   notifications        Notification[]
   apiKeys              ApiKey[]
   mfaTrustTokens       MfaTrustToken[]
-  assignedLeads        Lead[]             @relation("LeadAssignedTo")
+  assignedLeads        Lead[]              @relation("LeadAssignedTo")
   leadActivities       LeadActivity[]
   statusChanges        StatusHistory[]
-  reservationsPrepared Reservation[]      @relation("ReservationPreparedBy")
-  flowTasksAssigned    FlowTask[]         @relation("FlowTaskAssignees")
-  flowTasksCreated     FlowTask[]         @relation("FlowTaskCreator")
-  flowGroupsCreated    FlowGroup[]        @relation("FlowGroupCreator")
-  flowTaskComments     FlowTaskComment[]  @relation("FlowTaskComments")
-  workOrdersOpened     WorkOrder[]        @relation("WorkOrderOpenedBy")
-  workOrdersAssigned   WorkOrder[]        @relation("WorkOrderAssignedTech")
+  reservationsPrepared Reservation[]       @relation("ReservationPreparedBy")
+  flowTasksAssigned    FlowTask[]          @relation("FlowTaskAssignees")
+  flowTasksCreated     FlowTask[]          @relation("FlowTaskCreator")
+  flowGroupsCreated    FlowGroup[]         @relation("FlowGroupCreator")
+  flowTaskComments     FlowTaskComment[]   @relation("FlowTaskComments")
+  workOrdersOpened     WorkOrder[]         @relation("WorkOrderOpenedBy")
+  workOrdersAssigned   WorkOrder[]         @relation("WorkOrderAssignedTech")
   dashboardLayouts     DashboardLayout[]
-  ownedClients         Client[]           @relation("ClientOwner")
-  clientPinsSet        Client[]           @relation("ClientTempPinBy")
+  ownedClients         Client[]            @relation("ClientOwner")
+  clientPinsSet        Client[]            @relation("ClientTempPinBy")
   environmentLogged    EnvironmentItem[]
   interactionsLogged   Interaction[]
-  fundingRequests      FundingRequest[]   @relation("FundingRequestRequestedBy")
+  fundingRequests      FundingRequest[]    @relation("FundingRequestRequestedBy")
+  purchaseOrdersRaised PurchaseOrder[]     @relation("PurchaseOrderRaisedBy")
+  approvalScopes       UserApprovalScope[] @relation("ApprovalScopeUser")
+  approvalScopesGiven  UserApprovalScope[] @relation("ApprovalScopeGrantedBy")
+  approvalsRequested   ApprovalRequest[]   @relation("ApprovalRequestedBy")
+  approvalsDecided     ApprovalRequest[]   @relation("ApprovalDecidedBy")
 
   @@map("users")
 }
@@ -1290,6 +1295,13 @@ model PurchaseOrder {
   // inherit it, so the hardware lands on the right loan without re-keying.
   leaseId   String?
   lease     Lease?   @relation(fields: [leaseId], references: [id])
+
+  // v2-only (Phase 6, approvals). Who raised the PO, so STAFF can edit and
+  // submit their own drafts and nobody else's. v1 has no such column, so every
+  // PO restored from v1 reads null — "raised before v2 recorded it" — and only
+  // an admin can touch those. Carried by scripts/refresh-from-v1.sh.
+  raisedById String?
+  raisedBy   User?   @relation("PurchaseOrderRaisedBy", fields: [raisedById], references: [id], onDelete: SetNull)
 
   items      POItem[]
   fees       POFee[]
@@ -2629,4 +2641,87 @@ model FundingRequestItem {
 
   @@index([fundingRequestId])
   @@map("funding_request_items")
+}
+
+// ============================================
+// APPROVALS (docs/procurement.md, Phase 6) — v2-only
+// ============================================
+
+// The kinds of record that can be held for approval. One mechanism for all of
+// them: a record type here, a gate at the transition that sends the thing out,
+// and a scope on the users who may decide it.
+enum ApprovalRecordType {
+  PURCHASE_ORDER
+  FUNDING_REQUEST
+  QUOTE
+}
+
+enum ApprovalStatus {
+  PENDING // Waiting on an approver
+  APPROVED // Cleared at amountAtDecision
+  DENIED // Refused, with a reason that went back to the requester
+  SUPERSEDED // Replaced before anyone decided it — the money changed, or the record was pulled back
+}
+
+// One ask, and its answer. Rows are append-only in practice: a decided row is
+// never updated again (every write that decides one is conditioned on
+// status = PENDING), and a money change after approval raises a NEW row rather
+// than reopening the old one — so the history of who cleared what amount, when,
+// stays exactly as it was decided.
+//
+// recordId is deliberately not a foreign key: it points at one of three tables,
+// and this history must outlive the record (a refresh from v1 deletes v2-local
+// purchase orders and orders; the approval that was given for one is still a
+// fact). recordLabel keeps it readable when the record is gone. Names are
+// snapshotted beside the user ids for the same reason.
+model ApprovalRequest {
+  id          String             @id @default(cuid())
+  recordType  ApprovalRecordType
+  recordId    String
+  recordLabel String
+
+  status    ApprovalStatus @default(PENDING)
+  // Raised by someone who approves this record type themselves: cleared on the
+  // spot with no second person involved. Recorded so the trail says who put the
+  // money through, and marked so nobody reads it as a separate sign-off.
+  automatic Boolean        @default(false)
+
+  requestedById   String?
+  requestedBy     User?    @relation("ApprovalRequestedBy", fields: [requestedById], references: [id], onDelete: SetNull)
+  requestedByName String
+  requestedAt     DateTime @default(now())
+  amountAtRequest Decimal  @db.Decimal(12, 2)
+  // What the requester or the system said about why this was raised — "Submitted
+  // to the vendor", "Total changed from $X to $Y".
+  note            String?
+
+  decidedById      String?
+  decidedBy        User?     @relation("ApprovalDecidedBy", fields: [decidedById], references: [id], onDelete: SetNull)
+  decidedByName    String?
+  decidedAt        DateTime?
+  amountAtDecision Decimal?  @db.Decimal(12, 2)
+  reason           String?
+
+  supersededAt DateTime?
+
+  @@index([recordType, recordId])
+  @@index([status])
+  @@map("approval_requests")
+}
+
+// Who, beyond every SUPER_ADMIN, may decide which record types. A row per
+// user per type rather than an array column on users: `users` is a v1 table
+// (a column there is dropped by every refresh unless carried), and a row can
+// say who granted it and when.
+model UserApprovalScope {
+  id          String             @id @default(cuid())
+  userId      String
+  user        User               @relation("ApprovalScopeUser", fields: [userId], references: [id], onDelete: Cascade)
+  recordType  ApprovalRecordType
+  grantedById String?
+  grantedBy   User?              @relation("ApprovalScopeGrantedBy", fields: [grantedById], references: [id], onDelete: SetNull)
+  grantedAt   DateTime           @default(now())
+
+  @@unique([userId, recordType])
+  @@map("user_approval_scopes")
 }
