@@ -22,6 +22,7 @@ import { OrderDocumentsCard } from "@/components/orders/documents-card";
 import { ShippingCard } from "@/components/orders/shipping-card";
 import { ConversionCard } from "@/components/tracker/conversion-card";
 import { getSessionUser } from "@/lib/roles";
+import { ApprovalCard } from "@/components/approvals/approval-card";
 import { OrderActionBar } from "@/components/orders/order-action-bar";
 import { StageStrip, StageStripSkeleton } from "@/components/orders/stage-strip";
 import { getReservationHeader } from "@/lib/queries/reservation-record";
@@ -183,6 +184,23 @@ export default async function OrderRecordPage({ params }: Params) {
               happens: prepare the order, then scan units out against it. */}
           <Suspense fallback={<CardSkeleton title="Move it on" rows={2} />}>
             <OrderActionBar id={id} type={header.type} />
+          </Suspense>
+
+          {/* Whether the quote is cleared to go to the client, and the trail of
+              asks and answers (docs/procurement.md, Phase 6). Quiet on orders
+              quoted before approvals existed. */}
+          <Suspense fallback={null}>
+            <ApprovalCard
+              type="QUOTE"
+              id={id}
+              viewer={user}
+              act={
+                header.status === "DRAFT" || header.status === "REVISION"
+                  ? "sending it to the client"
+                  : "committing the order"
+              }
+              quietWhenUnrecorded
+            />
           </Suspense>
 
           {/* What this order may be the answer to — open asks and recent buying

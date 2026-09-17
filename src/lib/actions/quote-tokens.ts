@@ -7,6 +7,7 @@ import { calculatePeriods } from '@/lib/actions/reservations'
 import { computeItemSubtotal } from '@/lib/pricing/periods'
 import { computeReservationFinancials, deriveItemAmount } from '@/lib/pricing/financials'
 import crypto from 'crypto'
+import { portalQuoteHold, quoteGate } from '@/lib/approvals/core'
 
 const TOKEN_EXPIRY_DAYS = 30
 
@@ -26,6 +27,18 @@ export async function generateQuoteToken(reservationId: string) {
   if (!allowedStatuses.includes(reservation.status)) {
     throw new Error('Can only generate quote links for draft, revision, sent, or approved reservations')
   }
+
+  // A live link is the quote in front of the client. Held while its approval is
+  // outstanding or the client is an unonboarded prospect (lib/approvals/core).
+  // Never raises a request: minting happens when the send dialog opens.
+  const gate = await quoteGate({
+    orderId: reservationId,
+    userId: authResult.userId,
+    role: authResult.role,
+    act: 'sending it',
+    raise: false,
+  })
+  if (gate.status === 'held') throw new Error(gate.message)
 
   // The link dies with the quote: an expiration set on the order wins. When it's
   // unset (or already past — i.e. re-sending a stale quote), stamp a fresh
@@ -354,6 +367,11 @@ export async function approveQuote(
   if (reservation.status !== 'DRAFT' && reservation.status !== 'QUOTE_SENT') {
     throw new Error('This quote can no longer be approved')
   }
+
+  // Phase 6: a quote whose figure changed after approval (or was never cleared)
+  // cannot be accepted until the new figure is approved and sent again.
+  const portalHold = await portalQuoteHold(reservation.id)
+  if (portalHold) throw new Error(portalHold)
 
   await prisma.$transaction(async (tx) => {
     // Switch active package if client selected a different one

@@ -309,7 +309,15 @@ function SendQuoteDialog({ id, clientEmail, busy, run, onClose }: DialogProps) {
     >
       <Label>Quote link</Label>
       {linkError ? (
-        <Notice tone="error">{linkError}</Notice>
+        // Usually the quote gate: approval outstanding, or a prospect who has
+        // not onboarded. No link is minted while it is held. Pressing Send
+        // quote is what asks an approver — opening this dialog never does.
+        <Notice tone="error">
+          {linkError}
+          {/needs an approver's yes|needs approving/.test(linkError)
+            ? " Send quote below asks for it."
+            : ""}
+        </Notice>
       ) : (
         <div className="flex items-center gap-2">
           <input

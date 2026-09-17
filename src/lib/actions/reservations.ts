@@ -8,6 +8,7 @@ import { requireAuth, requireEditor, requireAdmin } from '@/lib/auth-utils'
 import { serialize } from '@/lib/utils'
 import { recomputeUnitRevenue } from '@/lib/utils/revenue'
 import { logAudit } from './audit'
+import { quoteGate } from '@/lib/approvals/core'
 import { syncReservationDeal } from '@/lib/integrations/hubspot'
 import type { ReservationStatus, ReservationType, PricingType, BillingCycleType } from '@/lib/types'
 import { PACKAGE_EDITABLE_STATUSES } from '@/lib/types'
@@ -2464,6 +2465,11 @@ export async function markQuoteSent(id: string) {
     return { error: 'Can only mark quote sent from Draft or Revision status' }
   }
 
+  // Phase 6: the quote gate (approval and the prospect hold), checked here as
+  // well as on the screen because this export is reachable on its own.
+  const gate = await quoteGate({ orderId: id, userId: authResult.userId, role: authResult.role, act: 'sending it', raise: false })
+  if (gate.status === 'held') return { error: gate.message }
+
   const previousStatus = reservation.status
   const updated = await prisma.reservation.update({
     where: { id },
@@ -2817,6 +2823,12 @@ export async function checkStockAvailability(id: string) {
 export async function approveReservation(id: string, force?: boolean) {
   const authResult = await requireEditor()
   if (!authResult.authorized) return { error: authResult.error }
+
+  // Phase 6: committing the order passes the same gate as sending the quote —
+  // always for an order never sent, and for a sent one only when its approval
+  // is outstanding (a quote sent before approvals existed is not newly blocked).
+  const gate = await quoteGate({ orderId: id, userId: authResult.userId, role: authResult.role, act: 'approving it', raise: false })
+  if (gate.status === 'held') return { error: gate.message }
 
   const reservation = await prisma.$transaction(async (tx) => {
     const existingReservation = await tx.reservation.findUnique({

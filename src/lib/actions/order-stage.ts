@@ -23,6 +23,7 @@ import {
 import { generateQuoteToken, sendQuoteLinkEmail } from "@/lib/actions/quote-tokens";
 import { createInvoiceFromReservation } from "@/lib/actions/invoices";
 import { isEmailConfigured } from "@/lib/email/client";
+import { quoteGate } from "@/lib/approvals/core";
 import type {
   BillingCycleType,
   DeliveryMethod,
@@ -82,6 +83,9 @@ function touch(id: string) {
 export async function createQuoteLink(
   id: string,
 ): Promise<{ status: "ok"; url: string } | { status: "error"; message: string }> {
+  // Minting is checked but never asks: the send dialog mints a link the moment
+  // it opens, and opening a dialog must not raise a request in anyone's name.
+  // Pressing Send quote is what asks. `generateQuoteToken` holds the check.
   try {
     const { url } = await generateQuoteToken(id);
     touch(id);
@@ -92,35 +96,36 @@ export async function createQuoteLink(
 }
 
 /**
- * Whether the account behind this order is still a shell.
+ * One gate for a quote leaving the building (docs/procurement.md, Phase 6).
  *
- * `Client.prospectAt` is set when a client row was materialised only to hold a
- * quote for somebody who has not onboarded — see `createProspectQuote`. It
- * earns its keep in exactly two places, both here: nothing commits stock to an
- * account nobody has verified, and nobody's full rate card goes to an address
- * nobody has verified. Recording their onboarding clears the flag, which is
- * the point — sending the quote is the reward for onboarding.
- *
- * Returns the refusal to show, or null when the order may proceed.
+ * It used to be `prospectRefusal` here: a quote for a client materialised only
+ * to hold it (`Client.prospectAt`) could not be sent or approved until they
+ * onboarded. Approvals are the second reason a quote is held — raised by
+ * someone who does not approve quotes — and rather than a second gate beside the
+ * first, both live in `quoteGate` (lib/approvals/core), which the ported
+ * actions underneath these call too. The prospect sentence is unchanged.
  */
-async function prospectRefusal(id: string, act: string): Promise<string | null> {
-  const order = await prisma.reservation.findUnique({
-    where: { id },
-    select: {
-      client: {
-        select: { id: true, name: true, prospectAt: true, convertedLeads: { select: { id: true }, take: 1 } },
-      },
-    },
+async function held(
+  id: string,
+  act: string,
+  note: string,
+): Promise<StageOutcome | null> {
+  const auth = await requireEditor();
+  if (!auth.authorized) return { status: "error", message: auth.error ?? "Unauthorized" };
+  const gate = await quoteGate({
+    orderId: id,
+    userId: auth.userId,
+    role: auth.role,
+    act,
+    raise: true,
+    note,
   });
-  const client = order?.client;
-  if (!client?.prospectAt) return null;
-
-  const lead = client.convertedLeads[0];
-  return `${client.name} has not onboarded. ${act} would ${
-    act === "Sending it"
-      ? "put the full rate card in an inbox nobody has verified"
-      : "commit stock to an account nobody has verified"
-  }. Record their onboarding${lead ? " on their lead" : ""} first — that is what releases this quote.`;
+  if (gate.status === "clear") return null;
+  touch(id);
+  revalidatePath("/dashboard/approvals");
+  // Asking is a thing that happened, so it reads as done; a refusal that asked
+  // nobody (a prospect, or a request already waiting) reads as a refusal.
+  return { status: gate.raised ? "ok" : "error", message: gate.message };
 }
 
 /**
@@ -143,8 +148,8 @@ export async function sendOrderQuote(
   const auth = await requireEditor();
   if (!auth.authorized) return { status: "error", message: auth.error ?? "Unauthorized" };
 
-  const held = await prospectRefusal(id, "Sending it");
-  if (held) return { status: "error", message: held };
+  const hold = await held(id, "sending it", "Send the quote to the client");
+  if (hold) return hold;
 
   const recipients = input.emails
     .flatMap((entry) => entry.split(/[,;\s]+/))
@@ -208,10 +213,10 @@ export async function sendOrderQuote(
 export async function approveOrder(id: string, force?: boolean): Promise<StageOutcome> {
   // Not something `force` can wave through. `force` skips the availability
   // warning, which is a judgement call about stock; this is a judgement call
-  // about whether the customer exists, and the way past it is to record the
-  // onboarding rather than to insist.
-  const held = await prospectRefusal(id, "Approving it");
-  if (held) return { status: "error", message: held };
+  // about whether the customer exists and whether an approver has seen the
+  // figure, and the way past it is onboarding or approval, not insisting.
+  const hold = await held(id, "approving it", "Commit the order");
+  if (hold) return hold;
 
   try {
     const result = await approveReservation(id, force);
