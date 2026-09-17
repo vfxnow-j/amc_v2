@@ -196,24 +196,21 @@ export async function sendProposalEmail(
   const projectName = reservation.projectName || reservation.reservationNumber
   const clientName = reservation.client?.name || 'Valued Client'
 
-  const html = `
-    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-      <h2 style="color: #1e293b;">Project Proposal</h2>
-      <p>Dear ${clientName},</p>
-      ${message ? `<p>${message.replace(/\n/g, '<br/>')}</p>` : '<p>Please find attached our proposal for your review.</p>'}
-      <p>Project: <strong>${projectName}</strong></p>
-      <p>Please review the attached proposal at your convenience. We look forward to working with you.</p>
-      <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 24px 0;" />
-      <p style="color: #6b7280; font-size: 12px;">This proposal was generated from reservation ${reservation.reservationNumber}.</p>
-    </div>
-  `
+  const { proposalEmail } = await import('@/lib/email/templates')
+  const template = proposalEmail({
+    clientName,
+    projectName,
+    reservationNumber: reservation.reservationNumber,
+    message,
+  })
 
   const buffer = Buffer.from(pdfBase64, 'base64')
 
   const result = await sendEmail({
     to: recipientEmail,
-    subject: `Proposal: ${projectName}`,
-    html,
+    subject: template.subject,
+    html: template.html,
+    text: template.text,
     attachments: [{
       filename,
       content: buffer,

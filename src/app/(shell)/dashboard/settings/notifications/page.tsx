@@ -4,10 +4,11 @@ import { redirect } from "next/navigation";
 import { Card, CardEmpty, CardSkeleton } from "@/components/record/record-card";
 import { PageHeader } from "@/components/shell/page-header";
 import { getNotificationRecipients } from "@/lib/actions/notifications";
-import { isEmailConfigured } from "@/lib/email/client";
+import { APP_URL, EMAIL_FROM, isEmailConfigured } from "@/lib/email/client";
 import { getNotificationPreferences } from "@/lib/notifications/preferences";
 import { getSessionUser } from "@/lib/roles";
 import { PreferencesForm } from "./preferences-form";
+import { TestEmailForm } from "./test-email-form";
 
 export const metadata = { title: "Notification preferences" };
 
@@ -59,9 +60,14 @@ export default async function NotificationSettingsPage() {
           <YourPreferences userId={user.id} />
         </Suspense>
 
-        <Suspense fallback={<CardSkeleton title="Digest recipients" rows={3} />}>
-          <DigestRecipients />
-        </Suspense>
+        <div className="flex min-w-0 flex-col gap-3">
+          {user.role === "ADMIN" || user.role === "SUPER_ADMIN" ? (
+            <OutboundEmail email={user.email} />
+          ) : null}
+          <Suspense fallback={<CardSkeleton title="Digest recipients" rows={3} />}>
+            <DigestRecipients />
+          </Suspense>
+        </div>
       </div>
     </>
   );
@@ -80,6 +86,57 @@ async function YourPreferences({ userId }: { userId: string }) {
         initial={preferences}
         emailConfigured={isEmailConfigured()}
       />
+    </Card>
+  );
+}
+
+/**
+ * Where outbound mail stands on this instance, and a way to see the layout.
+ *
+ * Admin-only on the screen and in the action. The facts are read from the
+ * environment at render, not remembered: whether a key is set, who mail comes
+ * from, where links point, and — the one that matters most on a copy of live
+ * data — whether the test redirect is catching everything.
+ */
+function OutboundEmail({ email }: { email: string }) {
+  const redirect = process.env.EMAIL_TEST_REDIRECT?.trim() || null;
+  const configured = isEmailConfigured();
+  const rows: { label: string; value: string; warn?: boolean }[] = [
+    { label: "Sending", value: configured ? "On — Resend key set" : "Off — no RESEND_API_KEY", warn: !configured },
+    { label: "From", value: EMAIL_FROM },
+    {
+      label: "Test redirect",
+      value: redirect ? `Everything goes to ${redirect}` : "Off — mail reaches real recipients",
+      warn: !redirect,
+    },
+    {
+      label: "Links point at",
+      value: APP_URL,
+      warn: APP_URL.includes("localhost"),
+    },
+  ];
+
+  return (
+    <Card title="Outbound email" meta="admins">
+      <dl className="flex flex-col gap-px px-2 pb-2">
+        {rows.map((row) => (
+          <div
+            key={row.label}
+            className="grid grid-cols-[96px_1fr] items-baseline gap-2 rounded-row px-2 py-[5px] text-detail"
+          >
+            <dt className="text-ink-muted">{row.label}</dt>
+            <dd className={`min-w-0 break-words ${row.warn ? "text-destructive" : ""}`}>
+              {row.value}
+            </dd>
+          </div>
+        ))}
+      </dl>
+      {APP_URL.includes("localhost") ? (
+        <p className="mx-4 mb-3 rounded-well bg-sunken p-2 text-detail text-ink-muted">
+          APP_URL is localhost, so buttons in emails open only on this machine.
+        </p>
+      ) : null}
+      <TestEmailForm placeholder={email} />
     </Card>
   );
 }

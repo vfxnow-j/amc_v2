@@ -1,4 +1,5 @@
 import { getResend, isEmailConfigured, EMAIL_FROM } from './client'
+import { htmlToText } from './layout'
 
 /**
  * Where every outbound email goes instead of its real recipient.
@@ -41,7 +42,7 @@ function banner(originalTo: string | string[]): string {
  * Apply the redirect to one message. Returns it unchanged when no redirect is
  * configured, so the production path costs nothing.
  */
-export function applyTestRedirect<T extends { to: string | string[]; subject: string; html: string }>(
+export function applyTestRedirect<T extends { to: string | string[]; subject: string; html: string; text?: string }>(
   message: T,
 ): T {
   const target = redirectTo()
@@ -50,8 +51,33 @@ export function applyTestRedirect<T extends { to: string | string[]; subject: st
     ...message,
     to: target,
     subject: `[test → ${describe(message.to)}] ${message.subject}`,
-    html: banner(message.to) + message.html,
+    html: withBanner(message.html, message.to),
+    // The plain-text part says it too: a client that shows text only must not
+    // read a redirected message as the real thing.
+    ...(message.text !== undefined
+      ? { text: `[Test send. In production this would have gone to ${describe(message.to)}.]\n\n${message.text}` }
+      : {}),
   }
+}
+
+/**
+ * Put the banner inside <body> rather than before <!DOCTYPE>. Every template is
+ * a whole document now, and markup ahead of the doctype is invalid; it would
+ * also be the first text in the message, so the inbox preview would show the
+ * banner instead of the layout's preheader. After the preheader would hide it
+ * from the preview entirely, which is wrong the other way — so it goes first
+ * in the body, where the preview reads "Test send…" and says so.
+ */
+function withBanner(html: string, originalTo: string | string[]): string {
+  const at = html.search(/<body[^>]*>/i)
+  if (at === -1) return banner(originalTo) + html
+  const end = html.indexOf('>', at) + 1
+  return `${html.slice(0, end)}<div style="max-width:680px;margin:12px auto 0;padding:0 12px;">${banner(originalTo)}</div>${html.slice(end)}`
+}
+
+/** The plain-text part: what the caller gave, or derived from the HTML. */
+function textFor(message: { html: string; text?: string }): string {
+  return message.text ?? htmlToText(message.html)
 }
 
 export type EmailAttachment = {
@@ -81,6 +107,7 @@ export async function sendEmail(params: SendEmailParams): Promise<{ success: boo
     to: params.to,
     subject: params.subject,
     html: params.html,
+    text: textFor(params),
   })
 
   try {
@@ -89,7 +116,7 @@ export async function sendEmail(params: SendEmailParams): Promise<{ success: boo
       to: Array.isArray(routed.to) ? routed.to : [routed.to],
       subject: routed.subject,
       html: routed.html,
-      text: params.text,
+      text: routed.text,
       replyTo: params.replyTo,
       attachments: params.attachments?.map((a) => ({
         filename: a.filename,
@@ -115,6 +142,8 @@ export type BatchMessage = {
   to: string | string[]
   subject: string
   html: string
+  /** Derived from the HTML when omitted. */
+  text?: string
 }
 
 /**
@@ -143,8 +172,8 @@ export async function sendBatch(
   // notifications becomes six copies to the tester. That is the intent: the
   // point of a test send is seeing what each recipient would have got.
   const routed = messages.map((message) => ({
+    ...applyTestRedirect({ ...message, text: textFor(message) }),
     from: message.from ?? EMAIL_FROM,
-    ...applyTestRedirect(message),
   }))
 
   try {

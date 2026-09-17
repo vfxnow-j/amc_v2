@@ -1,142 +1,129 @@
-import { APP_URL } from './client'
 import { formatPeriodCount, isSinglePeriod } from '@/lib/pricing/periods'
-import { formatCurrency } from '@/lib/utils/format'
+import { moneyExact } from '@/lib/format'
+import {
+  bullets,
+  callout,
+  cell,
+  code,
+  email,
+  escapeHtml,
+  facts,
+  fallbackLink,
+  greeting,
+  link,
+  paragraph,
+  quoted,
+  section,
+  stats,
+  strong,
+  table,
+  type Fact,
+  type RenderedEmail,
+  type Tone,
+} from './layout'
 
-export function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;')
-}
+/**
+ * Every outbound message, drawn in the one layout in `./layout`.
+ *
+ * Each template returns `{ subject, html, text }`. Subjects are plain strings —
+ * they used to be run through `escapeHtml`, which put a literal "&amp;" into
+ * the subject line of any account with an ampersand in its name. Only the
+ * HTML body is escaped.
+ *
+ * Two audiences, and the frame says which: **staff** mail links into the app
+ * and says where to change what arrives; **client** mail never links into the
+ * app (a client has no account) and invites a reply instead.
+ */
 
-function baseLayout(content: string): string {
-  return `<!DOCTYPE html>
-<html>
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background-color: #f4f4f5; padding: 40px 0; margin: 0;">
-  <div style="max-width: 560px; margin: 0 auto; background: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-    <div style="background: #18181b; padding: 24px; text-align: center;">
-      <h1 style="color: #ffffff; margin: 0; font-size: 20px; font-weight: 600;">VFXNow AMC</h1>
-    </div>
-    <div style="padding: 32px 24px;">
-      ${content}
-    </div>
-    <div style="padding: 16px 24px; background: #f4f4f5; text-align: center; font-size: 12px; color: #71717a;">
-      VFXNow Asset Management &amp; Control
-    </div>
-  </div>
-</body>
-</html>`
-}
+export { escapeHtml }
+export type { RenderedEmail }
+
+const money = (value: number) => moneyExact(value)
+
+/** Security mail is not a notification anyone can switch off; say why it came. */
+const SECURITY_FOOTER =
+  'A security message from VFXNow AMC about your account. You can&rsquo;t turn these off — if you didn&rsquo;t expect it, tell an administrator.'
 
 // ============================================
 // SECURITY EMAILS
 // ============================================
 
-export function mfaOtpEmail(name: string, code: string) {
-  const safeName = escapeHtml(name)
-  const safeCode = escapeHtml(code)
-  return {
-    subject: `${safeCode} is your VFXNow verification code`,
-    html: baseLayout(`
-      <h2 style="margin: 0 0 16px; color: #18181b; font-size: 20px;">Verification Code</h2>
-      <p style="color: #3f3f46; line-height: 1.6;">Hi ${safeName},</p>
-      <p style="color: #3f3f46; line-height: 1.6;">Your one-time verification code is:</p>
-      <div style="text-align: center; margin: 24px 0;">
-        <span style="font-size: 32px; font-weight: bold; letter-spacing: 8px; color: #18181b; background: #f4f4f5; padding: 12px 24px; border-radius: 8px; display: inline-block;">${safeCode}</span>
-      </div>
-      <p style="color: #71717a; font-size: 14px; line-height: 1.6;">
-        This code expires in 10 minutes. If you did not request this, please ignore this email.
-      </p>
-    `),
-  }
+export function mfaOtpEmail(name: string, otp: string) {
+  return email(`${otp} is your VFXNow verification code`, {
+    audience: 'staff',
+    preheader: `Your verification code is ${otp}. It expires in 10 minutes.`,
+    eyebrow: 'Sign-in',
+    title: 'Your verification code',
+    body: [
+      greeting(name),
+      paragraph('Enter this code to finish signing in:'),
+      code(otp),
+      paragraph('It expires in 10 minutes. If you did not try to sign in, ignore this email and consider changing your password.', { muted: true, small: true }),
+    ].join(''),
+    footer: SECURITY_FOOTER,
+  })
 }
 
 export function passwordResetEmail(name: string, resetToken: string) {
-  const safeName = escapeHtml(name)
-  const safeToken = encodeURIComponent(resetToken)
-  const resetUrl = `${APP_URL}/reset-password?token=${safeToken}`
-  return {
-    subject: 'Reset your VFXNow password',
-    html: baseLayout(`
-      <h2 style="margin: 0 0 16px; color: #18181b; font-size: 20px;">Password Reset</h2>
-      <p style="color: #3f3f46; line-height: 1.6;">Hi ${safeName},</p>
-      <p style="color: #3f3f46; line-height: 1.6;">We received a request to reset your password. Click the button below to set a new one:</p>
-      <div style="text-align: center; margin: 24px 0;">
-        <a href="${resetUrl}" style="background: #18181b; color: #ffffff; padding: 12px 32px; border-radius: 6px; text-decoration: none; font-weight: 500; display: inline-block;">
-          Reset Password
-        </a>
-      </div>
-      <p style="color: #71717a; font-size: 14px; line-height: 1.6;">
-        This link expires in 1 hour. If you did not request this, you can safely ignore this email.
-      </p>
-      <p style="color: #a1a1aa; font-size: 12px; word-break: break-all; line-height: 1.6;">
-        ${escapeHtml(resetUrl)}
-      </p>
-    `),
-  }
+  const url = `/reset-password?token=${encodeURIComponent(resetToken)}`
+  return email('Reset your VFXNow password', {
+    audience: 'staff',
+    preheader: 'Someone asked to reset your password. The link works for one hour.',
+    eyebrow: 'Account',
+    title: 'Reset your password',
+    body: [
+      greeting(name),
+      paragraph('We received a request to reset your password. Use the button below to choose a new one.'),
+    ].join(''),
+    cta: { label: 'Reset password', url },
+    footer: `${paragraph('This link expires in 1 hour. If you did not ask for it, you can ignore this email — your password has not changed.', { muted: true, small: true })}${fallbackLink(url)}${SECURITY_FOOTER}`,
+  })
 }
 
 export function mfaEnabledEmail(name: string) {
-  const safeName = escapeHtml(name)
-  return {
-    subject: 'Two-factor authentication enabled',
-    html: baseLayout(`
-      <h2 style="margin: 0 0 16px; color: #18181b; font-size: 20px;">MFA Enabled</h2>
-      <p style="color: #3f3f46; line-height: 1.6;">Hi ${safeName},</p>
-      <p style="color: #3f3f46; line-height: 1.6;">Two-factor authentication has been successfully enabled on your VFXNow account. You will now be required to enter a verification code sent to your email each time you sign in.</p>
-      <p style="color: #71717a; font-size: 14px; line-height: 1.6;">
-        If you did not make this change, please contact your administrator immediately.
-      </p>
-    `),
-  }
+  return email('Two-factor authentication enabled', {
+    audience: 'staff',
+    preheader: 'Two-factor authentication is now on for your VFXNow account.',
+    eyebrow: 'Security',
+    title: 'Two-factor authentication is on',
+    body: [
+      greeting(name),
+      paragraph('Two-factor authentication has been enabled on your account. From now on you will be asked for a code, sent to this address, each time you sign in.'),
+      callout('If you did not make this change, contact your administrator immediately.', { tone: 'warning' }),
+    ].join(''),
+    footer: SECURITY_FOOTER,
+  })
 }
 
 export function mfaDisabledEmail(name: string) {
-  const safeName = escapeHtml(name)
-  return {
-    subject: 'Two-factor authentication disabled',
-    html: baseLayout(`
-      <h2 style="margin: 0 0 16px; color: #18181b; font-size: 20px;">MFA Disabled</h2>
-      <p style="color: #3f3f46; line-height: 1.6;">Hi ${safeName},</p>
-      <p style="color: #3f3f46; line-height: 1.6;">Two-factor authentication has been disabled on your VFXNow account. Your account is now protected by password only.</p>
-      <p style="color: #71717a; font-size: 14px; line-height: 1.6;">
-        If you did not make this change, please contact your administrator immediately and change your password.
-      </p>
-    `),
-  }
+  return email('Two-factor authentication disabled', {
+    audience: 'staff',
+    preheader: 'Two-factor authentication was turned off for your VFXNow account.',
+    eyebrow: 'Security',
+    title: 'Two-factor authentication is off',
+    body: [
+      greeting(name),
+      paragraph('Two-factor authentication has been disabled on your account. It is now protected by your password alone.'),
+      callout('If you did not make this change, contact your administrator immediately and change your password.', { tone: 'danger' }),
+    ].join(''),
+    footer: SECURITY_FOOTER,
+  })
 }
 
 export function accountInviteEmail(name: string, setupToken: string, roleName: string) {
-  const safeName = escapeHtml(name)
-  const safeRole = escapeHtml(roleName)
-  const setupUrl = `${APP_URL}/setup-account?token=${encodeURIComponent(setupToken)}`
-  return {
-    subject: 'You\'ve been invited to VFXNow AMC',
-    html: baseLayout(`
-      <h2 style="margin: 0 0 16px; color: #18181b; font-size: 20px;">Welcome to VFXNow AMC</h2>
-      <p style="color: #3f3f46; line-height: 1.6;">Hi ${safeName},</p>
-      <p style="color: #3f3f46; line-height: 1.6;">
-        An account has been created for you with the role of <strong>${safeRole}</strong>.
-        Click the button below to set up your password and secure your account.
-      </p>
-      <div style="text-align: center; margin: 32px 0;">
-        <a href="${setupUrl}" style="display: inline-block; background: #18181b; color: #ffffff; padding: 12px 32px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 16px;">
-          Set Up Your Account
-        </a>
-      </div>
-      <p style="color: #71717a; font-size: 13px; line-height: 1.5;">
-        This link will expire in 72 hours. If you did not expect this invitation,
-        you can safely ignore this email.
-      </p>
-      <p style="color: #71717a; font-size: 13px; line-height: 1.5;">
-        If the button doesn't work, copy and paste this URL into your browser:<br>
-        <a href="${setupUrl}" style="color: #3b82f6; word-break: break-all;">${setupUrl}</a>
-      </p>
-    `),
-  }
+  const url = `/setup-account?token=${encodeURIComponent(setupToken)}`
+  return email("You've been invited to VFXNow AMC", {
+    audience: 'staff',
+    preheader: `An account has been created for you as ${roleName}. Set your password to get started.`,
+    eyebrow: 'Welcome',
+    title: 'Welcome to VFXNow AMC',
+    body: [
+      greeting(name),
+      paragraph(`An account has been created for you with the role of ${strong(roleName)}. Set up your password and secure your account to get started.`),
+    ].join(''),
+    cta: { label: 'Set up your account', url },
+    footer: `${paragraph('This link expires in 72 hours. If you weren&rsquo;t expecting an invitation, you can ignore this email.', { muted: true, small: true })}${fallbackLink(url)}`,
+  })
 }
 
 // ============================================
@@ -144,165 +131,98 @@ export function accountInviteEmail(name: string, setupToken: string, roleName: s
 // ============================================
 
 export function invoiceCreatedEmail(clientName: string, invoiceNumber: string, total: string, dueDate: string) {
-  const safeName = escapeHtml(clientName)
-  const safeInvoice = escapeHtml(invoiceNumber)
-  const safeTotal = escapeHtml(total)
-  const safeDue = escapeHtml(dueDate)
-  return {
-    subject: `Invoice ${safeInvoice} from VFXNow`,
-    html: baseLayout(`
-      <h2 style="margin: 0 0 16px; color: #18181b; font-size: 20px;">Invoice ${safeInvoice}</h2>
-      <p style="color: #3f3f46; line-height: 1.6;">Hi ${safeName},</p>
-      <p style="color: #3f3f46; line-height: 1.6;">A new invoice has been generated for your account.</p>
-      <table style="width: 100%; margin: 20px 0; border-collapse: collapse;">
-        <tr>
-          <td style="padding: 8px 0; color: #71717a; font-size: 14px;">Invoice Number</td>
-          <td style="padding: 8px 0; text-align: right; font-weight: 600; color: #18181b;">${safeInvoice}</td>
-        </tr>
-        <tr style="border-top: 1px solid #e4e4e7;">
-          <td style="padding: 8px 0; color: #71717a; font-size: 14px;">Total Amount</td>
-          <td style="padding: 8px 0; text-align: right; font-weight: 600; color: #18181b;">${safeTotal}</td>
-        </tr>
-        <tr style="border-top: 1px solid #e4e4e7;">
-          <td style="padding: 8px 0; color: #71717a; font-size: 14px;">Due Date</td>
-          <td style="padding: 8px 0; text-align: right; font-weight: 600; color: #18181b;">${safeDue}</td>
-        </tr>
-      </table>
-      <p style="color: #71717a; font-size: 14px; line-height: 1.6;">
-        Please contact us if you have any questions about this invoice.
-      </p>
-    `),
-  }
+  return email(`Invoice ${invoiceNumber} from VFXNow`, {
+    audience: 'client',
+    preheader: `Invoice ${invoiceNumber} for ${total}, due ${dueDate}.`,
+    eyebrow: 'Invoice',
+    title: `Invoice ${invoiceNumber}`,
+    body: [
+      greeting(clientName),
+      paragraph('A new invoice has been issued on your account.'),
+      facts([
+        { label: 'Invoice', value: invoiceNumber },
+        { label: 'Amount', value: total },
+        { label: 'Due', value: dueDate },
+      ]),
+      paragraph('Reply to this email if you have any questions about it.', { muted: true, small: true }),
+    ].join(''),
+  })
+}
+
+function orderDates(startDate: string, endDate: string, reservationType?: string): Fact[] {
+  return reservationType === 'SALE'
+    ? [{ label: 'Date', value: startDate }]
+    : [
+        { label: 'Start', value: startDate },
+        { label: 'End', value: endDate },
+      ]
 }
 
 export function reservationConfirmedEmail(clientName: string, reservationNumber: string, startDate: string, endDate: string, reservationType?: string) {
-  const safeName = escapeHtml(clientName)
-  const safeRes = escapeHtml(reservationNumber)
-  const safeStart = escapeHtml(startDate)
-  const safeEnd = escapeHtml(endDate)
-  const isSale = reservationType === 'SALE'
-  const endDateRow = isSale ? '' : `
-        <tr style="border-top: 1px solid #e4e4e7;">
-          <td style="padding: 8px 0; color: #71717a; font-size: 14px;">End Date</td>
-          <td style="padding: 8px 0; text-align: right; font-weight: 600; color: #18181b;">${safeEnd}</td>
-        </tr>`
-  return {
-    subject: `Reservation ${safeRes} confirmed`,
-    html: baseLayout(`
-      <h2 style="margin: 0 0 16px; color: #18181b; font-size: 20px;">Reservation Confirmed</h2>
-      <p style="color: #3f3f46; line-height: 1.6;">Hi ${safeName},</p>
-      <p style="color: #3f3f46; line-height: 1.6;">Your reservation has been confirmed and equipment is reserved for you.</p>
-      <table style="width: 100%; margin: 20px 0; border-collapse: collapse;">
-        <tr>
-          <td style="padding: 8px 0; color: #71717a; font-size: 14px;">Reservation</td>
-          <td style="padding: 8px 0; text-align: right; font-weight: 600; color: #18181b;">${safeRes}</td>
-        </tr>
-        <tr style="border-top: 1px solid #e4e4e7;">
-          <td style="padding: 8px 0; color: #71717a; font-size: 14px;">Start Date</td>
-          <td style="padding: 8px 0; text-align: right; font-weight: 600; color: #18181b;">${safeStart}</td>
-        </tr>${endDateRow}
-      </table>
-      <p style="color: #71717a; font-size: 14px; line-height: 1.6;">
-        Please contact us if you need to make any changes.
-      </p>
-    `),
-  }
+  return email(`Reservation ${reservationNumber} confirmed`, {
+    audience: 'client',
+    preheader: `Your equipment is reserved from ${startDate}.`,
+    eyebrow: 'Order confirmed',
+    title: 'Your reservation is confirmed',
+    subtitle: reservationNumber,
+    body: [
+      greeting(clientName),
+      paragraph('Your order is confirmed and the equipment is reserved for you.'),
+      facts([{ label: 'Order', value: reservationNumber }, ...orderDates(startDate, endDate, reservationType)]),
+      paragraph('Reply to this email if you need to change anything.', { muted: true, small: true }),
+    ].join(''),
+  })
 }
 
 export function orderPreparingEmail(clientName: string, reservationNumber: string, startDate: string, endDate: string, reservationType?: string) {
-  const safeName = escapeHtml(clientName)
-  const safeRes = escapeHtml(reservationNumber)
-  const safeStart = escapeHtml(startDate)
-  const safeEnd = escapeHtml(endDate)
   const isSale = reservationType === 'SALE'
-  const endDateRow = isSale ? '' : `
-        <tr style="border-top: 1px solid #e4e4e7;">
-          <td style="padding: 8px 0; color: #71717a; font-size: 14px;">End Date</td>
-          <td style="padding: 8px 0; text-align: right; font-weight: 600; color: #18181b;">${safeEnd}</td>
-        </tr>`
-  return {
-    subject: `Order ${safeRes} — Now Being Prepared`,
-    html: baseLayout(`
-      <h2 style="margin: 0 0 16px; color: #18181b; font-size: 20px;">Order In Preparation</h2>
-      <p style="color: #3f3f46; line-height: 1.6;">Hi ${safeName},</p>
-      <p style="color: #3f3f46; line-height: 1.6;">Your order is now being prepared by our team. We'll notify you when it's ready${isSale ? '.' : ' for delivery.'}</p>
-      <table style="width: 100%; margin: 20px 0; border-collapse: collapse;">
-        <tr>
-          <td style="padding: 8px 0; color: #71717a; font-size: 14px;">Order</td>
-          <td style="padding: 8px 0; text-align: right; font-weight: 600; color: #18181b;">${safeRes}</td>
-        </tr>
-        <tr style="border-top: 1px solid #e4e4e7;">
-          <td style="padding: 8px 0; color: #71717a; font-size: 14px;">Start Date</td>
-          <td style="padding: 8px 0; text-align: right; font-weight: 600; color: #18181b;">${safeStart}</td>
-        </tr>${endDateRow}
-      </table>
-      <p style="color: #71717a; font-size: 14px; line-height: 1.6;">
-        Please contact us if you have any questions.
-      </p>
-    `),
-  }
+  return email(`Order ${reservationNumber} — now being prepared`, {
+    audience: 'client',
+    preheader: `We're preparing order ${reservationNumber}.`,
+    eyebrow: 'In preparation',
+    title: 'Your order is being prepared',
+    subtitle: reservationNumber,
+    body: [
+      greeting(clientName),
+      paragraph(`Our team is preparing your order now. We&rsquo;ll let you know when it&rsquo;s ready${isSale ? '' : ' for delivery'}.`),
+      facts([{ label: 'Order', value: reservationNumber }, ...orderDates(startDate, endDate, reservationType)]),
+    ].join(''),
+  })
 }
 
 export function orderShippedEmail(clientName: string, reservationNumber: string, startDate: string, endDate: string, reservationType?: string) {
-  const safeName = escapeHtml(clientName)
-  const safeRes = escapeHtml(reservationNumber)
-  const safeStart = escapeHtml(startDate)
-  const safeEnd = escapeHtml(endDate)
   const isSale = reservationType === 'SALE'
-  const readyLabel = isSale ? 'Shipped' : 'Shipped / Ready'
-  const endDateRow = isSale ? '' : `
-        <tr style="border-top: 1px solid #e4e4e7;">
-          <td style="padding: 8px 0; color: #71717a; font-size: 14px;">End Date</td>
-          <td style="padding: 8px 0; text-align: right; font-weight: 600; color: #18181b;">${safeEnd}</td>
-        </tr>`
-  return {
-    subject: `Order ${safeRes} — ${readyLabel}`,
-    html: baseLayout(`
-      <h2 style="margin: 0 0 16px; color: #18181b; font-size: 20px;">Order ${readyLabel}</h2>
-      <p style="color: #3f3f46; line-height: 1.6;">Hi ${safeName},</p>
-      <p style="color: #3f3f46; line-height: 1.6;">Your order has been ${isSale ? 'shipped' : 'shipped and is ready'}. All items have been checked out and are on their way.</p>
-      <table style="width: 100%; margin: 20px 0; border-collapse: collapse;">
-        <tr>
-          <td style="padding: 8px 0; color: #71717a; font-size: 14px;">Order</td>
-          <td style="padding: 8px 0; text-align: right; font-weight: 600; color: #18181b;">${safeRes}</td>
-        </tr>
-        <tr style="border-top: 1px solid #e4e4e7;">
-          <td style="padding: 8px 0; color: #71717a; font-size: 14px;">Start Date</td>
-          <td style="padding: 8px 0; text-align: right; font-weight: 600; color: #18181b;">${safeStart}</td>
-        </tr>${endDateRow}
-      </table>
-      <p style="color: #71717a; font-size: 14px; line-height: 1.6;">
-        Please contact us if you have any questions.
-      </p>
-    `),
-  }
+  const label = isSale ? 'shipped' : 'shipped and ready'
+  return email(`Order ${reservationNumber} — ${isSale ? 'Shipped' : 'Shipped / Ready'}`, {
+    audience: 'client',
+    preheader: `Order ${reservationNumber} has ${label}.`,
+    eyebrow: 'On its way',
+    title: 'Your order is on its way',
+    subtitle: reservationNumber,
+    body: [
+      greeting(clientName),
+      paragraph(`Your order has been ${label}. Every item has been checked out and is on its way.`),
+      facts([{ label: 'Order', value: reservationNumber }, ...orderDates(startDate, endDate, reservationType)]),
+    ].join(''),
+  })
 }
 
 export function overdueReminderEmail(clientName: string, invoiceNumber: string, amountDue: string, daysOverdue: number) {
-  const safeName = escapeHtml(clientName)
-  const safeInvoice = escapeHtml(invoiceNumber)
-  const safeAmount = escapeHtml(amountDue)
-  return {
-    subject: `Overdue: Invoice ${safeInvoice} - ${daysOverdue} days past due`,
-    html: baseLayout(`
-      <h2 style="margin: 0 0 16px; color: #dc2626; font-size: 20px;">Payment Overdue</h2>
-      <p style="color: #3f3f46; line-height: 1.6;">Hi ${safeName},</p>
-      <p style="color: #3f3f46; line-height: 1.6;">This is a reminder that the following invoice is <strong>${daysOverdue} days past due</strong>:</p>
-      <table style="width: 100%; margin: 20px 0; border-collapse: collapse;">
-        <tr>
-          <td style="padding: 8px 0; color: #71717a; font-size: 14px;">Invoice Number</td>
-          <td style="padding: 8px 0; text-align: right; font-weight: 600; color: #18181b;">${safeInvoice}</td>
-        </tr>
-        <tr style="border-top: 1px solid #e4e4e7;">
-          <td style="padding: 8px 0; color: #71717a; font-size: 14px;">Amount Due</td>
-          <td style="padding: 8px 0; text-align: right; font-weight: 600; color: #dc2626;">${safeAmount}</td>
-        </tr>
-      </table>
-      <p style="color: #3f3f46; line-height: 1.6;">
-        Please arrange payment at your earliest convenience. Contact us if you have any questions.
-      </p>
-    `),
-  }
+  return email(`Overdue: invoice ${invoiceNumber} — ${daysOverdue} days past due`, {
+    audience: 'client',
+    preheader: `${amountDue} on invoice ${invoiceNumber} is ${daysOverdue} days past due.`,
+    eyebrow: 'Payment reminder',
+    title: 'A payment is overdue',
+    body: [
+      greeting(clientName),
+      paragraph(`This is a reminder that the invoice below is ${strong(`${daysOverdue} days past due`)}.`),
+      facts([
+        { label: 'Invoice', value: invoiceNumber },
+        { label: 'Amount due', value: amountDue, tone: 'danger' },
+      ]),
+      paragraph('Please arrange payment at your earliest convenience, or reply to this email if something is wrong.'),
+    ].join(''),
+  })
 }
 
 // ============================================
@@ -334,122 +254,61 @@ export type QuoteEmailData = {
 }
 
 export function reservationQuoteEmail(data: QuoteEmailData) {
-  const safeName = escapeHtml(data.clientName)
-  const safeRes = escapeHtml(data.reservationNumber)
-  const safeStart = escapeHtml(data.startDate)
-  const safeEnd = escapeHtml(data.endDate)
-
-  // Build items table grouped by category
-  let itemsHtml = ''
+  const rows: (string[] | { group: string })[] = []
   for (const group of data.itemsByCategory) {
-    const safeCat = escapeHtml(group.category)
-    itemsHtml += `
-      <tr>
-        <td colspan="4" style="padding: 10px 8px 4px; font-weight: 600; color: #18181b; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 2px solid #e4e4e7;">
-          ${safeCat}
-        </td>
-      </tr>`
-
+    rows.push({ group: group.category })
     for (const item of group.items) {
-      const safeName = escapeHtml(item.name)
-      const pricingLabel = escapeHtml(item.pricingType.toLowerCase())
+      const unit = item.pricingType.toLowerCase()
       // Show the period count when the subtotal reflects a multi-period charge.
-      // Terms rarely land on whole periods (a 6-week rental is 1.38 months), so this
-      // keeps the fraction rather than rounding it away.
-      const singlePeriod = item.rate * item.quantity
-      const periods = singlePeriod > 0 ? item.subtotal / singlePeriod : 1
+      // Terms rarely land on whole periods (a 6-week rental is 1.38 months), so
+      // this keeps the fraction rather than rounding it away.
+      const single = item.rate * item.quantity
+      const periods = single > 0 ? item.subtotal / single : 1
       const perUnitTerm = item.quantity > 0 ? item.subtotal / item.quantity : item.subtotal
-      const periodNote = isSinglePeriod(periods)
-        ? ''
-        : ` &times; ${formatPeriodCount(periods)} &mdash; ${escapeHtml(formatCurrency(perUnitTerm))} each`
-      itemsHtml += `
-      <tr style="border-bottom: 1px solid #f4f4f5;">
-        <td style="padding: 8px; color: #3f3f46; font-size: 14px;">${safeName}${periodNote ? `<br><span style="color:#71717a;font-size:12px;">${pricingLabel} rate${periodNote}</span>` : ''}</td>
-        <td style="padding: 8px; color: #3f3f46; font-size: 14px; text-align: center;">${item.quantity}</td>
-        <td style="padding: 8px; color: #3f3f46; font-size: 14px; text-align: right;">$${item.rate.toFixed(2)}/${pricingLabel}</td>
-        <td style="padding: 8px; color: #3f3f46; font-size: 14px; text-align: right;">$${item.subtotal.toFixed(2)}</td>
-      </tr>`
+      const note = isSinglePeriod(periods)
+        ? null
+        : `${unit} rate × ${formatPeriodCount(periods)} — ${money(perUnitTerm)} each`
+      rows.push([
+        cell(item.name, { sub: note }),
+        cell(String(item.quantity)),
+        cell(`${money(item.rate)}/${unit}`),
+        cell(money(item.subtotal), { bold: true }),
+      ])
     }
   }
 
-  // Totals section
-  let totalsHtml = `
-    <tr style="border-top: 2px solid #e4e4e7;">
-      <td colspan="3" style="padding: 8px; text-align: right; color: #71717a; font-size: 14px;">Subtotal</td>
-      <td style="padding: 8px; text-align: right; color: #18181b; font-size: 14px;">$${data.subtotal.toFixed(2)}</td>
-    </tr>`
-
-  if (data.taxRate > 0) {
-    totalsHtml += `
-    <tr>
-      <td colspan="3" style="padding: 4px 8px; text-align: right; color: #71717a; font-size: 14px;">Tax (${data.taxRate}%)</td>
-      <td style="padding: 4px 8px; text-align: right; color: #18181b; font-size: 14px;">$${data.taxAmount.toFixed(2)}</td>
-    </tr>`
-  }
-
-  totalsHtml += `
-    <tr>
-      <td colspan="3" style="padding: 8px; text-align: right; font-weight: 700; color: #18181b; font-size: 16px;">Total</td>
-      <td style="padding: 8px; text-align: right; font-weight: 700; color: #18181b; font-size: 16px;">$${data.total.toFixed(2)}</td>
-    </tr>`
-
-  const projectHtml = data.projectName
-    ? `<tr style="border-top: 1px solid #e4e4e7;">
-        <td style="padding: 8px 0; color: #71717a; font-size: 14px;">Project</td>
-        <td style="padding: 8px 0; text-align: right; font-weight: 600; color: #18181b;">${escapeHtml(data.projectName)}</td>
-      </tr>`
-    : ''
-
-  const notesHtml = data.notes
-    ? `<div style="margin-top: 20px; padding: 12px; background: #f4f4f5; border-radius: 6px;">
-        <p style="margin: 0 0 4px; font-weight: 600; color: #18181b; font-size: 13px;">Notes</p>
-        <p style="margin: 0; color: #3f3f46; font-size: 14px; line-height: 1.5;">${escapeHtml(data.notes)}</p>
-      </div>`
-    : ''
-
-  return {
-    subject: `Quote ${safeRes} from VFXNow`,
-    html: baseLayout(`
-      <h2 style="margin: 0 0 8px; color: #18181b; font-size: 20px;">Quote / Estimate</h2>
-      <p style="color: #71717a; font-size: 14px; margin: 0 0 20px;">${safeRes}</p>
-
-      <p style="color: #3f3f46; line-height: 1.6;">Hi ${safeName},</p>
-      <p style="color: #3f3f46; line-height: 1.6;">Thank you for your interest. Please find your equipment rental quote below.</p>
-
-      <table style="width: 100%; margin: 20px 0; border-collapse: collapse;">
-        <tr>
-          <td style="padding: 8px 0; color: #71717a; font-size: 14px;">Start Date</td>
-          <td style="padding: 8px 0; text-align: right; font-weight: 600; color: #18181b;">${safeStart}</td>
-        </tr>
-        ${data.reservationType !== 'SALE' ? `<tr style="border-top: 1px solid #e4e4e7;">
-          <td style="padding: 8px 0; color: #71717a; font-size: 14px;">End Date</td>
-          <td style="padding: 8px 0; text-align: right; font-weight: 600; color: #18181b;">${safeEnd}</td>
-        </tr>` : ''}
-        ${projectHtml}
-      </table>
-
-      <table style="width: 100%; margin: 20px 0; border-collapse: collapse;">
-        <thead>
-          <tr style="border-bottom: 2px solid #18181b;">
-            <th style="padding: 8px; text-align: left; color: #18181b; font-size: 13px; font-weight: 600;">Item</th>
-            <th style="padding: 8px; text-align: center; color: #18181b; font-size: 13px; font-weight: 600;">Qty</th>
-            <th style="padding: 8px; text-align: right; color: #18181b; font-size: 13px; font-weight: 600;">Rate</th>
-            <th style="padding: 8px; text-align: right; color: #18181b; font-size: 13px; font-weight: 600;">Subtotal</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${itemsHtml}
-          ${totalsHtml}
-        </tbody>
-      </table>
-
-      ${notesHtml}
-
-      <p style="color: #3f3f46; line-height: 1.6; margin-top: 24px;">
-        This quote is an estimate and subject to change. Please contact us to confirm your reservation or if you have any questions.
-      </p>
-    `),
-  }
+  return email(`Quote ${data.reservationNumber} from VFXNow`, {
+    audience: 'client',
+    wide: true,
+    preheader: `Your quote totals ${money(data.total)}${data.projectName ? ` for ${data.projectName}` : ''}.`,
+    eyebrow: 'Quote',
+    title: 'Your equipment quote',
+    subtitle: data.reservationNumber,
+    body: [
+      greeting(data.clientName),
+      paragraph('Thank you for your interest. Your rental quote is below.'),
+      facts([
+        ...orderDates(data.startDate, data.endDate, data.reservationType),
+        data.projectName ? { label: 'Project', value: data.projectName } : null,
+      ]),
+      table(
+        [
+          { label: 'Item' },
+          { label: 'Qty', align: 'center', width: '48px' },
+          { label: 'Rate', align: 'right' },
+          { label: 'Subtotal', align: 'right' },
+        ],
+        rows,
+      ),
+      facts([
+        { label: 'Subtotal', value: money(data.subtotal) },
+        data.taxRate > 0 ? { label: `Tax (${data.taxRate}%)`, value: money(data.taxAmount) } : null,
+        { label: 'Total', value: money(data.total), tone: 'accent' },
+      ]),
+      data.notes ? callout(quoted(data.notes), { title: 'Notes' }) : '',
+      paragraph('This quote is an estimate and subject to change. Reply to confirm your reservation or with any questions.', { muted: true, small: true }),
+    ].join(''),
+  })
 }
 
 // ============================================
@@ -469,90 +328,34 @@ export function quotePageLinkEmail(data: {
   validUntil?: string
   packages?: Array<{ name: string; total: number; itemCount: number }>
 }) {
-  const safeName = escapeHtml(data.clientName)
-  const safeRes = escapeHtml(data.reservationNumber)
-  const safeUrl = escapeHtml(data.quoteUrl)
-
-  const projectHtml = data.projectName
-    ? `<tr style="border-top: 1px solid #e4e4e7;">
-        <td style="padding: 8px 0; color: #71717a; font-size: 14px;">Project</td>
-        <td style="padding: 8px 0; text-align: right; font-weight: 600; color: #18181b;">${escapeHtml(data.projectName)}</td>
-      </tr>`
-    : ''
-
-  const validUntilHtml = data.validUntil
-    ? `<tr style="border-top: 1px solid #e4e4e7;">
-        <td style="padding: 8px 0; color: #71717a; font-size: 14px;">Valid Until</td>
-        <td style="padding: 8px 0; text-align: right; font-weight: 600; color: #18181b;">${escapeHtml(data.validUntil)}</td>
-      </tr>`
-    : ''
-
-  const messageHtml = data.message
-    ? `<div style="margin: 20px 0; padding: 16px; background: #f4f4f5; border-radius: 8px; border-left: 4px solid #18181b;">
-        <p style="margin: 0; color: #3f3f46; font-size: 14px; line-height: 1.6; white-space: pre-wrap;">${escapeHtml(data.message)}</p>
-      </div>`
-    : ''
-
-  const packagesHtml = data.packages && data.packages.length > 1
-    ? `<div style="margin: 20px 0;">
-        <p style="color: #71717a; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin: 0 0 8px;">Package Options</p>
-        ${data.packages.map((pkg) => `
-          <div style="padding: 12px 16px; border: 1px solid #e4e4e7; border-radius: 8px; margin-bottom: 8px;">
-            <div style="display: flex; justify-content: space-between;">
-              <span style="font-weight: 600; color: #18181b; font-size: 14px;">${escapeHtml(pkg.name)}</span>
-            </div>
-            <p style="margin: 4px 0 0; color: #71717a; font-size: 13px;">${pkg.itemCount} items — $${pkg.total.toFixed(2)}</p>
-          </div>
-        `).join('')}
-      </div>`
-    : ''
-
-  const totalLabel = 'Estimated Total'
-
-  return {
-    subject: `Quote ${safeRes} — Review & Approve`,
-    html: baseLayout(`
-      <h2 style="margin: 0 0 8px; color: #18181b; font-size: 20px;">Equipment Quote</h2>
-      <p style="color: #71717a; font-size: 14px; margin: 0 0 20px;">${safeRes}</p>
-
-      <p style="color: #3f3f46; line-height: 1.6;">Hi ${safeName},</p>
-      <p style="color: #3f3f46; line-height: 1.6;">We've prepared a quote for your review.${data.packages && data.packages.length > 1 ? ' We\'ve included multiple package options for you to choose from.' : ''} You can view the full details and approve it online.</p>
-
-      ${messageHtml}
-
-      <table style="width: 100%; margin: 20px 0; border-collapse: collapse;">
-        <tr>
-          <td style="padding: 8px 0; color: #71717a; font-size: 14px;">Start Date</td>
-          <td style="padding: 8px 0; text-align: right; font-weight: 600; color: #18181b;">${escapeHtml(data.startDate)}</td>
-        </tr>
-        ${data.reservationType !== 'SALE' ? `<tr style="border-top: 1px solid #e4e4e7;">
-          <td style="padding: 8px 0; color: #71717a; font-size: 14px;">End Date</td>
-          <td style="padding: 8px 0; text-align: right; font-weight: 600; color: #18181b;">${escapeHtml(data.endDate)}</td>
-        </tr>` : ''}
-        ${projectHtml}
-        ${validUntilHtml}
-      </table>
-
-      ${packagesHtml}
-
-      <table style="width: 100%; margin: 0 0 20px; border-collapse: collapse;">
-        <tr style="border-top: 1px solid #e4e4e7;">
-          <td style="padding: 8px 0; color: #71717a; font-size: 14px;">${totalLabel}</td>
-          <td style="padding: 8px 0; text-align: right; font-weight: 700; color: #18181b; font-size: 16px;">$${data.total.toFixed(2)}</td>
-        </tr>
-      </table>
-
-      <div style="text-align: center; margin: 32px 0;">
-        <a href="${safeUrl}" style="background: #18181b; color: #ffffff; padding: 14px 36px; border-radius: 6px; text-decoration: none; font-weight: 600; display: inline-block; font-size: 15px;">
-          View &amp; Approve Quote
-        </a>
-      </div>
-
-      <p style="color: #71717a; font-size: 13px; line-height: 1.5; text-align: center;">
-        You can review the quote details, approve with your signature, or request changes — all from the link above.
-      </p>
-    `),
-  }
+  const multiple = !!data.packages && data.packages.length > 1
+  return email(`Quote ${data.reservationNumber} — review & approve`, {
+    audience: 'client',
+    preheader: `Your quote for ${money(data.total)} is ready to review and approve online.`,
+    eyebrow: 'Quote',
+    title: 'Your quote is ready',
+    subtitle: data.reservationNumber,
+    body: [
+      greeting(data.clientName),
+      paragraph(`We&rsquo;ve prepared a quote for your review.${multiple ? ' It includes more than one package for you to choose from.' : ''} You can see the full details and approve it online.`),
+      data.message ? callout(quoted(data.message), { tone: 'accent' }) : '',
+      facts([
+        ...orderDates(data.startDate, data.endDate, data.reservationType),
+        data.projectName ? { label: 'Project', value: data.projectName } : null,
+        data.validUntil ? { label: 'Valid until', value: data.validUntil } : null,
+      ]),
+      multiple
+        ? section('Package options') +
+          table(
+            [{ label: 'Package' }, { label: 'Items', align: 'center', width: '60px' }, { label: 'Total', align: 'right' }],
+            data.packages!.map((pkg) => [cell(pkg.name, { bold: true }), cell(String(pkg.itemCount)), cell(money(pkg.total))]),
+          )
+        : '',
+      facts([{ label: 'Estimated total', value: money(data.total), tone: 'accent' }]),
+    ].join(''),
+    cta: { label: 'View & approve quote', url: data.quoteUrl },
+    footer: `You can review the details, approve with your signature, or ask for changes — all from the link above. Reply to this email and it reaches our team.`,
+  })
 }
 
 export function quoteChangesRequestedEmail(data: {
@@ -561,30 +364,18 @@ export function quoteChangesRequestedEmail(data: {
   reservationId: string
   changeNotes: string
 }) {
-  const safeName = escapeHtml(data.clientName)
-  const safeRes = escapeHtml(data.reservationNumber)
-  const safeNotes = escapeHtml(data.changeNotes)
-  const reservationUrl = `${APP_URL}/dashboard/orders/${encodeURIComponent(data.reservationId)}`
-
-  return {
-    subject: `Action Required: ${safeName} requested changes on ${safeRes}`,
-    html: baseLayout(`
-      <h2 style="margin: 0 0 8px; color: #18181b; font-size: 20px;">Quote Change Request</h2>
-      <p style="color: #71717a; font-size: 14px; margin: 0 0 20px;">${safeRes}</p>
-
-      <p style="color: #3f3f46; line-height: 1.6;"><strong>${safeName}</strong> has reviewed the quote and is requesting changes:</p>
-
-      <div style="margin: 20px 0; padding: 16px; background: #fef2f2; border-radius: 8px; border-left: 4px solid #ef4444;">
-        <p style="margin: 0; color: #3f3f46; font-size: 14px; line-height: 1.6; white-space: pre-wrap;">${safeNotes}</p>
-      </div>
-
-      <div style="text-align: center; margin: 24px 0;">
-        <a href="${escapeHtml(reservationUrl)}" style="background: #18181b; color: #ffffff; padding: 12px 32px; border-radius: 6px; text-decoration: none; font-weight: 500; display: inline-block;">
-          View Reservation
-        </a>
-      </div>
-    `),
-  }
+  return email(`Action required: ${data.clientName} requested changes on ${data.reservationNumber}`, {
+    audience: 'staff',
+    preheader: `${data.clientName} reviewed the quote and asked for changes.`,
+    eyebrow: 'Quote',
+    title: 'Changes requested',
+    subtitle: data.reservationNumber,
+    body: [
+      paragraph(`${strong(data.clientName)} has reviewed the quote and is asking for changes:`),
+      callout(quoted(data.changeNotes), { tone: 'warning' }),
+    ].join(''),
+    cta: { label: 'Open the order', url: `/dashboard/orders/${encodeURIComponent(data.reservationId)}` },
+  })
 }
 
 export function quoteApprovedEmail(data: {
@@ -595,40 +386,21 @@ export function quoteApprovedEmail(data: {
   total: number
   selectedPackageName?: string
 }) {
-  const safeName = escapeHtml(data.clientName)
-  const safeRes = escapeHtml(data.reservationNumber)
-  const safeSigner = escapeHtml(data.signerName)
-  const reservationUrl = `${APP_URL}/dashboard/orders/${encodeURIComponent(data.reservationId)}`
-
-  const packageHtml = data.selectedPackageName
-    ? `<p style="margin: 8px 0 0; color: #3f3f46; font-size: 14px;">
-          Selected Package: <strong>${escapeHtml(data.selectedPackageName)}</strong>
-        </p>`
-    : ''
-
-  return {
-    subject: `Quote Approved: ${safeName} approved ${safeRes}`,
-    html: baseLayout(`
-      <h2 style="margin: 0 0 8px; color: #18181b; font-size: 20px;">Quote Approved</h2>
-      <p style="color: #71717a; font-size: 14px; margin: 0 0 20px;">${safeRes}</p>
-
-      <div style="margin: 20px 0; padding: 16px; background: #f0fdf4; border-radius: 8px; border-left: 4px solid #22c55e;">
-        <p style="margin: 0; color: #3f3f46; font-size: 14px; line-height: 1.6;">
-          <strong>${safeName}</strong> has approved this quote. Signed by <strong>${safeSigner}</strong>.
-        </p>
-        ${packageHtml}
-        <p style="margin: 8px 0 0; color: #3f3f46; font-size: 14px;">
-          Total: <strong>$${data.total.toFixed(2)}</strong>
-        </p>
-      </div>
-
-      <div style="text-align: center; margin: 24px 0;">
-        <a href="${escapeHtml(reservationUrl)}" style="background: #18181b; color: #ffffff; padding: 12px 32px; border-radius: 6px; text-decoration: none; font-weight: 500; display: inline-block;">
-          View Reservation
-        </a>
-      </div>
-    `),
-  }
+  return email(`Quote approved: ${data.clientName} approved ${data.reservationNumber}`, {
+    audience: 'staff',
+    preheader: `${data.signerName} signed for ${money(data.total)}.`,
+    eyebrow: 'Quote',
+    title: 'Quote approved',
+    subtitle: data.reservationNumber,
+    body: [
+      callout(`${strong(data.clientName)} approved this quote. Signed by ${strong(data.signerName)}.`, { tone: 'success' }),
+      facts([
+        data.selectedPackageName ? { label: 'Package', value: data.selectedPackageName } : null,
+        { label: 'Total', value: money(data.total) },
+      ]),
+    ].join(''),
+    cta: { label: 'Open the order', url: `/dashboard/orders/${encodeURIComponent(data.reservationId)}` },
+  })
 }
 
 export function quoteDeniedEmail(data: {
@@ -637,37 +409,45 @@ export function quoteDeniedEmail(data: {
   reservationId: string
   reason?: string
 }) {
-  const safeName = escapeHtml(data.clientName)
-  const safeRes = escapeHtml(data.reservationNumber)
-  const reservationUrl = `${APP_URL}/dashboard/orders/${encodeURIComponent(data.reservationId)}`
+  return email(`Quote declined: ${data.clientName} declined ${data.reservationNumber}`, {
+    audience: 'staff',
+    preheader: `${data.clientName} declined the quote${data.reason ? `: ${data.reason}` : '.'}`,
+    eyebrow: 'Quote',
+    title: 'Quote declined',
+    subtitle: data.reservationNumber,
+    body: [
+      paragraph(`${strong(data.clientName)} has declined this quote.`),
+      data.reason ? callout(quoted(data.reason), { tone: 'danger', title: 'Their reason' }) : '',
+    ].join(''),
+    cta: { label: 'Open the order', url: `/dashboard/orders/${encodeURIComponent(data.reservationId)}` },
+  })
+}
 
-  const reasonHtml = data.reason
-    ? `<div style="margin: 20px 0; padding: 16px; background: #fef2f2; border-radius: 8px; border-left: 4px solid #ef4444;">
-        <p style="margin: 0; color: #3f3f46; font-size: 14px; line-height: 1.6; white-space: pre-wrap;">${escapeHtml(data.reason)}</p>
-      </div>`
-    : ''
-
-  return {
-    subject: `Quote Declined: ${safeName} declined ${safeRes}`,
-    html: baseLayout(`
-      <h2 style="margin: 0 0 8px; color: #18181b; font-size: 20px;">Quote Declined</h2>
-      <p style="color: #71717a; font-size: 14px; margin: 0 0 20px;">${safeRes}</p>
-
-      <p style="color: #3f3f46; line-height: 1.6;"><strong>${safeName}</strong> has declined this quote.</p>
-
-      ${reasonHtml}
-
-      <div style="text-align: center; margin: 24px 0;">
-        <a href="${escapeHtml(reservationUrl)}" style="background: #18181b; color: #ffffff; padding: 12px 32px; border-radius: 6px; text-decoration: none; font-weight: 500; display: inline-block;">
-          View Reservation
-        </a>
-      </div>
-    `),
-  }
+/** A proposal PDF sent to a client. Was inline, unescaped HTML in `actions/proposals`. */
+export function proposalEmail(data: {
+  clientName: string
+  projectName: string
+  reservationNumber: string
+  message?: string | null
+}) {
+  return email(`Proposal: ${data.projectName}`, {
+    audience: 'client',
+    preheader: `Our proposal for ${data.projectName} is attached.`,
+    eyebrow: 'Proposal',
+    title: 'Your project proposal',
+    subtitle: data.projectName,
+    body: [
+      greeting(data.clientName),
+      data.message ? paragraph(quoted(data.message)) : paragraph('Please find our proposal attached for your review.'),
+      facts([{ label: 'Project', value: data.projectName }]),
+      paragraph('We look forward to working with you.'),
+      paragraph(`Prepared from order ${escapeHtml(data.reservationNumber)}.`, { muted: true, small: true }),
+    ].join(''),
+  })
 }
 
 // ============================================
-// SYSTEM ALERTS
+// STAFF NOTIFICATIONS
 // ============================================
 
 export type NewLeadEmailData = {
@@ -682,86 +462,26 @@ export type NewLeadEmailData = {
 }
 
 export function newLeadEmail(data: NewLeadEmailData) {
-  const safeName = escapeHtml(data.name)
-  const safeSource = escapeHtml(data.source)
-  const searchUrl = `${APP_URL}/dashboard/leads?search=${encodeURIComponent(data.name)}`
-
-  let detailsHtml = `
-    <tr>
-      <td style="padding: 8px 0; color: #71717a; font-size: 14px;">Source</td>
-      <td style="padding: 8px 0; text-align: right; font-weight: 600; color: #18181b;">${safeSource}</td>
-    </tr>`
-
-  if (data.channel) {
-    detailsHtml += `
-    <tr style="border-top: 1px solid #e4e4e7;">
-      <td style="padding: 8px 0; color: #71717a; font-size: 14px;">Channel</td>
-      <td style="padding: 8px 0; text-align: right; font-weight: 600; color: #18181b;">${escapeHtml(data.channel)}</td>
-    </tr>`
-  }
-
-  if (data.salesRep) {
-    detailsHtml += `
-    <tr style="border-top: 1px solid #e4e4e7;">
-      <td style="padding: 8px 0; color: #71717a; font-size: 14px;">Sales Rep</td>
-      <td style="padding: 8px 0; text-align: right; font-weight: 600; color: #18181b;">${escapeHtml(data.salesRep)}</td>
-    </tr>`
-  }
-
-  if (data.companyName) {
-    detailsHtml += `
-    <tr style="border-top: 1px solid #e4e4e7;">
-      <td style="padding: 8px 0; color: #71717a; font-size: 14px;">Company</td>
-      <td style="padding: 8px 0; text-align: right; font-weight: 600; color: #18181b;">${escapeHtml(data.companyName)}</td>
-    </tr>`
-  }
-
-  if (data.email) {
-    detailsHtml += `
-    <tr style="border-top: 1px solid #e4e4e7;">
-      <td style="padding: 8px 0; color: #71717a; font-size: 14px;">Email</td>
-      <td style="padding: 8px 0; text-align: right; font-weight: 600; color: #18181b;">${escapeHtml(data.email)}</td>
-    </tr>`
-  }
-
-  if (data.phone) {
-    detailsHtml += `
-    <tr style="border-top: 1px solid #e4e4e7;">
-      <td style="padding: 8px 0; color: #71717a; font-size: 14px;">Phone</td>
-      <td style="padding: 8px 0; text-align: right; font-weight: 600; color: #18181b;">${escapeHtml(data.phone)}</td>
-    </tr>`
-  }
-
-  if (data.estimatedValue != null) {
-    detailsHtml += `
-    <tr style="border-top: 1px solid #e4e4e7;">
-      <td style="padding: 8px 0; color: #71717a; font-size: 14px;">Estimated Value</td>
-      <td style="padding: 8px 0; text-align: right; font-weight: 600; color: #18181b;">$${Number(data.estimatedValue).toFixed(2)}</td>
-    </tr>`
-  }
-
-  return {
-    subject: `New Lead: ${safeName}`,
-    html: baseLayout(`
-      <h2 style="margin: 0 0 16px; color: #18181b; font-size: 20px;">New Lead Added</h2>
-      <p style="color: #3f3f46; line-height: 1.6;">A new lead has been added to the pipeline:</p>
-      <div style="margin: 20px 0; padding: 16px; background: #f4f4f5; border-radius: 8px;">
-        <h3 style="margin: 0 0 4px; color: #18181b; font-size: 18px;">${safeName}</h3>
-        ${data.companyName ? `<p style="margin: 0; color: #71717a; font-size: 14px;">${escapeHtml(data.companyName)}</p>` : ''}
-      </div>
-      <table style="width: 100%; margin: 20px 0; border-collapse: collapse;">
-        ${detailsHtml}
-      </table>
-      <div style="text-align: center; margin: 24px 0;">
-        <a href="${searchUrl}" style="background: #18181b; color: #ffffff; padding: 12px 32px; border-radius: 6px; text-decoration: none; font-weight: 500; display: inline-block;">
-          View Lead
-        </a>
-      </div>
-      <p style="color: #71717a; font-size: 14px; line-height: 1.6;">
-        This is an automated notification from VFXNow AMC.
-      </p>
-    `),
-  }
+  return email(`New lead: ${data.name}`, {
+    audience: 'staff',
+    preheader: `${data.name}${data.companyName ? ` (${data.companyName})` : ''} came in via ${data.source}.`,
+    eyebrow: 'New lead',
+    title: data.name,
+    subtitle: data.companyName ?? undefined,
+    body: [
+      paragraph('A new lead has been added to the pipeline.'),
+      facts([
+        { label: 'Source', value: data.source },
+        data.channel ? { label: 'Channel', value: data.channel } : null,
+        data.salesRep ? { label: 'Sales rep', value: data.salesRep } : null,
+        data.companyName ? { label: 'Company', value: data.companyName } : null,
+        data.email ? { label: 'Email', value: data.email } : null,
+        data.phone ? { label: 'Phone', value: data.phone } : null,
+        data.estimatedValue != null ? { label: 'Estimated value', value: money(Number(data.estimatedValue)) } : null,
+      ]),
+    ].join(''),
+    cta: { label: 'Open leads', url: `/dashboard/leads?search=${encodeURIComponent(data.name)}` },
+  })
 }
 
 // ============================================
@@ -782,86 +502,27 @@ export type PurchaseOrderSubmittedEmailData = {
 }
 
 export function purchaseOrderSubmittedEmail(data: PurchaseOrderSubmittedEmailData) {
-  const safePoNumber = escapeHtml(data.poNumber)
-  const safeVendor = escapeHtml(data.vendorName)
-  const poUrl = `${APP_URL}/dashboard/purchase-orders/${data.poId}`
-
-  let detailsHtml = `
-    <tr>
-      <td style="padding: 8px 0; color: #71717a; font-size: 14px;">Vendor</td>
-      <td style="padding: 8px 0; text-align: right; font-weight: 600; color: #18181b;">${safeVendor}</td>
-    </tr>`
-
-  if (data.orderType) {
-    detailsHtml += `
-    <tr style="border-top: 1px solid #e4e4e7;">
-      <td style="padding: 8px 0; color: #71717a; font-size: 14px;">Order Type</td>
-      <td style="padding: 8px 0; text-align: right; font-weight: 600; color: #18181b;">${escapeHtml(data.orderType)}</td>
-    </tr>`
-  }
-
-  detailsHtml += `
-    <tr style="border-top: 1px solid #e4e4e7;">
-      <td style="padding: 8px 0; color: #71717a; font-size: 14px;">Order Date</td>
-      <td style="padding: 8px 0; text-align: right; font-weight: 600; color: #18181b;">${escapeHtml(data.orderDate)}</td>
-    </tr>`
-
-  if (data.expectedDate) {
-    detailsHtml += `
-    <tr style="border-top: 1px solid #e4e4e7;">
-      <td style="padding: 8px 0; color: #71717a; font-size: 14px;">Expected Delivery</td>
-      <td style="padding: 8px 0; text-align: right; font-weight: 600; color: #18181b;">${escapeHtml(data.expectedDate)}</td>
-    </tr>`
-  }
-
-  if (data.purchaseMethod) {
-    detailsHtml += `
-    <tr style="border-top: 1px solid #e4e4e7;">
-      <td style="padding: 8px 0; color: #71717a; font-size: 14px;">Purchase Method</td>
-      <td style="padding: 8px 0; text-align: right; font-weight: 600; color: #18181b;">${escapeHtml(data.purchaseMethod)}</td>
-    </tr>`
-  }
-
-  detailsHtml += `
-    <tr style="border-top: 1px solid #e4e4e7;">
-      <td style="padding: 8px 0; color: #71717a; font-size: 14px;">Line Items</td>
-      <td style="padding: 8px 0; text-align: right; font-weight: 600; color: #18181b;">${data.itemCount}</td>
-    </tr>
-    <tr style="border-top: 1px solid #e4e4e7;">
-      <td style="padding: 8px 0; color: #71717a; font-size: 14px;">Total</td>
-      <td style="padding: 8px 0; text-align: right; font-weight: 600; color: #18181b;">${escapeHtml(data.total)}</td>
-    </tr>`
-
-  if (data.submittedBy) {
-    detailsHtml += `
-    <tr style="border-top: 1px solid #e4e4e7;">
-      <td style="padding: 8px 0; color: #71717a; font-size: 14px;">Submitted By</td>
-      <td style="padding: 8px 0; text-align: right; font-weight: 600; color: #18181b;">${escapeHtml(data.submittedBy)}</td>
-    </tr>`
-  }
-
-  return {
-    subject: `Purchase Order Submitted: ${safePoNumber}`,
-    html: baseLayout(`
-      <h2 style="margin: 0 0 16px; color: #18181b; font-size: 20px;">Purchase Order Submitted</h2>
-      <p style="color: #3f3f46; line-height: 1.6;">A purchase order has been submitted and is ready for processing:</p>
-      <div style="margin: 20px 0; padding: 16px; background: #f4f4f5; border-radius: 8px;">
-        <h3 style="margin: 0 0 4px; color: #18181b; font-size: 18px;">${safePoNumber}</h3>
-        <p style="margin: 0; color: #71717a; font-size: 14px;">${safeVendor}</p>
-      </div>
-      <table style="width: 100%; margin: 20px 0; border-collapse: collapse;">
-        ${detailsHtml}
-      </table>
-      <div style="text-align: center; margin: 24px 0;">
-        <a href="${poUrl}" style="background: #18181b; color: #ffffff; padding: 12px 32px; border-radius: 6px; text-decoration: none; font-weight: 500; display: inline-block;">
-          View Purchase Order
-        </a>
-      </div>
-      <p style="color: #71717a; font-size: 14px; line-height: 1.6;">
-        This is an automated notification from VFXNow AMC.
-      </p>
-    `),
-  }
+  return email(`Purchase order submitted: ${data.poNumber}`, {
+    audience: 'staff',
+    preheader: `${data.poNumber} to ${data.vendorName} for ${data.total}${data.submittedBy ? `, submitted by ${data.submittedBy}` : ''}.`,
+    eyebrow: 'Purchase order',
+    title: `${data.poNumber} was submitted`,
+    subtitle: data.vendorName,
+    body: [
+      paragraph('A purchase order has been submitted to the vendor and is ready for processing.'),
+      facts([
+        { label: 'Vendor', value: data.vendorName },
+        data.orderType ? { label: 'Order type', value: data.orderType } : null,
+        { label: 'Order date', value: data.orderDate },
+        data.expectedDate ? { label: 'Expected delivery', value: data.expectedDate } : null,
+        data.purchaseMethod ? { label: 'Purchase method', value: data.purchaseMethod } : null,
+        { label: 'Line items', value: String(data.itemCount) },
+        { label: 'Total', value: data.total },
+        data.submittedBy ? { label: 'Submitted by', value: data.submittedBy } : null,
+      ]),
+    ].join(''),
+    cta: { label: 'Open the purchase order', url: `/dashboard/purchase-orders/${data.poId}` },
+  })
 }
 
 // ============================================
@@ -881,113 +542,44 @@ export type ReservationConfirmedEmailData = {
 }
 
 export function reservationConfirmedStaffEmail(data: ReservationConfirmedEmailData) {
-  const safeRes = escapeHtml(data.reservationNumber)
-  const safeClient = escapeHtml(data.clientName)
-  const safeStart = escapeHtml(data.startDate)
-  const safeEnd = escapeHtml(data.endDate)
-  const safeTotal = escapeHtml(data.total)
-
-  // Group items by category
   const byCategory = new Map<string, { name: string; quantity: number }[]>()
   for (const item of data.items) {
-    const cat = item.category || 'Other'
-    if (!byCategory.has(cat)) byCategory.set(cat, [])
-    byCategory.get(cat)!.push({ name: item.name, quantity: item.quantity })
+    const category = item.category || 'Other'
+    const list = byCategory.get(category) ?? []
+    list.push({ name: item.name, quantity: item.quantity })
+    byCategory.set(category, list)
   }
-
-  let itemsHtml = ''
+  const rows: (string[] | { group: string })[] = []
   for (const [category, items] of byCategory) {
-    itemsHtml += `
-      <tr>
-        <td colspan="2" style="padding: 10px 8px 4px; font-weight: 600; color: #18181b; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 2px solid #e4e4e7;">
-          ${escapeHtml(category)}
-        </td>
-      </tr>`
-    for (const item of items) {
-      itemsHtml += `
-      <tr style="border-bottom: 1px solid #f4f4f5;">
-        <td style="padding: 8px; color: #3f3f46; font-size: 14px;">${escapeHtml(item.name)}</td>
-        <td style="padding: 8px; color: #3f3f46; font-size: 14px; text-align: center; font-weight: 600;">${item.quantity}x</td>
-      </tr>`
-    }
+    rows.push({ group: category })
+    for (const item of items) rows.push([cell(item.name), cell(`${item.quantity}×`, { bold: true })])
   }
+  const totalItems = data.items.reduce((sum, item) => sum + item.quantity, 0)
+  const itemsLabel = `${totalItems} item${totalItems !== 1 ? 's' : ''}`
 
-  const totalItems = data.items.reduce((s, i) => s + i.quantity, 0)
-  const resUrl = `${APP_URL}/dashboard/orders`
-
-  let metaHtml = `
-    <tr>
-      <td style="padding: 8px 0; color: #71717a; font-size: 14px;">Client</td>
-      <td style="padding: 8px 0; text-align: right; font-weight: 600; color: #18181b;">${safeClient}</td>
-    </tr>
-    <tr style="border-top: 1px solid #e4e4e7;">
-      <td style="padding: 8px 0; color: #71717a; font-size: 14px;">Dates</td>
-      <td style="padding: 8px 0; text-align: right; font-weight: 600; color: #18181b;">${data.reservationType === 'SALE' ? safeStart : `${safeStart} — ${safeEnd}`}</td>
-    </tr>`
-
-  if (data.projectName) {
-    metaHtml += `
-    <tr style="border-top: 1px solid #e4e4e7;">
-      <td style="padding: 8px 0; color: #71717a; font-size: 14px;">Project</td>
-      <td style="padding: 8px 0; text-align: right; font-weight: 600; color: #18181b;">${escapeHtml(data.projectName)}</td>
-    </tr>`
-  }
-
-  if (data.deliveryMethod) {
-    metaHtml += `
-    <tr style="border-top: 1px solid #e4e4e7;">
-      <td style="padding: 8px 0; color: #71717a; font-size: 14px;">Delivery</td>
-      <td style="padding: 8px 0; text-align: right; font-weight: 600; color: #18181b;">${escapeHtml(data.deliveryMethod)}</td>
-    </tr>`
-  }
-
-  metaHtml += `
-    <tr style="border-top: 1px solid #e4e4e7;">
-      <td style="padding: 8px 0; color: #71717a; font-size: 14px;">Total</td>
-      <td style="padding: 8px 0; text-align: right; font-weight: 600; color: #18181b;">${safeTotal}</td>
-    </tr>`
-
-  return {
-    subject: `Reservation ${safeRes} Confirmed — ${totalItems} item${totalItems !== 1 ? 's' : ''} to prep`,
-    html: baseLayout(`
-      <div style="text-align: center; margin-bottom: 16px;">
-        <div style="display: inline-block; background: #f0fdf4; border-radius: 50%; width: 48px; height: 48px; line-height: 48px; font-size: 24px;">✅</div>
-      </div>
-      <h2 style="margin: 0 0 4px; color: #18181b; font-size: 20px; text-align: center;">Reservation Confirmed</h2>
-      <p style="color: #71717a; font-size: 14px; margin: 0 0 20px; text-align: center;">${safeRes}</p>
-
-      <table style="width: 100%; margin: 0 0 20px; border-collapse: collapse;">
-        ${metaHtml}
-      </table>
-
-      <h3 style="color: #18181b; font-size: 15px; margin: 0 0 8px; padding-bottom: 6px; border-bottom: 2px solid #18181b;">Equipment to Prepare (${totalItems} item${totalItems !== 1 ? 's' : ''})</h3>
-      <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
-        <thead>
-          <tr style="border-bottom: 1px solid #e4e4e7;">
-            <th style="padding: 6px 8px; text-align: left; color: #71717a; font-size: 12px; font-weight: 600;">ITEM</th>
-            <th style="padding: 6px 8px; text-align: center; color: #71717a; font-size: 12px; font-weight: 600;">QTY</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${itemsHtml}
-        </tbody>
-      </table>
-
-      <div style="text-align: center; margin: 24px 0 8px;">
-        <a href="${resUrl}" style="background: #18181b; color: #ffffff; padding: 12px 32px; border-radius: 6px; text-decoration: none; font-weight: 500; display: inline-block;">
-          View Reservations
-        </a>
-      </div>
-      <p style="color: #a1a1aa; font-size: 12px; text-align: center; line-height: 1.5; margin-top: 16px;">
-        This is an automated notification from VFXNow AMC.<br>
-        Manage notification settings in Dashboard &rarr; Settings &rarr; Notifications.
-      </p>
-    `),
-  }
+  return email(`Reservation ${data.reservationNumber} confirmed — ${itemsLabel} to prep`, {
+    audience: 'staff',
+    preheader: `${data.clientName}: ${itemsLabel} to prepare from ${data.startDate}.`,
+    eyebrow: 'Order confirmed',
+    title: `${itemsLabel} to prepare`,
+    subtitle: `${data.reservationNumber} · ${data.clientName}`,
+    body: [
+      facts([
+        { label: 'Client', value: data.clientName },
+        { label: 'Dates', value: data.reservationType === 'SALE' ? data.startDate : `${data.startDate} — ${data.endDate}` },
+        data.projectName ? { label: 'Project', value: data.projectName } : null,
+        data.deliveryMethod ? { label: 'Delivery', value: data.deliveryMethod } : null,
+        { label: 'Total', value: data.total },
+      ]),
+      section('Equipment to prepare', itemsLabel),
+      table([{ label: 'Item' }, { label: 'Qty', align: 'right', width: '60px' }], rows),
+    ].join(''),
+    cta: { label: 'Open orders', url: '/dashboard/orders' },
+  })
 }
 
 // ============================================
-// INSIGHTS DIGEST EMAIL
+// INSIGHTS
 // ============================================
 //
 // v1 sent this under its AI assistant's name, over a robot avatar, billed as
@@ -1019,128 +611,65 @@ export type InsightsDigestData = {
   }
 }
 
+const PRIORITY: Record<InsightEmailData['priority'], { tone: Tone; label: string }> = {
+  high: { tone: 'danger', label: 'High priority' },
+  medium: { tone: 'warning', label: 'Attention' },
+  low: { tone: 'success', label: 'Info' },
+}
+
+function insightBlocks(insights: InsightEmailData[]): string {
+  return insights
+    .map((insight) => {
+      const priority = PRIORITY[insight.priority] ?? PRIORITY.medium
+      const more = insight.link ? ` ${link('View →', insight.link)}` : ''
+      return callout(`${strong(insight.title)}<br>${escapeHtml(insight.description)}${more}`, {
+        tone: priority.tone,
+        title: priority.label,
+      })
+    })
+    .join('')
+}
+
+function snapshotFacts(s: InsightsDigestData['summary']): string {
+  return facts([
+    { label: 'Equipment', value: `${s.totalAssets} types, ${s.availableUnits}/${s.totalUnits} available` },
+    { label: 'Orders', value: `${s.activeReservations} active` },
+    { label: 'Checkouts', value: `${s.activeCheckouts} active${s.overdueCheckouts > 0 ? `, ${s.overdueCheckouts} overdue` : ''}`, tone: s.overdueCheckouts > 0 ? 'danger' : undefined },
+    { label: 'Revenue (paid)', value: s.revenue },
+    { label: 'Outstanding', value: s.outstanding, tone: s.outstanding !== '$0' ? 'danger' : undefined },
+    { label: 'Leads', value: `${s.leadsInPipeline} in pipeline` },
+  ])
+}
+
 export function insightsDigestEmail(data: InsightsDigestData) {
-  const priorityColors: Record<string, { bg: string; text: string; label: string }> = {
-    high: { bg: '#fef2f2', text: '#dc2626', label: 'High Priority' },
-    medium: { bg: '#fffbeb', text: '#d97706', label: 'Attention' },
-    low: { bg: '#f0fdf4', text: '#16a34a', label: 'Info' },
-  }
-
-  const typeIcons: Record<string, string> = {
-    inventory: '📦',
-    revenue: '📈',
-    client: '👥',
-    utilization: '📊',
-    maintenance: '🔧',
-    overdue: '⏰',
-    seasonal: '🌡️',
-    roi: '💰',
-    pricing: '🏷️',
-  }
-
-  let insightsHtml = ''
-  for (const insight of data.insights) {
-    const colors = priorityColors[insight.priority] || priorityColors.medium
-    const icon = typeIcons[insight.type] || '💡'
-    const safeTitle = escapeHtml(insight.title)
-    const safeDesc = escapeHtml(insight.description)
-
-    insightsHtml += `
-      <div style="margin-bottom: 16px; border: 1px solid #e4e4e7; border-radius: 8px; overflow: hidden;">
-        <div style="padding: 12px 16px; background: ${colors.bg}; border-bottom: 1px solid #e4e4e7;">
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <span style="font-size: 18px;">${icon}</span>
-            <span style="font-weight: 600; color: #18181b; font-size: 15px;">${safeTitle}</span>
-            <span style="margin-left: auto; background: ${colors.bg}; color: ${colors.text}; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 9999px; border: 1px solid ${colors.text}33;">${colors.label}</span>
-          </div>
-        </div>
-        <div style="padding: 12px 16px;">
-          <p style="color: #3f3f46; font-size: 14px; line-height: 1.6; margin: 0;">${safeDesc}</p>
-          ${insight.link ? `<a href="${APP_URL}${escapeHtml(insight.link)}" style="color: #2563eb; font-size: 13px; text-decoration: none; margin-top: 8px; display: inline-block;">View details &rarr;</a>` : ''}
-        </div>
-      </div>`
-  }
-
-  const s = data.summary
-
-  return {
-    subject: `AMC insights digest — ${data.insights.length} actionable insight${data.insights.length !== 1 ? 's' : ''}`,
-    html: baseLayout(`
-      <div style="text-align: center; margin-bottom: 24px;">
-        <div style="display: inline-block; background: #f0f9ff; border-radius: 50%; width: 56px; height: 56px; line-height: 56px; font-size: 28px; margin-bottom: 8px;">💡</div>
-        <h2 style="margin: 0 0 4px; color: #18181b; font-size: 22px;">Insights digest</h2>
-        <p style="color: #71717a; font-size: 14px; margin: 0;">What your AMC data flagged today</p>
-      </div>
-
-      <div style="background: #f4f4f5; border-radius: 8px; padding: 16px; margin-bottom: 24px;">
-        <table style="width: 100%; border-collapse: collapse;">
-          <tr>
-            <td style="padding: 6px 8px; color: #71717a; font-size: 13px;">Equipment</td>
-            <td style="padding: 6px 8px; text-align: right; font-weight: 600; color: #18181b; font-size: 13px;">${s.totalAssets} types, ${s.availableUnits}/${s.totalUnits} available</td>
-          </tr>
-          <tr>
-            <td style="padding: 6px 8px; color: #71717a; font-size: 13px;">Reservations</td>
-            <td style="padding: 6px 8px; text-align: right; font-weight: 600; color: #18181b; font-size: 13px;">${s.activeReservations} active</td>
-          </tr>
-          <tr>
-            <td style="padding: 6px 8px; color: #71717a; font-size: 13px;">Checkouts</td>
-            <td style="padding: 6px 8px; text-align: right; font-weight: 600; color: #18181b; font-size: 13px;">${s.activeCheckouts} active${s.overdueCheckouts > 0 ? `, <span style="color: #dc2626;">${s.overdueCheckouts} overdue</span>` : ''}</td>
-          </tr>
-          <tr>
-            <td style="padding: 6px 8px; color: #71717a; font-size: 13px;">Revenue (paid)</td>
-            <td style="padding: 6px 8px; text-align: right; font-weight: 600; color: #18181b; font-size: 13px;">${escapeHtml(s.revenue)}</td>
-          </tr>
-          <tr>
-            <td style="padding: 6px 8px; color: #71717a; font-size: 13px;">Outstanding</td>
-            <td style="padding: 6px 8px; text-align: right; font-weight: 600; color: ${s.outstanding !== '$0' ? '#dc2626' : '#18181b'}; font-size: 13px;">${escapeHtml(s.outstanding)}</td>
-          </tr>
-          <tr>
-            <td style="padding: 6px 8px; color: #71717a; font-size: 13px;">Leads</td>
-            <td style="padding: 6px 8px; text-align: right; font-weight: 600; color: #18181b; font-size: 13px;">${s.leadsInPipeline} in pipeline</td>
-          </tr>
-        </table>
-      </div>
-
-      ${data.insights.length > 0 ? `
-        <h3 style="color: #18181b; font-size: 16px; margin: 0 0 16px; padding-bottom: 8px; border-bottom: 2px solid #18181b;">Actionable Insights</h3>
-        ${insightsHtml}
-      ` : `
-        <div style="text-align: center; padding: 24px; background: #f0fdf4; border-radius: 8px;">
-          <p style="color: #16a34a; font-weight: 600; margin: 0;">All clear! No actionable insights at this time.</p>
-        </div>
-      `}
-
-      <div style="text-align: center; margin: 24px 0 8px;">
-        <a href="${APP_URL}/dashboard" style="background: #18181b; color: #ffffff; padding: 12px 32px; border-radius: 6px; text-decoration: none; font-weight: 500; display: inline-block;">
-          Open Dashboard
-        </a>
-      </div>
-      <p style="color: #a1a1aa; font-size: 12px; text-align: center; line-height: 1.5; margin-top: 16px;">
-        Generated from your VFXNow AMC data on a schedule &mdash; every figure above
-        is read straight off the database.<br>
-        Manage notification settings in Dashboard &rarr; Settings &rarr; Notifications.
-      </p>
-    `),
-  }
+  const count = data.insights.length
+  return email(`AMC insights — ${count} to act on`, {
+    audience: 'staff',
+    preheader: count > 0 ? `${count} insight${count !== 1 ? 's' : ''} flagged from today's data.` : 'Nothing flagged today.',
+    eyebrow: 'Insights',
+    title: 'What the data flagged',
+    body: [
+      section('Snapshot'),
+      snapshotFacts(data.summary),
+      count > 0 ? section('To act on', String(count)) + insightBlocks(data.insights) : callout('All clear — nothing to act on right now.', { tone: 'success' }),
+      paragraph('Every figure is read straight off the database by the rules in Insights; nothing here is estimated.', { muted: true, small: true }),
+    ].join(''),
+    cta: { label: 'Open the dashboard', url: '/dashboard' },
+  })
 }
 
 export function systemAlertEmail(title: string, message: string) {
-  const safeTitle = escapeHtml(title)
-  const safeMessage = escapeHtml(message)
-  return {
-    subject: `[VFXNow Alert] ${safeTitle}`,
-    html: baseLayout(`
-      <h2 style="margin: 0 0 16px; color: #18181b; font-size: 20px;">${safeTitle}</h2>
-      <p style="color: #3f3f46; line-height: 1.6;">${safeMessage}</p>
-      <p style="color: #71717a; font-size: 14px; line-height: 1.6; margin-top: 24px;">
-        This is an automated system alert from VFXNow AMC.
-      </p>
-    `),
-  }
+  return email(`[VFXNow alert] ${title}`, {
+    audience: 'staff',
+    preheader: message,
+    eyebrow: 'System alert',
+    title,
+    body: callout(quoted(message), { tone: 'warning' }),
+  })
 }
 
 // ============================================
-// COVERAGE EXPIRY NOTIFICATION
+// WEEKLY REPORT — WEEK AT A GLANCE
 // ============================================
 
 export type CoverageExpiryEmailData = {
@@ -1154,10 +683,6 @@ export type CoverageExpiryEmailData = {
     daysRemaining: number
   }[]
 }
-
-// ============================================
-// WEEKLY REPORT — WEEK AT A GLANCE
-// ============================================
 
 export type WeeklyReportMetric = {
   label: string
@@ -1177,159 +702,35 @@ export type WeeklyReportData = {
   lastWeek: WeeklyReportMetric[]
   upcoming: WeeklyReportUpcoming[]
   insights: InsightEmailData[]
-  snapshot: {
-    totalAssets: number
-    availableUnits: number
-    totalUnits: number
-    activeReservations: number
-    activeCheckouts: number
-    overdueCheckouts: number
-    revenue: string
-    outstanding: string
-    leadsInPipeline: number
-  }
+  snapshot: InsightsDigestData['summary']
 }
 
 export function weeklyReportEmail(data: WeeklyReportData) {
-  const safeWeekLabel = escapeHtml(data.weekLabel)
+  const metrics = data.lastWeek.map((metric) => {
+    const change =
+      metric.change != null && metric.change !== 0
+        ? ` <span style="font-size:12px;color:${metric.change > 0 ? '#067647' : '#b42318'};">${metric.change > 0 ? '+' : ''}${Math.round(metric.change)}%</span>`
+        : ''
+    return { label: metric.label, value: `${escapeHtml(metric.value)}${change}`, html: true } satisfies Fact
+  })
+  const upcoming = data.upcoming.filter((item) => item.count > 0)
 
-  // --- Last Week metrics ---
-  let metricsHtml = ''
-  for (const m of data.lastWeek) {
-    const arrow = m.change != null && m.change !== 0
-      ? m.change > 0
-        ? `<span style="color: #16a34a; font-size: 12px; font-weight: 600;"> +${Math.round(m.change)}%</span>`
-        : `<span style="color: #dc2626; font-size: 12px; font-weight: 600;"> ${Math.round(m.change)}%</span>`
-      : ''
-    metricsHtml += `
-      <tr style="border-bottom: 1px solid #f4f4f5;">
-        <td style="padding: 8px 12px; color: #71717a; font-size: 14px;">${escapeHtml(m.label)}</td>
-        <td style="padding: 8px 12px; text-align: right; font-weight: 600; color: #18181b; font-size: 14px;">
-          ${escapeHtml(m.value)}${arrow}
-        </td>
-      </tr>`
-  }
-
-  // --- Week Ahead ---
-  let upcomingHtml = ''
-  for (const item of data.upcoming) {
-    if (item.count === 0) continue
-    const linkStart = item.link ? `<a href="${APP_URL}${escapeHtml(item.link)}" style="color: #2563eb; text-decoration: none;">` : ''
-    const linkEnd = item.link ? '</a>' : ''
-    upcomingHtml += `
-      <tr style="border-bottom: 1px solid #f4f4f5;">
-        <td style="padding: 8px 12px; color: #3f3f46; font-size: 14px;">${linkStart}${escapeHtml(item.label)}${linkEnd}</td>
-        <td style="padding: 8px 12px; text-align: right; font-weight: 600; color: #18181b; font-size: 14px;">${item.count}</td>
-      </tr>`
-  }
-
-  // --- Insights (reuse from digest) ---
-  const priorityColors: Record<string, { bg: string; text: string; label: string }> = {
-    high: { bg: '#fef2f2', text: '#dc2626', label: 'High' },
-    medium: { bg: '#fffbeb', text: '#d97706', label: 'Attention' },
-    low: { bg: '#f0fdf4', text: '#16a34a', label: 'Info' },
-  }
-  const typeIcons: Record<string, string> = {
-    inventory: '📦', revenue: '📈', client: '👥', utilization: '📊',
-    maintenance: '🔧', overdue: '⏰', seasonal: '🌡️', roi: '💰', pricing: '🏷️',
-  }
-
-  let insightsHtml = ''
-  for (const insight of data.insights.slice(0, 6)) {
-    const colors = priorityColors[insight.priority] || priorityColors.medium
-    const icon = typeIcons[insight.type] || '💡'
-    insightsHtml += `
-      <div style="margin-bottom: 12px; border: 1px solid #e4e4e7; border-radius: 8px; overflow: hidden;">
-        <div style="padding: 10px 14px; background: ${colors.bg};">
-          <span style="font-size: 16px;">${icon}</span>
-          <span style="font-weight: 600; color: #18181b; font-size: 14px; margin-left: 6px;">${escapeHtml(insight.title)}</span>
-          <span style="float: right; background: ${colors.bg}; color: ${colors.text}; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 9999px; border: 1px solid ${colors.text}33;">${colors.label}</span>
-        </div>
-        <div style="padding: 10px 14px;">
-          <p style="color: #3f3f46; font-size: 13px; line-height: 1.5; margin: 0;">${escapeHtml(insight.description)}</p>
-          ${insight.link ? `<a href="${APP_URL}${escapeHtml(insight.link)}" style="color: #2563eb; font-size: 12px; text-decoration: none; margin-top: 6px; display: inline-block;">View details &rarr;</a>` : ''}
-        </div>
-      </div>`
-  }
-
-  // --- Business Snapshot ---
-  const s = data.snapshot
-
-  return {
-    subject: `Weekly Report — ${safeWeekLabel}`,
-    html: baseLayout(`
-      <div style="text-align: center; margin-bottom: 24px;">
-        <div style="display: inline-block; background: #eff6ff; border-radius: 50%; width: 56px; height: 56px; line-height: 56px; font-size: 28px; margin-bottom: 8px;">📊</div>
-        <h2 style="margin: 0 0 4px; color: #18181b; font-size: 22px;">Weekly Report</h2>
-        <p style="color: #71717a; font-size: 14px; margin: 0;">${safeWeekLabel}</p>
-      </div>
-
-      <!-- LAST WEEK -->
-      <h3 style="color: #18181b; font-size: 15px; margin: 0 0 8px; padding-bottom: 6px; border-bottom: 2px solid #18181b;">Last Week</h3>
-      <table style="width: 100%; border-collapse: collapse; margin-bottom: 24px;">
-        <tbody>
-          ${metricsHtml}
-        </tbody>
-      </table>
-
-      ${upcomingHtml ? `
-      <!-- WEEK AHEAD -->
-      <h3 style="color: #18181b; font-size: 15px; margin: 0 0 8px; padding-bottom: 6px; border-bottom: 2px solid #18181b;">Week Ahead</h3>
-      <table style="width: 100%; border-collapse: collapse; margin-bottom: 24px;">
-        <tbody>
-          ${upcomingHtml}
-        </tbody>
-      </table>
-      ` : ''}
-
-      <!-- BUSINESS SNAPSHOT -->
-      <h3 style="color: #18181b; font-size: 15px; margin: 0 0 8px; padding-bottom: 6px; border-bottom: 2px solid #18181b;">Business Snapshot</h3>
-      <div style="background: #f4f4f5; border-radius: 8px; padding: 14px; margin-bottom: 24px;">
-        <table style="width: 100%; border-collapse: collapse;">
-          <tr>
-            <td style="padding: 5px 8px; color: #71717a; font-size: 13px;">Equipment</td>
-            <td style="padding: 5px 8px; text-align: right; font-weight: 600; color: #18181b; font-size: 13px;">${s.totalAssets} types, ${s.availableUnits}/${s.totalUnits} available</td>
-          </tr>
-          <tr>
-            <td style="padding: 5px 8px; color: #71717a; font-size: 13px;">Reservations</td>
-            <td style="padding: 5px 8px; text-align: right; font-weight: 600; color: #18181b; font-size: 13px;">${s.activeReservations} active</td>
-          </tr>
-          <tr>
-            <td style="padding: 5px 8px; color: #71717a; font-size: 13px;">Checkouts</td>
-            <td style="padding: 5px 8px; text-align: right; font-weight: 600; color: #18181b; font-size: 13px;">${s.activeCheckouts} active${s.overdueCheckouts > 0 ? `, <span style="color: #dc2626;">${s.overdueCheckouts} overdue</span>` : ''}</td>
-          </tr>
-          <tr>
-            <td style="padding: 5px 8px; color: #71717a; font-size: 13px;">Revenue (paid)</td>
-            <td style="padding: 5px 8px; text-align: right; font-weight: 600; color: #18181b; font-size: 13px;">${escapeHtml(s.revenue)}</td>
-          </tr>
-          <tr>
-            <td style="padding: 5px 8px; color: #71717a; font-size: 13px;">Outstanding</td>
-            <td style="padding: 5px 8px; text-align: right; font-weight: 600; color: ${s.outstanding !== '$0' ? '#dc2626' : '#18181b'}; font-size: 13px;">${escapeHtml(s.outstanding)}</td>
-          </tr>
-          <tr>
-            <td style="padding: 5px 8px; color: #71717a; font-size: 13px;">Leads</td>
-            <td style="padding: 5px 8px; text-align: right; font-weight: 600; color: #18181b; font-size: 13px;">${s.leadsInPipeline} in pipeline</td>
-          </tr>
-        </table>
-      </div>
-
-      ${insightsHtml ? `
-      <!-- INSIGHTS -->
-      <h3 style="color: #18181b; font-size: 15px; margin: 0 0 12px; padding-bottom: 6px; border-bottom: 2px solid #18181b;">Insights</h3>
-      ${insightsHtml}
-      ` : ''}
-
-      <div style="text-align: center; margin: 24px 0 8px;">
-        <a href="${APP_URL}/dashboard" style="background: #18181b; color: #ffffff; padding: 12px 32px; border-radius: 6px; text-decoration: none; font-weight: 500; display: inline-block;">
-          Open Dashboard
-        </a>
-      </div>
-      <p style="color: #a1a1aa; font-size: 12px; text-align: center; line-height: 1.5; margin-top: 16px;">
-        This is your automated weekly report from VFXNow AMC.<br>
-        Manage notification settings in Dashboard &rarr; Settings &rarr; Notifications.
-      </p>
-    `),
-  }
+  return email(`Weekly report — ${data.weekLabel}`, {
+    audience: 'staff',
+    preheader: `Last week in figures, the week ahead, and what to act on.`,
+    eyebrow: 'Weekly report',
+    title: 'The week at a glance',
+    subtitle: data.weekLabel,
+    body: [
+      section('Last week', 'change vs the week before'),
+      facts(metrics),
+      upcoming.length ? section('Week ahead') + facts(upcoming.map((item) => ({ label: item.label, value: String(item.count) }))) : '',
+      section('Snapshot'),
+      snapshotFacts(data.snapshot),
+      data.insights.length ? section('Insights') + insightBlocks(data.insights.slice(0, 6)) : '',
+    ].join(''),
+    cta: { label: 'Open the dashboard', url: '/dashboard' },
+  })
 }
 
 // ============================================
@@ -1369,153 +770,45 @@ export type DailyDigestData = {
   topInsights: InsightEmailData[] // max 3
 }
 
+function orderTable(orders: DailyOrderRow[]): string {
+  return table(
+    [{ label: 'Order' }, { label: 'Client' }, { label: 'Items', align: 'center', width: '50px' }, { label: 'Total', align: 'right' }],
+    orders.map((order) => [
+      cell(order.reservationNumber, { href: order.link, sub: order.projectName }),
+      cell(order.clientName),
+      cell(String(order.itemCount)),
+      cell(order.total, { bold: true }),
+    ]),
+  )
+}
+
 export function dailyDigestEmail(data: DailyDigestData) {
-  const safeDate = escapeHtml(data.dateLabel)
-
-  // Helper to render an order table
-  const renderOrders = (orders: DailyOrderRow[], emptyMsg: string) => {
-    if (orders.length === 0) {
-      return `<p style="color: #a1a1aa; font-size: 13px; padding: 8px 0; margin: 0;">${escapeHtml(emptyMsg)}</p>`
-    }
-    let rows = ''
-    for (const o of orders) {
-      const project = o.projectName ? `<br><span style="color:#71717a;font-size:12px;">${escapeHtml(o.projectName)}</span>` : ''
-      rows += `
-        <tr style="border-bottom: 1px solid #f4f4f5;">
-          <td style="padding: 8px 10px; font-size: 14px;">
-            <a href="${APP_URL}${escapeHtml(o.link)}" style="color: #2563eb; text-decoration: none; font-weight: 600;">${escapeHtml(o.reservationNumber)}</a>
-            ${project}
-          </td>
-          <td style="padding: 8px 10px; font-size: 14px; color: #3f3f46;">${escapeHtml(o.clientName)}</td>
-          <td style="padding: 8px 10px; font-size: 14px; color: #3f3f46; text-align: center;">${o.itemCount}</td>
-          <td style="padding: 8px 10px; font-size: 14px; color: #18181b; text-align: right; font-weight: 600;">${escapeHtml(o.total)}</td>
-        </tr>`
-    }
-    return `
-      <table style="width: 100%; border-collapse: collapse;">
-        <thead>
-          <tr style="border-bottom: 1px solid #e4e4e7;">
-            <th style="padding: 6px 10px; text-align: left; color: #71717a; font-size: 12px; font-weight: 600;">ORDER</th>
-            <th style="padding: 6px 10px; text-align: left; color: #71717a; font-size: 12px; font-weight: 600;">CLIENT</th>
-            <th style="padding: 6px 10px; text-align: center; color: #71717a; font-size: 12px; font-weight: 600;">ITEMS</th>
-            <th style="padding: 6px 10px; text-align: right; color: #71717a; font-size: 12px; font-weight: 600;">TOTAL</th>
-          </tr>
-        </thead>
-        <tbody>${rows}</tbody>
-      </table>`
-  }
-
-  // Action items
-  let actionsHtml = ''
-  const activeActions = data.actionItems.filter(a => a.count > 0)
-  if (activeActions.length > 0) {
-    for (const item of activeActions) {
-      const color = item.urgent ? '#dc2626' : '#18181b'
-      const linkStart = item.link ? `<a href="${APP_URL}${escapeHtml(item.link)}" style="color: ${color}; text-decoration: none;">` : ''
-      const linkEnd = item.link ? '</a>' : ''
-      actionsHtml += `
-        <tr style="border-bottom: 1px solid #f4f4f5;">
-          <td style="padding: 8px 10px; font-size: 14px;">${linkStart}${item.urgent ? '⚠️ ' : ''}${escapeHtml(item.label)}${linkEnd}</td>
-          <td style="padding: 8px 10px; text-align: right; font-weight: 600; color: ${color}; font-size: 14px;">${item.count}</td>
-        </tr>`
-    }
-  }
-
-  // Top insights (max 3)
-  const priorityColors: Record<string, { bg: string; text: string }> = {
-    high: { bg: '#fef2f2', text: '#dc2626' },
-    medium: { bg: '#fffbeb', text: '#d97706' },
-    low: { bg: '#f0fdf4', text: '#16a34a' },
-  }
-  const typeIcons: Record<string, string> = {
-    inventory: '📦', revenue: '📈', client: '👥', utilization: '📊',
-    maintenance: '🔧', overdue: '⏰', seasonal: '🌡️', roi: '💰', pricing: '🏷️',
-  }
-  let insightsHtml = ''
-  for (const insight of data.topInsights.slice(0, 3)) {
-    const colors = priorityColors[insight.priority] || priorityColors.medium
-    const icon = typeIcons[insight.type] || '💡'
-    insightsHtml += `
-      <div style="margin-bottom: 8px; padding: 10px 14px; background: ${colors.bg}; border-radius: 6px; border-left: 3px solid ${colors.text};">
-        <span style="font-size: 14px;">${icon}</span>
-        <span style="font-weight: 600; color: #18181b; font-size: 13px; margin-left: 4px;">${escapeHtml(insight.title)}</span>
-        <p style="color: #3f3f46; font-size: 12px; line-height: 1.4; margin: 4px 0 0;">
-          ${escapeHtml(insight.description)}
-          ${insight.link ? ` <a href="${APP_URL}${escapeHtml(insight.link)}" style="color: #2563eb; text-decoration: none;">View &rarr;</a>` : ''}
-        </p>
-      </div>`
-  }
-
   const s = data.snapshot
-
-  return {
-    subject: `Daily Digest — ${safeDate}`,
-    html: baseLayout(`
-      <div style="text-align: center; margin-bottom: 20px;">
-        <h2 style="margin: 0 0 4px; color: #18181b; font-size: 20px;">Daily Digest</h2>
-        <p style="color: #71717a; font-size: 14px; margin: 0;">${safeDate}</p>
-      </div>
-
-      <!-- QUICK STATS BAR -->
-      <div style="background: #f4f4f5; border-radius: 8px; padding: 12px 14px; margin-bottom: 20px;">
-        <table style="width: 100%; border-collapse: collapse;">
-          <tr>
-            <td style="padding: 3px 6px; color: #71717a; font-size: 12px;">Active Orders</td>
-            <td style="padding: 3px 6px; text-align: right; font-weight: 600; color: #18181b; font-size: 12px;">${s.activeReservations}</td>
-            <td style="padding: 3px 6px; color: #71717a; font-size: 12px;">Checkouts</td>
-            <td style="padding: 3px 6px; text-align: right; font-weight: 600; color: #18181b; font-size: 12px;">${s.activeCheckouts}${s.overdueCheckouts > 0 ? ` <span style="color:#dc2626;">(${s.overdueCheckouts} overdue)</span>` : ''}</td>
-          </tr>
-          <tr>
-            <td style="padding: 3px 6px; color: #71717a; font-size: 12px;">Available</td>
-            <td style="padding: 3px 6px; text-align: right; font-weight: 600; color: #18181b; font-size: 12px;">${s.availableUnits}/${s.totalUnits} units</td>
-            <td style="padding: 3px 6px; color: #71717a; font-size: 12px;">Outstanding</td>
-            <td style="padding: 3px 6px; text-align: right; font-weight: 600; color: ${s.outstanding !== '$0' ? '#dc2626' : '#18181b'}; font-size: 12px;">${escapeHtml(s.outstanding)}</td>
-          </tr>
-        </table>
-      </div>
-
-      ${data.reservationsStarting.length > 0 ? `
-      <!-- STARTING TODAY -->
-      <h3 style="color: #18181b; font-size: 14px; margin: 0 0 8px; padding-bottom: 5px; border-bottom: 2px solid #18181b;">Orders Starting Today</h3>
-      <div style="margin-bottom: 20px;">${renderOrders(data.reservationsStarting, 'None')}</div>
-      ` : ''}
-
-      ${data.shipping.length > 0 ? `
-      <!-- SHIPPING TODAY -->
-      <h3 style="color: #18181b; font-size: 14px; margin: 0 0 8px; padding-bottom: 5px; border-bottom: 2px solid #2563eb;">Shipping / Delivering Today</h3>
-      <div style="margin-bottom: 20px;">${renderOrders(data.shipping, 'None')}</div>
-      ` : ''}
-
-      ${data.returnsDue.length > 0 ? `
-      <!-- RETURNS DUE -->
-      <h3 style="color: #18181b; font-size: 14px; margin: 0 0 8px; padding-bottom: 5px; border-bottom: 2px solid #d97706;">Returns Due Today</h3>
-      <div style="margin-bottom: 20px;">${renderOrders(data.returnsDue, 'None')}</div>
-      ` : ''}
-
-      ${actionsHtml ? `
-      <!-- ACTION ITEMS -->
-      <h3 style="color: #18181b; font-size: 14px; margin: 0 0 8px; padding-bottom: 5px; border-bottom: 2px solid #dc2626;">Action Items</h3>
-      <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
-        <tbody>${actionsHtml}</tbody>
-      </table>
-      ` : ''}
-
-      ${insightsHtml ? `
-      <!-- TOP INSIGHTS -->
-      <h3 style="color: #18181b; font-size: 14px; margin: 0 0 8px; padding-bottom: 5px; border-bottom: 2px solid #18181b;">Top Insights</h3>
-      <div style="margin-bottom: 20px;">${insightsHtml}</div>
-      ` : ''}
-
-      <div style="text-align: center; margin: 20px 0 8px;">
-        <a href="${APP_URL}/dashboard" style="background: #18181b; color: #ffffff; padding: 10px 28px; border-radius: 6px; text-decoration: none; font-weight: 500; display: inline-block; font-size: 14px;">
-          Open Dashboard
-        </a>
-      </div>
-      <p style="color: #a1a1aa; font-size: 11px; text-align: center; line-height: 1.4; margin-top: 12px;">
-        Daily digest from VFXNow AMC. Manage in Dashboard &rarr; Settings &rarr; Notifications.
-      </p>
-    `),
-  }
+  const actions = data.actionItems.filter((item) => item.count > 0)
+  return email(`Daily digest — ${data.dateLabel}`, {
+    audience: 'staff',
+    wide: true,
+    preheader: `${data.reservationsStarting.length} starting, ${data.shipping.length} shipping, ${data.returnsDue.length} due back today.`,
+    eyebrow: 'Day at a glance',
+    title: 'Today',
+    subtitle: data.dateLabel,
+    body: [
+      stats([
+        { label: 'Active orders', value: String(s.activeReservations) },
+        { label: 'Checkouts', value: String(s.activeCheckouts), sub: s.overdueCheckouts > 0 ? `${s.overdueCheckouts} overdue` : undefined, tone: s.overdueCheckouts > 0 ? 'danger' : undefined },
+        { label: 'Available', value: `${s.availableUnits}/${s.totalUnits}` },
+        { label: 'Outstanding', value: s.outstanding, tone: s.outstanding !== '$0' ? 'danger' : undefined },
+      ]),
+      data.reservationsStarting.length ? section('Starting today') + orderTable(data.reservationsStarting) : '',
+      data.shipping.length ? section('Shipping or delivering today') + orderTable(data.shipping) : '',
+      data.returnsDue.length ? section('Due back today') + orderTable(data.returnsDue) : '',
+      actions.length
+        ? section('To act on') + facts(actions.map((item) => ({ label: item.label, value: String(item.count), tone: item.urgent ? 'danger' : undefined })))
+        : '',
+      data.topInsights.length ? section('Top insights') + insightBlocks(data.topInsights.slice(0, 3)) : '',
+    ].join(''),
+    cta: { label: 'Open the dashboard', url: '/dashboard' },
+  })
 }
 
 // ============================================
@@ -1547,93 +840,44 @@ export type DailyTrafficReportData = {
   }
 }
 
+function trafficTable(groups: TrafficReportClientGroup[], empty: string): string {
+  if (groups.length === 0) return paragraph(empty, { muted: true, small: true })
+  const rows: (string[] | { group: string; meta?: string })[] = []
+  for (const group of groups) {
+    rows.push({ group: group.clientName, meta: `${group.units.length} unit${group.units.length === 1 ? '' : 's'}` })
+    for (const unit of group.units) {
+      rows.push([
+        cell(unit.time),
+        cell(unit.barcode, { mono: true }),
+        cell(unit.assetName),
+        cell(unit.reservationNumber, { href: `/dashboard/orders/${unit.reservationId}` }),
+      ])
+    }
+  }
+  return table([{ label: 'Time', width: '70px' }, { label: 'Unit' }, { label: 'Item' }, { label: 'Order', align: 'right' }], rows, { dense: true })
+}
+
 export function dailyTrafficReportEmail(data: DailyTrafficReportData) {
-  const safeDate = escapeHtml(data.dateLabel)
-  const safeWindow = escapeHtml(data.windowLabel)
-
-  const renderClientSection = (groups: TrafficReportClientGroup[], emptyMsg: string) => {
-    if (groups.length === 0) {
-      return `<p style="color: #a1a1aa; font-size: 13px; padding: 8px 0; margin: 0;">${escapeHtml(emptyMsg)}</p>`
-    }
-    let html = ''
-    for (const group of groups) {
-      let rows = ''
-      for (const u of group.units) {
-        rows += `
-          <tr style="border-bottom: 1px solid #f4f4f5;">
-            <td style="padding: 6px 10px; font-size: 13px; color: #71717a; white-space: nowrap;">${escapeHtml(u.time)}</td>
-            <td style="padding: 6px 10px; font-size: 13px; font-family: 'Courier New', monospace; color: #18181b; white-space: nowrap;">${escapeHtml(u.barcode)}</td>
-            <td style="padding: 6px 10px; font-size: 13px; color: #3f3f46;">${escapeHtml(u.assetName)}</td>
-            <td style="padding: 6px 10px; font-size: 13px; text-align: right;">
-              <a href="${APP_URL}/dashboard/orders/${escapeHtml(u.reservationId)}" style="color: #2563eb; text-decoration: none; font-weight: 600;">${escapeHtml(u.reservationNumber)}</a>
-            </td>
-          </tr>`
-      }
-      html += `
-        <div style="margin-bottom: 16px;">
-          <div style="background: #f4f4f5; padding: 6px 10px; border-radius: 4px 4px 0 0;">
-            <span style="font-weight: 600; color: #18181b; font-size: 13px;">${escapeHtml(group.clientName)}</span>
-            <span style="color: #71717a; font-size: 12px; margin-left: 6px;">(${group.units.length} ${group.units.length === 1 ? 'unit' : 'units'})</span>
-          </div>
-          <table style="width: 100%; border-collapse: collapse; border: 1px solid #e4e4e7; border-top: none;">
-            <tbody>${rows}</tbody>
-          </table>
-        </div>`
-    }
-    return html
-  }
-
-  return {
-    subject: `Daily Traffic Report — ${safeDate}`,
-    html: baseLayout(`
-      <div style="text-align: center; margin-bottom: 20px;">
-        <h2 style="margin: 0 0 4px; color: #18181b; font-size: 20px;">Daily Traffic Report</h2>
-        <p style="color: #71717a; font-size: 14px; margin: 0;">${safeDate}</p>
-        <p style="color: #a1a1aa; font-size: 12px; margin: 2px 0 0;">${safeWindow}</p>
-      </div>
-
-      <!-- TOTALS BAR -->
-      <div style="background: #f4f4f5; border-radius: 8px; padding: 12px 14px; margin-bottom: 24px;">
-        <table style="width: 100%; border-collapse: collapse;">
-          <tr>
-            <td style="text-align: center;">
-              <div style="font-size: 22px; font-weight: 700; color: #18181b;">${data.totals.clientsTouched}</div>
-              <div style="font-size: 11px; color: #71717a; text-transform: uppercase; letter-spacing: 0.5px;">Clients</div>
-            </td>
-            <td style="text-align: center;">
-              <div style="font-size: 22px; font-weight: 700; color: #16a34a;">${data.totals.unitsOut}</div>
-              <div style="font-size: 11px; color: #71717a; text-transform: uppercase; letter-spacing: 0.5px;">Checked Out</div>
-            </td>
-            <td style="text-align: center;">
-              <div style="font-size: 22px; font-weight: 700; color: #2563eb;">${data.totals.unitsIn}</div>
-              <div style="font-size: 11px; color: #71717a; text-transform: uppercase; letter-spacing: 0.5px;">Checked In</div>
-            </td>
-          </tr>
-        </table>
-      </div>
-
-      <!-- CHECK-OUTS -->
-      <h3 style="color: #18181b; font-size: 14px; margin: 0 0 10px; padding-bottom: 5px; border-bottom: 2px solid #16a34a;">
-        Items Checked Out Today
-      </h3>
-      <div style="margin-bottom: 24px;">${renderClientSection(data.out, 'No items checked out during this window.')}</div>
-
-      <!-- CHECK-INS -->
-      <h3 style="color: #18181b; font-size: 14px; margin: 0 0 10px; padding-bottom: 5px; border-bottom: 2px solid #2563eb;">
-        Items Returned Today
-      </h3>
-      <div style="margin-bottom: 24px;">${renderClientSection(data.back, 'No items returned during this window.')}</div>
-
-      <div style="text-align: center; margin: 20px 0 8px;">
-        <a href="${APP_URL}/dashboard/reports/traffic" style="background: #18181b; color: #ffffff; padding: 10px 28px; border-radius: 6px; text-decoration: none; font-weight: 500; display: inline-block; font-size: 14px;">
-          Open Traffic Report
-        </a>
-      </div>
-      <p style="color: #a1a1aa; font-size: 11px; text-align: center; line-height: 1.4; margin-top: 12px;">
-        Sent daily at 5:00 PM PT. Manage recipients in Dashboard &rarr; Settings &rarr; Notifications.
-      </p>
-    `),
-  }
+  return email(`Daily traffic report — ${data.dateLabel}`, {
+    audience: 'staff',
+    wide: true,
+    preheader: `${data.totals.unitsOut} out, ${data.totals.unitsIn} back, across ${data.totals.clientsTouched} clients today.`,
+    eyebrow: 'Traffic report',
+    title: 'What moved today',
+    subtitle: `${data.dateLabel} · ${data.windowLabel}`,
+    body: [
+      stats([
+        { label: 'Clients', value: String(data.totals.clientsTouched) },
+        { label: 'Checked out', value: String(data.totals.unitsOut), tone: 'success' },
+        { label: 'Checked in', value: String(data.totals.unitsIn), tone: 'accent' },
+      ]),
+      section('Checked out'),
+      trafficTable(data.out, 'Nothing went out in this window.'),
+      section('Returned'),
+      trafficTable(data.back, 'Nothing came back in this window.'),
+    ].join(''),
+    cta: { label: 'Open the traffic report', url: '/dashboard/reports/traffic' },
+  })
 }
 
 // ============================================
@@ -1646,186 +890,95 @@ export function clientRequirementsRequestEmail(data: {
   uploadUrl: string
   message?: string
 }) {
-  const safeName = escapeHtml(data.clientName)
-  const safeUrl = escapeHtml(data.uploadUrl)
+  const wanted = data.requirementTypes
+    .map((kind) =>
+      kind === 'ID' ? 'Photo ID (front and back)' : kind === 'COI' ? 'Certificate of insurance (COI)' : kind === 'AGREEMENT' ? 'Rental agreement (review and sign)' : null,
+    )
+    .filter((line): line is NonNullable<typeof line> => !!line)
 
-  const requirementsList = data.requirementTypes
-    .map((t) => {
-      if (t === 'ID') return '<li style="margin-bottom: 4px;">Photo ID (front and back)</li>'
-      if (t === 'COI') return '<li style="margin-bottom: 4px;">Certificate of Insurance (COI)</li>'
-      if (t === 'AGREEMENT') return '<li style="margin-bottom: 4px;">Rental Agreement (review &amp; sign)</li>'
-      return ''
-    })
-    .join('')
-
-  const messageHtml = data.message
-    ? `<div style="margin: 20px 0; padding: 16px; background: #f4f4f5; border-radius: 8px; border-left: 4px solid #18181b;">
-        <p style="margin: 0; color: #3f3f46; font-size: 14px; line-height: 1.6; white-space: pre-wrap;">${escapeHtml(data.message)}</p>
-      </div>`
-    : ''
-
-  return {
-    subject: 'VFXNow — Document Upload Required',
-    html: baseLayout(`
-      <h2 style="margin: 0 0 8px; color: #18181b; font-size: 20px;">Documents Required</h2>
-
-      <p style="color: #3f3f46; line-height: 1.6;">Hi ${safeName},</p>
-      <p style="color: #3f3f46; line-height: 1.6;">We need the following documents to complete your file:</p>
-
-      <ul style="color: #3f3f46; line-height: 1.8; padding-left: 20px; margin: 16px 0;">
-        ${requirementsList}
-      </ul>
-
-      ${messageHtml}
-
-      <p style="color: #3f3f46; line-height: 1.6;">Please use the secure link below to upload your documents. This link will expire in 30 days.</p>
-
-      <div style="text-align: center; margin: 32px 0;">
-        <a href="${safeUrl}" style="background: #18181b; color: #ffffff; padding: 14px 36px; border-radius: 6px; text-decoration: none; font-weight: 600; display: inline-block; font-size: 15px;">
-          Upload Documents
-        </a>
-      </div>
-
-      <p style="color: #a1a1aa; font-size: 12px; text-align: center; line-height: 1.5; margin-top: 16px;">
-        This is a secure link. Do not share it with others.
-      </p>
-    `),
-  }
+  return email('VFXNow — documents needed', {
+    audience: 'client',
+    preheader: `We need ${wanted.length === 1 ? 'one document' : `${wanted.length} documents`} to complete your file.`,
+    eyebrow: 'Documents',
+    title: 'A few documents, please',
+    body: [
+      greeting(data.clientName),
+      paragraph('We need the following to complete your file:'),
+      bullets(wanted),
+      data.message ? callout(quoted(data.message), { tone: 'accent' }) : '',
+      paragraph('Use the secure link below to upload them. It expires in 30 days.'),
+    ].join(''),
+    cta: { label: 'Upload documents', url: data.uploadUrl },
+    footer: 'This is a secure link for your account only — please don&rsquo;t forward it. Reply to this email and it reaches our team.',
+  })
 }
 
 export function coverageExpiryEmail(data: CoverageExpiryEmailData) {
-  let itemsHtml = ''
-  for (const item of data.items) {
-    const safeBarcode = escapeHtml(item.unitBarcode)
-    const safeAsset = escapeHtml(item.assetName)
-    const safeName = escapeHtml(item.coverageName)
-    const safeType = escapeHtml(item.coverageType)
-    const safeEnd = escapeHtml(item.endDate)
-    const urgencyColor = item.daysRemaining <= 7 ? '#dc2626' : item.daysRemaining <= 14 ? '#d97706' : '#71717a'
-
-    itemsHtml += `
-      <tr style="border-bottom: 1px solid #f4f4f5;">
-        <td style="padding: 8px; font-size: 14px;">
-          <span style="font-weight: 600; color: #18181b;">${safeAsset}</span>
-          <br><span style="font-family: monospace; color: #71717a; font-size: 12px;">${safeBarcode}</span>
-        </td>
-        <td style="padding: 8px; font-size: 14px; color: #3f3f46;">
-          ${safeName}
-          <br><span style="color: #71717a; font-size: 12px;">${safeType}${item.provider ? ` &mdash; ${escapeHtml(item.provider)}` : ''}</span>
-        </td>
-        <td style="padding: 8px; font-size: 14px; text-align: right;">
-          <span style="color: ${urgencyColor}; font-weight: 600;">${item.daysRemaining} day${item.daysRemaining !== 1 ? 's' : ''}</span>
-          <br><span style="color: #71717a; font-size: 12px;">${safeEnd}</span>
-        </td>
-      </tr>`
-  }
-
-  return {
-    subject: `Coverage Alert: ${data.items.length} service coverage${data.items.length !== 1 ? 's' : ''} expiring soon`,
-    html: baseLayout(`
-      <h2 style="margin: 0 0 16px; color: #d97706; font-size: 20px;">Service Coverage Expiring</h2>
-      <p style="color: #3f3f46; line-height: 1.6;">
-        The following service coverages are expiring within 30 days and may need renewal:
-      </p>
-      <table style="width: 100%; margin: 20px 0; border-collapse: collapse;">
-        <thead>
-          <tr style="border-bottom: 2px solid #18181b;">
-            <th style="padding: 8px; text-align: left; color: #18181b; font-size: 13px; font-weight: 600;">Unit</th>
-            <th style="padding: 8px; text-align: left; color: #18181b; font-size: 13px; font-weight: 600;">Coverage</th>
-            <th style="padding: 8px; text-align: right; color: #18181b; font-size: 13px; font-weight: 600;">Remaining</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${itemsHtml}
-        </tbody>
-      </table>
-      <div style="text-align: center; margin: 24px 0;">
-        <a href="${APP_URL}/dashboard/assets" style="background: #18181b; color: #ffffff; padding: 12px 32px; border-radius: 6px; text-decoration: none; font-weight: 500; display: inline-block;">
-          View Assets
-        </a>
-      </div>
-      <p style="color: #a1a1aa; font-size: 12px; text-align: center; line-height: 1.5; margin-top: 16px;">
-        This is an automated notification from VFXNow AMC.<br>
-        Manage notification settings in Dashboard &rarr; Settings &rarr; Notifications.
-      </p>
-    `),
-  }
+  const count = data.items.length
+  return email(`Coverage alert: ${count} service coverage${count !== 1 ? 's' : ''} expiring soon`, {
+    audience: 'staff',
+    preheader: `${count} coverage${count !== 1 ? 's' : ''} end within 30 days.`,
+    eyebrow: 'Service coverage',
+    title: 'Coverage ending soon',
+    body: [
+      paragraph('These service coverages end within 30 days. Renew them, or let them lapse on purpose.'),
+      table(
+        [{ label: 'Unit' }, { label: 'Coverage' }, { label: 'Ends', align: 'right' }],
+        data.items.map((item) => [
+          cell(item.assetName, { bold: true, sub: item.unitBarcode }),
+          cell(item.coverageName, { sub: `${item.coverageType}${item.provider ? ` — ${item.provider}` : ''}` }),
+          cell(`${item.daysRemaining} day${item.daysRemaining !== 1 ? 's' : ''}`, {
+            bold: true,
+            tone: item.daysRemaining <= 7 ? 'danger' : item.daysRemaining <= 14 ? 'warning' : undefined,
+            sub: item.endDate,
+          }),
+        ]),
+      ),
+    ].join(''),
+    cta: { label: 'Open service coverage', url: '/dashboard/service/coverage' },
+  })
 }
 
 // ============================================
 // FLOW TASK EMAILS
 // ============================================
 
-export function taskAssignedEmail(
-  assigneeName: string,
-  taskTitle: string,
-  taskId: string,
-  priority: string,
-  dueDate?: string,
-) {
-  const safeName = escapeHtml(assigneeName)
-  const safeTitle = escapeHtml(taskTitle)
-  const priorityColors: Record<string, string> = {
-    LOW: '#22c55e',
-    MEDIUM: '#3b82f6',
-    HIGH: '#f59e0b',
-    URGENT: '#ef4444',
-  }
-  const color = priorityColors[priority] || '#3b82f6'
+const TASK_PRIORITY_TONE: Record<string, Tone> = { LOW: 'success', MEDIUM: 'accent', HIGH: 'warning', URGENT: 'danger' }
 
-  return {
-    subject: `Task Assigned: ${taskTitle}`,
-    html: baseLayout(`
-      <h2 style="margin: 0 0 16px 0; font-size: 18px; color: #18181b;">Task Assigned to You</h2>
-      <p style="color: #52525b; line-height: 1.5;">Hi ${safeName},</p>
-      <p style="color: #52525b; line-height: 1.5;">A task has been assigned to you:</p>
-      <div style="background: #f4f4f5; border-radius: 8px; padding: 16px; margin: 16px 0;">
-        <p style="margin: 0 0 8px; font-size: 16px; font-weight: 600; color: #18181b;">${safeTitle}</p>
-        <p style="margin: 0 0 4px; font-size: 13px; color: #71717a;">
-          Priority: <span style="color: ${color}; font-weight: 600;">${escapeHtml(priority)}</span>
-        </p>
-        ${dueDate ? `<p style="margin: 0; font-size: 13px; color: #71717a;">Due: ${escapeHtml(dueDate)}</p>` : ''}
-      </div>
-      <div style="text-align: center; margin: 24px 0;">
-        <a href="${APP_URL}/dashboard/flow?task=${escapeHtml(taskId)}" style="background: #18181b; color: #ffffff; padding: 12px 32px; border-radius: 6px; text-decoration: none; font-weight: 500; display: inline-block;">
-          View Task
-        </a>
-      </div>
-    `),
-  }
+export function taskAssignedEmail(assigneeName: string, taskTitle: string, taskId: string, priority: string, dueDate?: string) {
+  return email(`Task assigned: ${taskTitle}`, {
+    audience: 'staff',
+    preheader: `${taskTitle} — ${priority.toLowerCase()} priority${dueDate ? `, due ${dueDate}` : ''}.`,
+    eyebrow: 'Task',
+    title: 'A task is yours',
+    body: [
+      greeting(assigneeName),
+      paragraph('This task has been assigned to you:'),
+      callout(strong(taskTitle), { tone: 'accent' }),
+      facts([
+        { label: 'Priority', value: priority, tone: TASK_PRIORITY_TONE[priority] ?? 'accent' },
+        dueDate ? { label: 'Due', value: dueDate } : null,
+      ]),
+    ].join(''),
+    cta: { label: 'Open the task', url: `/dashboard/flow?task=${encodeURIComponent(taskId)}` },
+  })
 }
 
-export function taskStatusChangedEmail(
-  recipientName: string,
-  taskTitle: string,
-  taskId: string,
-  fromStatus: string,
-  toStatus: string,
-) {
-  const safeName = escapeHtml(recipientName)
-  const safeTitle = escapeHtml(taskTitle)
-  const safeFrom = escapeHtml(fromStatus.replace(/_/g, ' '))
-  const safeTo = escapeHtml(toStatus.replace(/_/g, ' '))
-
-  return {
-    subject: `Task Updated: ${taskTitle}`,
-    html: baseLayout(`
-      <h2 style="margin: 0 0 16px 0; font-size: 18px; color: #18181b;">Task Update</h2>
-      <p style="color: #52525b; line-height: 1.5;">Hi ${safeName},</p>
-      <p style="color: #52525b; line-height: 1.5;">A task you're assigned to has been updated:</p>
-      <div style="background: #f4f4f5; border-radius: 8px; padding: 16px; margin: 16px 0;">
-        <p style="margin: 0 0 8px; font-size: 16px; font-weight: 600; color: #18181b;">${safeTitle}</p>
-        <p style="margin: 0; font-size: 13px; color: #71717a;">
-          ${safeFrom} &rarr; <strong>${safeTo}</strong>
-        </p>
-      </div>
-      <div style="text-align: center; margin: 24px 0;">
-        <a href="${APP_URL}/dashboard/flow?task=${escapeHtml(taskId)}" style="background: #18181b; color: #ffffff; padding: 12px 32px; border-radius: 6px; text-decoration: none; font-weight: 500; display: inline-block;">
-          View Task
-        </a>
-      </div>
-    `),
-  }
+export function taskStatusChangedEmail(recipientName: string, taskTitle: string, taskId: string, fromStatus: string, toStatus: string) {
+  const from = fromStatus.replace(/_/g, ' ').toLowerCase()
+  const to = toStatus.replace(/_/g, ' ').toLowerCase()
+  return email(`Task updated: ${taskTitle}`, {
+    audience: 'staff',
+    preheader: `${taskTitle} moved from ${from} to ${to}.`,
+    eyebrow: 'Task',
+    title: 'A task moved',
+    body: [
+      greeting(recipientName),
+      paragraph('A task you are assigned to has been updated:'),
+      callout(`${strong(taskTitle)}<br>${escapeHtml(from)} &rarr; ${strong(to)}`, { tone: 'accent' }),
+    ].join(''),
+    cta: { label: 'Open the task', url: `/dashboard/flow?task=${encodeURIComponent(taskId)}` },
+  })
 }
 
 // ============================================
@@ -1843,41 +996,19 @@ export function taskStatusChangedEmail(
  * The destination is a `Setting` row rather than a constant here, so the form
  * can move without a deploy.
  */
-export function onboardingInviteEmail(data: {
-  name: string
-  formUrl: string
-  companyName?: string | null
-}) {
-  const safeName = escapeHtml(data.name)
-  const safeUrl = escapeHtml(data.formUrl)
-  const forWhom = data.companyName
-    ? ` for ${escapeHtml(data.companyName)}`
-    : ''
-
-  return {
-    subject: 'Getting you set up with VFXNow',
-    html: baseLayout(`
-      <h2 style="margin: 0 0 16px; color: #18181b; font-size: 20px;">A few details before we quote${forWhom}</h2>
-      <p style="color: #3f3f46; line-height: 1.6;">Hi ${safeName},</p>
-      <p style="color: #3f3f46; line-height: 1.6;">
-        Thanks for getting in touch. Before we can put a quote together we need a
-        little information about you &mdash; billing details, where equipment
-        would ship, and who to reach. The form below takes a couple of minutes.
-      </p>
-      <div style="text-align: center; margin: 28px 0;">
-        <a href="${safeUrl}" style="background: #18181b; color: #ffffff; padding: 12px 32px; border-radius: 6px; text-decoration: none; font-weight: 500; display: inline-block;">
-          Start onboarding
-        </a>
-      </div>
-      <p style="color: #71717a; font-size: 13px; line-height: 1.6;">
-        If the button does not work, paste this into your browser:<br>
-        <span style="word-break: break-all;">${safeUrl}</span>
-      </p>
-      <p style="color: #71717a; font-size: 13px; line-height: 1.6;">
-        Reply to this email if anything on the form does not apply to you.
-      </p>
-    `),
-  }
+export function onboardingInviteEmail(data: { name: string; formUrl: string; companyName?: string | null }) {
+  return email('Getting you set up with VFXNow', {
+    audience: 'client',
+    preheader: 'A short form before we put your quote together.',
+    eyebrow: 'Getting started',
+    title: `A few details before we quote${data.companyName ? ` for ${data.companyName}` : ''}`,
+    body: [
+      greeting(data.name),
+      paragraph('Thanks for getting in touch. Before we can put a quote together we need a little information about you &mdash; billing details, where equipment would ship, and who to reach. The form takes a couple of minutes.'),
+    ].join(''),
+    cta: { label: 'Start onboarding', url: data.formUrl },
+    footer: `${fallbackLink(data.formUrl)}Reply to this email if anything on the form doesn&rsquo;t apply to you.`,
+  })
 }
 
 // ============================================
@@ -1918,111 +1049,48 @@ export type FundingRequestSubmittedEmailData = {
 }
 
 export function fundingRequestSubmittedEmail(data: FundingRequestSubmittedEmailData) {
-  const safeNumber = escapeHtml(data.requestNumber)
-  const requestUrl = `${APP_URL}/dashboard/funding/${encodeURIComponent(data.requestId)}`
-
-  const row = (label: string, value: string) => `
-    <tr style="border-top: 1px solid #e4e4e7;">
-      <td style="padding: 8px 0; color: #71717a; font-size: 14px;">${label}</td>
-      <td style="padding: 8px 0; text-align: right; font-weight: 600; color: #18181b;">${value}</td>
-    </tr>`
-
-  let detailsHtml = `
-    <tr>
-      <td style="padding: 8px 0; color: #71717a; font-size: 14px;">Amount Requested</td>
-      <td style="padding: 8px 0; text-align: right; font-weight: 600; color: #18181b;">${escapeHtml(data.amountRequested)}</td>
-    </tr>`
-
-  if (data.purchaseType) detailsHtml += row('Purchase Type', escapeHtml(data.purchaseType))
-  detailsHtml += row('Equipment Cost', escapeHtml(data.equipmentCost))
-  detailsHtml += row('Line Items', String(data.itemCount))
-  detailsHtml += row('Requested By', escapeHtml(data.requestedBy))
-  detailsHtml += row('Request Date', escapeHtml(data.requestDate))
-  if (data.neededByDate) detailsHtml += row('Funding Needed By', escapeHtml(data.neededByDate))
-  if (data.customer) detailsHtml += row('Customer / Project', escapeHtml(data.customer))
-  if (data.commitment) detailsHtml += row('Customer Commitment', escapeHtml(data.commitment))
-  if (data.customerRentalCharge) detailsHtml += row('Customer Rental Charge', escapeHtml(data.customerRentalCharge))
-  if (data.lender) detailsHtml += row('Lender / Source', escapeHtml(data.lender))
-  if (data.monthlyPayment) detailsHtml += row('Monthly Payment', escapeHtml(data.monthlyPayment))
-  if (data.submittedBy) detailsHtml += row('Submitted By', escapeHtml(data.submittedBy))
-
   const markers: string[] = []
-  if (data.paybackMonths !== null && data.paybackMonths !== undefined) {
-    markers.push(`Payback in <strong>${data.paybackMonths} months</strong>`)
-  }
-  if (data.debtServiceCoverage !== null && data.debtServiceCoverage !== undefined) {
-    markers.push(`Rental covers <strong>${data.debtServiceCoverage.toFixed(2)}x</strong> the payment`)
-  }
-  if (data.breakEvenMonths !== null && data.breakEvenMonths !== undefined) {
-    markers.push(`Break-even at <strong>month ${data.breakEvenMonths}</strong> incl. resale`)
-  } else if (data.neverBreaksEven) {
-    markers.push(`<strong>No break-even</strong> — rentals and resale do not cover cost`)
-  }
-
-  const markersHtml = markers.length
-    ? `<div style="margin: 20px 0; padding: 14px 16px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; color: #166534; font-size: 14px; line-height: 1.8;">
-        <span style="color: #3f3f46; font-size: 13px;">Estimates from the figures on the request — not measured returns.</span><br />
-        ${markers.join('<br />')}
-      </div>`
-    : ''
+  if (data.paybackMonths != null) markers.push(`Payback in ${strong(`${data.paybackMonths} months`)}`)
+  if (data.debtServiceCoverage != null) markers.push(`Rental covers ${strong(`${data.debtServiceCoverage.toFixed(2)}×`)} the payment`)
+  if (data.breakEvenMonths != null) markers.push(`Break-even at ${strong(`month ${data.breakEvenMonths}`)} including resale`)
+  else if (data.neverBreaksEven) markers.push(`${strong('No break-even')} — rentals and resale do not cover cost`)
 
   const supporting: string[] = []
-  if (data.supportingPOs.length) {
-    supporting.push(`Purchase orders: ${escapeHtml(data.supportingPOs.join(', '))}`)
-  }
-  if (data.supportingQuotes.length) {
-    supporting.push(`Client quotes / orders: ${escapeHtml(data.supportingQuotes.join(', '))}`)
-  }
+  if (data.supportingPOs.length) supporting.push(`Purchase orders: ${escapeHtml(data.supportingPOs.join(', '))}`)
+  if (data.supportingQuotes.length) supporting.push(`Client quotes / orders: ${escapeHtml(data.supportingQuotes.join(', '))}`)
 
-  const supportingHtml = supporting.length
-    ? `<div style="margin: 20px 0; padding: 14px 16px; background: #f4f4f5; border-radius: 8px; color: #3f3f46; font-size: 14px; line-height: 1.7;">
-        <strong style="color: #18181b;">Supporting documents</strong><br />
-        ${supporting.join('<br />')}
-      </div>`
-    : ''
-
-  const purposeHtml = data.businessPurpose
-    ? `<div style="margin: 20px 0;">
-        <p style="margin: 0 0 6px; color: #71717a; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px;">Business Purpose</p>
-        <p style="margin: 0; color: #3f3f46; line-height: 1.6; white-space: pre-wrap;">${escapeHtml(data.businessPurpose)}</p>
-      </div>`
-    : ''
-
-  const equipmentHtml = data.equipmentSummary
-    ? `<div style="margin: 20px 0;">
-        <p style="margin: 0 0 6px; color: #71717a; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px;">Equipment</p>
-        <p style="margin: 0; color: #3f3f46; line-height: 1.6; white-space: pre-wrap;">${escapeHtml(data.equipmentSummary)}</p>
-      </div>`
-    : ''
-
-  return {
-    subject: `Funding Request: ${safeNumber} — ${escapeHtml(data.amountRequested)}`,
-    html: baseLayout(`
-      <h2 style="margin: 0 0 16px; color: #18181b; font-size: 20px;">Equipment Funding Request</h2>
-      <p style="color: #3f3f46; line-height: 1.6;">
-        A funding request has been submitted for accounting review. The complete request form is attached as a PDF.
-      </p>
-      <div style="margin: 20px 0; padding: 16px; background: #f4f4f5; border-radius: 8px;">
-        <h3 style="margin: 0 0 4px; color: #18181b; font-size: 18px;">${safeNumber}</h3>
-        <p style="margin: 0; color: #71717a; font-size: 14px;">${escapeHtml(data.customer || 'General inventory')}</p>
-      </div>
-      ${purposeHtml}
-      ${equipmentHtml}
-      <table style="width: 100%; margin: 20px 0; border-collapse: collapse;">
-        ${detailsHtml}
-      </table>
-      ${markersHtml}
-      ${supportingHtml}
-      <div style="text-align: center; margin: 24px 0;">
-        <a href="${requestUrl}" style="background: #18181b; color: #ffffff; padding: 12px 32px; border-radius: 6px; text-decoration: none; font-weight: 500; display: inline-block;">
-          View Funding Request
-        </a>
-      </div>
-      <p style="color: #71717a; font-size: 14px; line-height: 1.6;">
-        This is an automated notification from VFXNow AMC.
-      </p>
-    `),
-  }
+  return email(`Funding request: ${data.requestNumber} — ${data.amountRequested}`, {
+    audience: 'staff',
+    preheader: `${data.requestedBy} asks for ${data.amountRequested}${data.customer ? ` for ${data.customer}` : ''}. The form is attached.`,
+    eyebrow: 'Funding request',
+    title: `${data.requestNumber} — ${data.amountRequested}`,
+    subtitle: data.customer || 'General inventory',
+    body: [
+      paragraph('A funding request has been submitted for accounting review. The complete request form is attached as a PDF.'),
+      data.businessPurpose ? callout(quoted(data.businessPurpose), { title: 'Business purpose' }) : '',
+      data.equipmentSummary ? callout(quoted(data.equipmentSummary), { title: 'Equipment' }) : '',
+      facts([
+        { label: 'Amount requested', value: data.amountRequested },
+        data.purchaseType ? { label: 'Purchase type', value: data.purchaseType } : null,
+        { label: 'Equipment cost', value: data.equipmentCost },
+        { label: 'Line items', value: String(data.itemCount) },
+        { label: 'Requested by', value: data.requestedBy },
+        { label: 'Request date', value: data.requestDate },
+        data.neededByDate ? { label: 'Funding needed by', value: data.neededByDate } : null,
+        data.customer ? { label: 'Customer / project', value: data.customer } : null,
+        data.commitment ? { label: 'Customer commitment', value: data.commitment } : null,
+        data.customerRentalCharge ? { label: 'Customer rental charge', value: data.customerRentalCharge } : null,
+        data.lender ? { label: 'Lender / source', value: data.lender } : null,
+        data.monthlyPayment ? { label: 'Monthly payment', value: data.monthlyPayment } : null,
+        data.submittedBy ? { label: 'Submitted by', value: data.submittedBy } : null,
+      ]),
+      markers.length
+        ? callout(`<span style="font-size:13px;">Estimates from the figures on the request — not measured returns.</span><br>${markers.join('<br>')}`, { tone: 'success' })
+        : '',
+      supporting.length ? callout(supporting.join('<br>'), { title: 'Supporting documents' }) : '',
+    ].join(''),
+    cta: { label: 'Open the funding request', url: `/dashboard/funding/${encodeURIComponent(data.requestId)}` },
+  })
 }
 
 // ============================================
@@ -2061,56 +1129,29 @@ export type ApprovalRequestedEmailData = {
  * clicked it, so there is no approve button here.
  */
 export function approvalRequestedEmail(data: ApprovalRequestedEmailData) {
-  const row = (label: string, value: string) => `
-    <tr style="border-top: 1px solid #e4e4e7;">
-      <td style="padding: 8px 0; color: #71717a; font-size: 14px;">${escapeHtml(label)}</td>
-      <td style="padding: 8px 0; text-align: right; font-weight: 600; color: #18181b;">${escapeHtml(value)}</td>
-    </tr>`
-
-  const facts = [
-    row('Amount', data.amount),
-    row('Asked by', data.requestedBy),
-    ...(data.party ? [row(data.party.label, data.party.value)] : []),
-    ...data.facts.map((fact) => row(fact.label, fact.value)),
-  ].join('')
-
-  const block = (label: string, text: string) => `
-    <div style="margin: 20px 0;">
-      <p style="margin: 0 0 6px; color: #71717a; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px;">${escapeHtml(label)}</p>
-      <p style="margin: 0; color: #3f3f46; line-height: 1.6; white-space: pre-wrap;">${escapeHtml(text)}</p>
-    </div>`
-
-  const linesHtml = data.lines.length
-    ? `<div style="margin: 20px 0; padding: 14px 16px; background: #f4f4f5; border-radius: 8px; color: #3f3f46; font-size: 14px; line-height: 1.7;">
-        ${data.lines.map((line) => escapeHtml(line)).join('<br />')}
-      </div>`
-    : ''
-
-  return {
-    subject: `Approval needed: ${data.recordLabel} — ${data.amount}`,
-    html: baseLayout(`
-      <h2 style="margin: 0 0 16px; color: #18181b; font-size: 20px;">A ${escapeHtml(data.noun)} is waiting on you</h2>
-      <p style="color: #3f3f46; line-height: 1.6;">
-        Hi ${escapeHtml(data.recipientName)}, ${escapeHtml(data.requestedBy)} needs an approver's yes on
-        <strong>${escapeHtml(data.recordLabel)}</strong>. Until one of you decides, it is held:
-        ${escapeHtml(data.releases.charAt(0).toLowerCase() + data.releases.slice(1))} waits.
-      </p>
-      ${data.note ? block('Asked because', data.note) : ''}
-      ${data.why ? block('What it is for', data.why) : ''}
-      <table style="width: 100%; margin: 20px 0; border-collapse: collapse;">
-        ${facts}
-      </table>
-      ${linesHtml}
-      <div style="text-align: center; margin: 24px 0;">
-        <a href="${escapeHtml(data.url)}" style="background: #18181b; color: #ffffff; padding: 12px 32px; border-radius: 6px; text-decoration: none; font-weight: 500; display: inline-block;">
-          Review ${escapeHtml(data.recordLabel)}
-        </a>
-      </div>
-      <p style="color: #71717a; font-size: 14px; line-height: 1.6;">
-        Approve or deny it on the record. A denial needs a reason, and the reason goes back to ${escapeHtml(data.requestedBy)}.
-      </p>
-    `),
-  }
+  const releases = data.releases.charAt(0).toLowerCase() + data.releases.slice(1)
+  return email(`Approval needed: ${data.recordLabel} — ${data.amount}`, {
+    audience: 'staff',
+    preheader: `${data.requestedBy} needs a yes on ${data.recordLabel} at ${data.amount}.`,
+    eyebrow: 'Approval needed',
+    title: `A ${data.noun} is waiting on you`,
+    subtitle: `${data.recordLabel} · ${data.amount}`,
+    body: [
+      greeting(data.recipientName),
+      paragraph(`${escapeHtml(data.requestedBy)} needs an approver&rsquo;s yes on ${strong(data.recordLabel)}. Until one of you decides, it is held: ${escapeHtml(releases)} waits.`),
+      data.note ? callout(quoted(data.note), { tone: 'accent', title: 'Asked because' }) : '',
+      data.why ? callout(quoted(data.why), { title: 'What it is for' }) : '',
+      facts([
+        { label: 'Amount', value: data.amount },
+        { label: 'Asked by', value: data.requestedBy },
+        data.party ? { label: data.party.label, value: data.party.value } : null,
+        ...data.facts.map((fact) => ({ label: fact.label, value: fact.value })),
+      ]),
+      data.lines.length ? section('Lines') + callout(data.lines.map((line) => escapeHtml(line)).join('<br>')) : '',
+      paragraph(`Approve or deny it on the record. A denial needs a reason, and the reason goes back to ${escapeHtml(data.requestedBy)}.`, { muted: true, small: true }),
+    ].join(''),
+    cta: { label: `Review ${data.recordLabel}`, url: data.url },
+  })
 }
 
 export type ApprovalDecidedEmailData = {
@@ -2129,27 +1170,60 @@ export type ApprovalDecidedEmailData = {
 /** The answer, back to whoever asked. */
 export function approvalDecidedEmail(data: ApprovalDecidedEmailData) {
   const verdict = data.approved ? 'approved' : 'denied'
-  const reasonHtml = data.reason
-    ? `<div style="margin: 20px 0; padding: 14px 16px; background: ${data.approved ? '#f0fdf4' : '#fef2f2'}; border-radius: 8px; color: #3f3f46; font-size: 14px; line-height: 1.6; white-space: pre-wrap;">
-        <strong style="color: #18181b;">${data.approved ? 'Note' : 'Why'}</strong><br />${escapeHtml(data.reason)}
-      </div>`
-    : ''
+  return email(`${data.approved ? 'Approved' : 'Denied'}: ${data.recordLabel} — ${data.amount}`, {
+    audience: 'staff',
+    preheader: `${data.decidedBy} ${verdict} ${data.recordLabel} at ${data.amount}.`,
+    eyebrow: data.approved ? 'Approved' : 'Denied',
+    title: `${data.recordLabel} was ${verdict}`,
+    body: [
+      greeting(data.recipientName),
+      paragraph(`${escapeHtml(data.decidedBy)} ${verdict} the ${escapeHtml(data.noun)} you asked about, at ${strong(data.amount)}.`),
+      data.reason ? callout(quoted(data.reason), { tone: data.approved ? 'success' : 'danger', title: data.approved ? 'Note' : 'Why' }) : '',
+      paragraph(escapeHtml(data.next)),
+    ].join(''),
+    cta: { label: `Open ${data.recordLabel}`, url: data.url },
+  })
+}
 
-  return {
-    subject: `${data.approved ? 'Approved' : 'Denied'}: ${data.recordLabel} — ${data.amount}`,
-    html: baseLayout(`
-      <h2 style="margin: 0 0 16px; color: #18181b; font-size: 20px;">${escapeHtml(data.recordLabel)} was ${verdict}</h2>
-      <p style="color: #3f3f46; line-height: 1.6;">
-        Hi ${escapeHtml(data.recipientName)}, ${escapeHtml(data.decidedBy)} ${verdict} the ${escapeHtml(data.noun)}
-        you asked about, at <strong>${escapeHtml(data.amount)}</strong>.
-      </p>
-      ${reasonHtml}
-      <p style="color: #3f3f46; line-height: 1.6;">${escapeHtml(data.next)}</p>
-      <div style="text-align: center; margin: 24px 0;">
-        <a href="${escapeHtml(data.url)}" style="background: #18181b; color: #ffffff; padding: 12px 32px; border-radius: 6px; text-decoration: none; font-weight: 500; display: inline-block;">
-          Open ${escapeHtml(data.recordLabel)}
-        </a>
-      </div>
-    `),
-  }
+// ============================================
+// THE SPECIMEN — Settings → Notifications → Send a test email
+// ============================================
+
+/**
+ * One message that uses every block, so a test send shows the whole layout in
+ * the client it lands in. Its figures are labelled as samples on purpose: an
+ * email that looks like a real report and carries invented numbers is exactly
+ * the kind of thing that gets forwarded.
+ */
+export function layoutSpecimenEmail(data: { sentBy: string; sentAt: string; appUrl: string; from: string; redirect: string | null }) {
+  return email('VFXNow AMC — test email', {
+    audience: 'staff',
+    preheader: 'A test of the email layout, sent from Settings → Notifications.',
+    eyebrow: 'Test email',
+    title: 'This is what our email looks like',
+    subtitle: `Sent by ${data.sentBy} · ${data.sentAt}`,
+    body: [
+      paragraph('Every message the app sends — quotes, approvals, reports, digests — is drawn in this layout. This one uses each building block once so you can check how your mail client renders them.'),
+      callout(`Every figure below is a ${strong('sample')}, not data.`, { tone: 'warning', title: 'Sample content' }),
+      stats([
+        { label: 'Sample', value: '128' },
+        { label: 'Sample', value: '$4,200', tone: 'success' },
+        { label: 'Sample', value: '3', tone: 'danger', sub: 'late' },
+      ]),
+      section('Details'),
+      facts([
+        { label: 'Sent from', value: data.from },
+        { label: 'Links point at', value: data.appUrl },
+        { label: 'Test redirect', value: data.redirect ?? 'off — mail goes to its real recipient', tone: data.redirect ? undefined : 'danger' },
+      ]),
+      section('A table'),
+      table(
+        [{ label: 'Item' }, { label: 'Qty', align: 'center', width: '50px' }, { label: 'Amount', align: 'right' }],
+        [{ group: 'Sample group' }, [cell('Sample line', { sub: 'second line' }), cell('2'), cell('$0.00', { bold: true })], [cell('Another sample line'), cell('1'), cell('$0.00', { bold: true })]],
+      ),
+      callout('A success note.', { tone: 'success' }),
+      callout('A problem that needs attention.', { tone: 'danger' }),
+    ].join(''),
+    cta: { label: 'Open notification settings', url: '/dashboard/settings/notifications' },
+  })
 }
