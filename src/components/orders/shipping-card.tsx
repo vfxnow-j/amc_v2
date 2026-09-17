@@ -3,7 +3,8 @@ import { EditShipping } from "@/components/orders/shipping-edit";
 import { dayYear, moneyExact } from "@/lib/format";
 import { getOrderShipping, type ShippingLeg } from "@/lib/queries/order-shipping";
 import type { ShippingDetails } from "@/lib/actions/order-stage";
-import { CARRIED, METHOD_LABEL } from "@/lib/orders/shipping";
+import { CARRIED, METHOD_LABEL, SPEED } from "@/lib/orders/shipping";
+import { businessToday, toDateInput } from "@/lib/billing/calendar";
 
 function Leg({ title, leg }: { title: string; leg: ShippingLeg }) {
   const carried = leg.method !== null && CARRIED.includes(leg.method);
@@ -101,7 +102,10 @@ export async function ShippingCard({
     shippingMarginType: shipping.marginType,
     shippingMargin: shipping.margin,
     deliveryNotes: shipping.notes ?? "",
+    shipSpeed: shipping.shipSpeed,
+    shipDate: shipping.shipDateOverride ? toDateInput(shipping.shipDateOverride) : "",
   };
+  const late = shipping.shipBy !== null && !shipping.shipped && shipping.shipBy.date < businessToday();
 
   const marginNote =
     shipping.marginType === "PERCENTAGE"
@@ -114,7 +118,7 @@ export async function ShippingCard({
     <Card
       title="Shipping"
       meta={shipping.empty ? undefined : marginNote}
-      action={canEdit ? <EditShipping id={id} shipping={draft} /> : undefined}
+      action={canEdit ? <EditShipping id={id} shipping={draft} startDate={toDateInput(shipping.startDate)} /> : undefined}
     >
       {shipping.empty ? (
         <CardEmpty>
@@ -125,6 +129,42 @@ export async function ShippingCard({
       ) : (
         <div className="flex flex-col gap-4 px-4 pb-4">
           <Leg title="Going out" leg={shipping.delivery} />
+          {shipping.shipSpeed || shipping.shipBy ? (
+            <div className="grid gap-2 sm:grid-cols-2">
+              <Field label="Speed">
+                {shipping.shipSpeed ? (
+                  <>
+                    {SPEED[shipping.shipSpeed].label}
+                    <span className="block text-micro text-ink-faint">
+                      {SPEED[shipping.shipSpeed].transitDays === 0
+                        ? "arrives the day it ships"
+                        : `${SPEED[shipping.shipSpeed].transitDays} business ${SPEED[shipping.shipSpeed].transitDays === 1 ? "day" : "days"} in transit`}
+                    </span>
+                  </>
+                ) : (
+                  <Unset />
+                )}
+              </Field>
+              <Field label="Ship by">
+                {shipping.shipBy ? (
+                  <>
+                    <span className={late ? "font-bold text-destructive" : ""}>{dayYear(shipping.shipBy.date)}</span>
+                    <span className="block text-micro text-ink-faint">
+                      {shipping.shipped
+                        ? "shipped"
+                        : late
+                          ? "past its ship date and not shipped"
+                          : shipping.shipBy.manual
+                            ? "set by hand"
+                            : `to arrive for the ${dayYear(shipping.startDate)} start`}
+                    </span>
+                  </>
+                ) : (
+                  <Unset />
+                )}
+              </Field>
+            </div>
+          ) : null}
           <Leg title="Coming back" leg={shipping.return} />
 
           {shipping.address ? (

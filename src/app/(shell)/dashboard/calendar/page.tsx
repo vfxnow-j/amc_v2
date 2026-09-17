@@ -49,6 +49,17 @@ function DayCell({ day, today }: { day: CalendarDay; today: Date }) {
       >
         {day.date.getDate()}
       </span>
+      {/* Observed US holiday. Where the carriers close, nothing ships that
+          day and ship dates already step over it (lib/orders/shipping). */}
+      {day.holiday ? (
+        <span
+          title={day.holiday.carrierClosed ? `${day.holiday.name} — carriers closed` : day.holiday.name}
+          className="-mt-1 truncate text-micro text-ink-faint"
+        >
+          {day.holiday.name}
+          {day.holiday.carrierClosed ? " · no shipping" : ""}
+        </span>
+      ) : null}
 
       {shown.length === 0 ? null : (
         <ul className="flex flex-col gap-[2px]">
@@ -73,6 +84,7 @@ async function Month({ year, month }: { year: number; month: number }) {
   const going = days.reduce((sum, day) => sum + (day.inMonth ? day.going.length : 0), 0);
   const coming = days.reduce((sum, day) => sum + (day.inMonth ? day.coming.length : 0), 0);
   const expiring = days.reduce((sum, day) => sum + (day.inMonth ? day.expiring.length : 0), 0);
+  const shipping = days.reduce((sum, day) => sum + (day.inMonth ? day.shipping.length : 0), 0);
 
   const previous = new Date(year, month - 1, 1);
   const next = new Date(year, month + 1, 1);
@@ -84,6 +96,7 @@ async function Month({ year, month }: { year: number; month: number }) {
       <header className="flex items-center gap-3 px-2 pb-3">
         <h2 className="text-card-title">{MONTH_LABEL.format(monthStart)}</h2>
         <span className="text-detail text-ink-muted">
+          {shipping > 0 ? `${shipping} to ship · ` : ""}
           {going} out · {coming} back
           {expiring > 0
             ? ` · ${expiring} ${expiring === 1 ? "quote expires" : "quotes expire"}`

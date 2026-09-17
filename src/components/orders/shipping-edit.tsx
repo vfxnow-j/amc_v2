@@ -13,7 +13,14 @@ import {
   BACK_METHODS,
   METHOD_LABEL,
   OUT_METHODS,
+  SPEED,
+  SPEEDS_FOR,
+  shipByDate,
+  type ShippingSpeed,
 } from "@/lib/orders/shipping";
+import { parseDateInput, toDateInput } from "@/lib/billing/calendar";
+
+const DAY = new Intl.DateTimeFormat("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
 import type { DeliveryMethod } from "@/generated/prisma/client";
 
 const FIELD =
@@ -76,16 +83,21 @@ function MethodPicker({
  * that `computeReservationFinancials` applies to delivery and return alike.
  * Rendering two controls would imply a split the schema cannot keep.
  *
- * Dates are deliberately absent. `deliveryDate` and `returnDate` are set by the
- * stage moves when the order actually ships and comes back; letting someone
- * type them here would let the record claim a delivery that never happened.
+ * Delivery and return dates are deliberately absent. `deliveryDate` and
+ * `returnDate` are set by the stage moves when the order actually ships and
+ * comes back; letting someone type them here would let the record claim a
+ * delivery that never happened. The *ship by* date is different — a plan, not a
+ * record — so it is here: worked out from the speed, or typed by hand.
  */
 export function EditShipping({
   id,
   shipping,
+  startDate,
 }: {
   id: string;
   shipping: ShippingDetails;
+  /** The order's start, `YYYY-MM-DD` — what the kit has to arrive for. */
+  startDate: string;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -159,7 +171,17 @@ export function EditShipping({
                   <MethodPicker
                     value={draft.deliveryMethod}
                     options={OUT_METHODS}
-                    onChange={(next) => set("deliveryMethod", next)}
+                    onChange={(next) =>
+                      setDraft((current) => ({
+                        ...current,
+                        deliveryMethod: next,
+                        shipSpeed:
+                          next && current.shipSpeed && (SPEEDS_FOR[next] ?? []).includes(current.shipSpeed)
+                            ? current.shipSpeed
+                            : null,
+                        shipDate: next === "CUSTOMER_PICKUP" || next === null ? "" : current.shipDate,
+                      }))
+                    }
                   />
                 </Label>
                 <Label text="Cost">
@@ -183,6 +205,55 @@ export function EditShipping({
                     className={FIELD}
                   />
                 </Label>
+                {(() => {
+                  const offered = draft.deliveryMethod ? (SPEEDS_FOR[draft.deliveryMethod] ?? []) : [];
+                  if (offered.length === 0) return null;
+                  const start = parseDateInput(startDate);
+                  const worked = start && draft.shipSpeed ? shipByDate(start, draft.shipSpeed) : null;
+                  return (
+                    <>
+                      <Label text="Speed">
+                        <select
+                          value={draft.shipSpeed ?? ""}
+                          onChange={(event) =>
+                            set("shipSpeed", event.target.value ? (event.target.value as ShippingSpeed) : null)
+                          }
+                          className={FIELD}
+                        >
+                          <option value="">Not decided</option>
+                          {offered.map((speed) => (
+                            <option key={speed} value={speed}>
+                              {SPEED[speed].label}
+                              {SPEED[speed].transitDays > 0 ? ` · ${SPEED[speed].transitDays} business days` : ""}
+                            </option>
+                          ))}
+                        </select>
+                      </Label>
+                      <Label text="Ship by">
+                        <input
+                          type="date"
+                          value={draft.shipDate || (worked ? toDateInput(worked) : "")}
+                          onChange={(event) => set("shipDate", event.target.value)}
+                          className={`${FIELD} tabular-nums`}
+                        />
+                        <span className="text-micro text-ink-faint">
+                          {draft.shipDate ? (
+                            <>
+                              Set by hand.{" "}
+                              <button type="button" onClick={() => set("shipDate", "")} className="text-accent-text hover:underline">
+                                {worked ? `Use ${DAY.format(worked)} from the speed` : "Clear"}
+                              </button>
+                            </>
+                          ) : worked ? (
+                            `Worked out from the ${start ? DAY.format(start) : ""} start. Change it to set it by hand.`
+                          ) : (
+                            "Choose a speed to work it out, or set a date."
+                          )}
+                        </span>
+                      </Label>
+                    </>
+                  );
+                })()}
                 <Label text="Tracking number">
                   <input
                     value={draft.deliveryTrackingNumber}

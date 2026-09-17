@@ -913,6 +913,17 @@ enum DeliveryMethod {
   FREIGHT
 }
 
+/// Outbound shipping speed. Transit business days live in lib/orders/shipping.ts.
+enum ShippingSpeed {
+  SAME_DAY
+  OVERNIGHT
+  TWO_DAY
+  THREE_DAY
+  GROUND
+  FREIGHT_EXPEDITED
+  FREIGHT_STANDARD
+}
+
 enum DiscountType {
   PERCENTAGE
   FIXED
@@ -991,6 +1002,11 @@ model Reservation {
   deliveryMethod           DeliveryMethod?
   deliveryAddress          String?
   deliveryDate             DateTime?
+  /// How fast the outbound leg travels (v2-only). With the order's start date
+  /// it gives the day the kit has to leave — see lib/orders/shipping.ts.
+  shipSpeed                ShippingSpeed?
+  /// A ship date typed by hand, overriding the one the speed works out (v2-only).
+  shipDate                 DateTime?
   deliveryCost             Decimal?        @db.Decimal(12, 2)
   deliveryCourier          String?
   deliveryNotes            String?

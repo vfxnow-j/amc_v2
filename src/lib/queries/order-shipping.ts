@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { applyShippingMargin } from "@/lib/pricing/financials";
 import type { DeliveryMethod } from "@/generated/prisma/client";
+import { effectiveShipDate, type ShippingSpeed } from "@/lib/orders/shipping";
 
 /**
  * What the order says about getting the kit there and back.
@@ -38,6 +39,13 @@ export type OrderShipping = {
   internalCost: number;
   /** True when not one field has ever been set — the card says so plainly. */
   empty: boolean;
+  /** Outbound speed and the day it has to ship to arrive for the start. */
+  shipSpeed: ShippingSpeed | null;
+  shipDateOverride: Date | null;
+  shipBy: { date: Date; manual: boolean } | null;
+  startDate: Date;
+  /** Shipped or further along: the ship date is history, not a deadline. */
+  shipped: boolean;
 };
 
 export async function getOrderShipping(
@@ -61,6 +69,10 @@ export async function getOrderShipping(
       shippingMarginType: true,
       shippingMargin: true,
       internalShippingCost: true,
+      shipSpeed: true,
+      shipDate: true,
+      startDate: true,
+      status: true,
     },
   });
   if (!order) return null;
@@ -84,6 +96,7 @@ export async function getOrderShipping(
     order.deliveryTrackingNumber === null &&
     order.returnTrackingNumber === null &&
     order.deliveryNotes === null &&
+    order.shipSpeed === null &&
     deliveryCost === 0 &&
     returnCost === 0;
 
@@ -110,5 +123,10 @@ export async function getOrderShipping(
     margin,
     internalCost: Number(order.internalShippingCost) || 0,
     empty,
+    shipSpeed: order.shipSpeed,
+    shipDateOverride: order.shipDate,
+    shipBy: effectiveShipDate(order),
+    startDate: order.startDate,
+    shipped: ["SHIPPED", "ACTIVE", "COMPLETED"].includes(order.status),
   };
 }

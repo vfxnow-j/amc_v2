@@ -1,6 +1,8 @@
 import { cache } from "react";
 import { endOfDay, startOfDay } from "date-fns";
 import type { Prisma, ReservationStatus } from "@/generated/prisma/client";
+import { effectiveShipDate } from "@/lib/orders/shipping";
+import { clientLabel } from "@/lib/clients/label";
 import { prisma } from "@/lib/prisma";
 
 /**
@@ -86,13 +88,16 @@ export const getOutgoing = cache(async function getOutgoing(
       id: true,
       reservationNumber: true,
       startDate: true,
+      shipSpeed: true,
+      shipDate: true,
       status: true,
       projectName: true,
-      client: { select: { name: true } },
+      client: { select: { name: true, companyName: true } },
       items: {
-        // Asset-backed top-level lines only. Component sub-items are pricing
-        // rows, and service or cloud lines have nothing to pull.
-        where: { assetId: { not: null }, parentId: null },
+        // Asset-backed lines, including a part chosen from stock under a
+        // configured machine (a GPU) — it is pulled and scanned like the
+        // machine. Spec parts and service or cloud lines have no asset.
+        where: { assetId: { not: null }, OR: [{ packageId: null }, { package: { isActive: true } }] },
         select: { quantity: true, checkedOutCount: true },
       },
     },
@@ -109,18 +114,21 @@ export const getOutgoing = cache(async function getOutgoing(
     }))
     .filter((entry) => entry.units > 0);
 
-  const due = outstanding.filter((entry) => entry.order.startDate <= cutoff);
+  // The day it has to leave: its ship date when a speed or a date is set
+  // (owner, 2026-09-17), otherwise the start as before.
+  const shipBy = (order: (typeof orders)[number]) => effectiveShipDate(order)?.date ?? order.startDate;
+  const due = outstanding.filter((entry) => shipBy(entry.order) <= cutoff);
   const upcoming = outstanding.length - due.length;
 
   const rows: OutgoingRow[] = due.map(({ order, units }) => ({
     reservationId: order.id,
     reservationNumber: order.reservationNumber,
-    clientName: order.client.name,
+    clientName: clientLabel(order.client),
     projectName: order.projectName,
     units,
     start: order.startDate,
     status: order.status,
-    daysLate: Math.max(0, daysBetween(order.startDate, now)),
+    daysLate: Math.max(0, daysBetween(shipBy(order), now)),
   }));
 
   return {
@@ -186,7 +194,7 @@ export async function getIncoming(
               reservationNumber: true,
               endDate: true,
               projectName: true,
-              client: { select: { name: true } },
+              client: { select: { name: true, companyName: true } },
             },
           },
         },
@@ -207,7 +215,7 @@ export async function getIncoming(
     byOrder.set(order.id, {
       reservationId: order.id,
       reservationNumber: order.reservationNumber,
-      clientName: order.client.name,
+      clientName: clientLabel(order.client),
       projectName: order.projectName,
       units: 1,
       due: order.endDate,

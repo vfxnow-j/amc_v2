@@ -222,11 +222,70 @@ export async function updateBuildComponent(
   if (patch.quantity != null && (!Number.isInteger(patch.quantity) || patch.quantity < 1)) {
     return { status: "error", message: "A part goes in at least once." };
   }
+  if (patch.label !== undefined && !patch.label.trim()) {
+    return { status: "error", message: "A spec option needs a name." };
+  }
 
   try {
-    const row = await prisma.assetComponent.update({ where: { id }, data: patch });
+    const row = await prisma.assetComponent.update({
+      where: { id },
+      data: { ...patch, ...(patch.label !== undefined ? { label: patch.label.trim() } : {}) },
+    });
     revalidateBuild(row.assetId);
     return { status: "ok", message: "Build updated." };
+  } catch (error) {
+    return { status: "error", message: reasonFrom(error) };
+  }
+}
+
+/**
+ * Change what an option *is*: rename a spec option, point an asset option at a
+ * different asset, or turn one kind into the other. Orders already configured
+ * keep the part rows they have — a line's parts are matched to options by asset
+ * or name, so a renamed or swapped option simply stops matching the old row,
+ * which the Configure dialog then lists as "also on this line, unchanged".
+ */
+export async function editBuildOption(
+  id: string,
+  input: { slot: ConfigSlot; componentAssetId: string | null; label: string | null },
+): Promise<BuildOutcome> {
+  const auth = await requireEditor();
+  if (!auth.authorized) return { status: "error", message: auth.error ?? "Unauthorized" };
+
+  const row = await prisma.assetComponent.findUnique({ where: { id }, select: { assetId: true } });
+  if (!row) return { status: "error", message: "That option no longer exists." };
+
+  const label = input.label?.trim() ?? "";
+  if (!input.componentAssetId && !label) {
+    return { status: "error", message: "An option is either an asset or a named spec like “128GB DDR5”." };
+  }
+  if (input.componentAssetId) {
+    if (input.componentAssetId === row.assetId) {
+      return { status: "error", message: "A SKU cannot be a part of itself." };
+    }
+    const nested = await prisma.assetComponent.count({ where: { assetId: input.componentAssetId } });
+    if (nested > 0) {
+      return { status: "error", message: "That asset has a build of its own, so it can't be a part. Nesting is one level deep." };
+    }
+    const duplicate = await prisma.assetComponent.count({
+      where: { assetId: row.assetId, componentAssetId: input.componentAssetId, id: { not: id } },
+    });
+    if (duplicate > 0) return { status: "error", message: "That asset is already an option on this item." };
+  }
+
+  try {
+    await prisma.assetComponent.update({
+      where: { id },
+      data: {
+        slot: input.slot,
+        componentAssetId: input.componentAssetId,
+        label: input.componentAssetId ? null : label,
+        // Only an asset has units to scan; GPUs and add-ons are scanned out, as on add.
+        tracked: Boolean(input.componentAssetId) && (input.slot === "GPU" || input.slot === "ADDON"),
+      },
+    });
+    revalidateBuild(row.assetId);
+    return { status: "ok", message: "Option updated." };
   } catch (error) {
     return { status: "error", message: reasonFrom(error) };
   }
@@ -419,6 +478,8 @@ export type LineOption = {
   /** Units scanned out against it on this line — it can't be taken off. */
   out: number;
   tracked: boolean;
+  /** Chosen from stock: an asset whose units are scanned with the machine. */
+  asset: boolean;
 };
 
 export type LineConfiguration = {
@@ -502,6 +563,7 @@ export async function getLineConfiguration(
       selected: part ? perMachine : 0,
       out: part?.checkedOutCount ?? 0,
       tracked: option.tracked,
+      asset: option.componentAssetId !== null,
     };
   });
 
@@ -524,7 +586,7 @@ export async function getLineConfiguration(
  * with, and how many of each per machine.
  *
  * Each option's part row under the line is created, re-quantified or removed to
- * match. Memory and storage are one choice per slot. A part with units already
+ * match. Memory is one choice; storage, GPUs and add-ons take several. A part with units already
  * scanned out against it can't be removed or reduced below them. Parts that
  * match no option (older orders' free-text spec lines) are left as they are.
  * The order is repriced once at the end.
@@ -551,14 +613,10 @@ export async function configureLine(
     }
     if (selection.quantity > 0) wanted.set(selection.optionId, selection.quantity);
   }
-  for (const slot of ["MEMORY", "STORAGE"] as const) {
-    const chosen = options.filter((option) => option.slot === slot && wanted.has(option.id));
-    if (chosen.length > 1) {
-      return {
-        status: "error",
-        message: `Choose one ${slot === "MEMORY" ? "memory" : "storage"} configuration.`,
-      };
-    }
+  // Memory is one configuration per machine. Storage takes several — a base
+  // drive plus an extra one (owner, 2026-09-17).
+  if (options.filter((option) => option.slot === "MEMORY" && wanted.has(option.id)).length > 1) {
+    return { status: "error", message: "Choose one memory configuration." };
   }
 
   const { calculatePeriods } = await import("@/lib/actions/reservations");

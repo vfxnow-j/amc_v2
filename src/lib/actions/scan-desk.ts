@@ -1,5 +1,6 @@
 "use server";
 
+import { clientLabel } from "@/lib/clients/label";
 import { requireEditor } from "@/lib/auth-utils";
 import { getOutgoing } from "@/lib/queries/today";
 import { getReservationHeader } from "@/lib/queries/reservation-record";
@@ -19,9 +20,9 @@ import type { ReservationStatus, ReservationType } from "@/generated/prisma/clie
  * out of the door" for the Calendar queues, and `getReservationHeader` already
  * returns the number, client, dates, type, status and unit progress the confirm
  * step needs. A second version of either would be a second definition of what
- * counts as outstanding, and there is exactly one — `{assetId: not null,
- * parentId: null}` — shared by `markShipped`, `getOutgoing` and the order
- * record's handover figure.
+ * counts as outstanding, and there is exactly one — asset-backed lines on the
+ * active option, including parts chosen from stock under a machine — shared by
+ * `markShipped`, `getOutgoing` and the order record's handover figure.
  */
 
 export type ScanOrderRow = {
@@ -103,9 +104,9 @@ export async function scanOrderSearch(query: string): Promise<ScanOrderRow[]> {
       reservationNumber: true,
       projectName: true,
       status: true,
-      client: { select: { name: true } },
+      client: { select: { name: true, companyName: true } },
       items: {
-        where: { assetId: { not: null }, parentId: null },
+        where: { assetId: { not: null }, OR: [{ packageId: null }, { package: { isActive: true } }] },
         select: { quantity: true, checkedOutCount: true },
       },
     },
@@ -114,11 +115,11 @@ export async function scanOrderSearch(query: string): Promise<ScanOrderRow[]> {
   return rows.map((row) => ({
     id: row.id,
     number: row.reservationNumber,
-    clientName: row.client.name,
+    clientName: clientLabel(row.client),
     projectName: row.projectName,
     status: row.status,
-    // The same shortfall the ship gate counts: services and component rows can
-    // never be scanned, so they are not outstanding.
+    // The same shortfall the ship gate counts: asset lines, including parts
+    // chosen from stock; services and spec parts can never be scanned.
     unitsOutstanding: row.items.reduce(
       (sum, item) => sum + Math.max(0, item.quantity - item.checkedOutCount),
       0,

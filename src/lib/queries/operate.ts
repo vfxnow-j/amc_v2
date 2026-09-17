@@ -2,6 +2,10 @@ import type { MaintenanceStatus, Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { OPEN_CHECKOUT } from "@/lib/inventory/availability";
 import { ARCHIVE_STATUSES, QUOTE_STATUSES } from "@/lib/reservations/status";
+import { effectiveShipDate } from "@/lib/orders/shipping";
+import { holidayOnLocal, type Holiday } from "@/lib/calendar/holidays";
+import { clientContact, clientLabel } from "@/lib/clients/label";
+import { businessToday } from "@/lib/billing/calendar";
 
 /** Queries behind the Operate cluster and the Service center's maintenance log. */
 
@@ -78,9 +82,15 @@ export async function findUnitByCode(code: string) {
 export type CalendarOrder = {
   id: string;
   reservationNumber: string;
+  /** The company when recorded, else the client name (lib/clients/label). */
   clientName: string;
+  /** The contact, when the label is a company — shown on hover. */
+  contactName: string | null;
   /** Still at quote stage — the dates are proposed, not committed. */
   prospect: boolean;
+  /** Ship entries: already shipped (history), or past the date and not shipped. */
+  shipped?: boolean;
+  late?: boolean;
 };
 
 export type CalendarDay = {
@@ -90,6 +100,10 @@ export type CalendarDay = {
   coming: CalendarOrder[];
   /** Quotes whose pricing stops being honored on this day. */
   expiring: CalendarOrder[];
+  /** Orders that have to ship on this day to arrive for their start. */
+  shipping: CalendarOrder[];
+  /** A US holiday observed on this day. */
+  holiday: Holiday | null;
 };
 
 /**
@@ -129,7 +143,7 @@ export async function getCalendarMonth(year: number, month: number) {
     startDate: true,
     endDate: true,
     quoteExpiresAt: true,
-    client: { select: { name: true } },
+    client: { select: { name: true, companyName: true } },
   } as const;
 
   const [starting, ending, expiring] = await Promise.all([
@@ -161,6 +175,22 @@ export async function getCalendarMonth(year: number, month: number) {
     }),
   ]);
 
+  // Ship dates fall before the start, by up to a couple of weeks for standard
+  // freight over a weekend, so the start window reaches past the grid. The
+  // exact day is worked out per order and filtered back into the grid below.
+  const shipWindowEnd = new Date(gridEnd);
+  shipWindowEnd.setDate(shipWindowEnd.getDate() + 16);
+  const shippable = await prisma.reservation.findMany({
+    where: {
+      status: { notIn: ["CANCELLED", "LOST"] },
+      OR: [
+        { shipDate: inGrid },
+        { shipDate: null, shipSpeed: { not: null }, startDate: { gte: gridStart, lt: shipWindowEnd } },
+      ],
+    },
+    select: { ...select, shipSpeed: true, shipDate: true },
+  });
+
   const key = (date: Date) =>
     `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
 
@@ -176,7 +206,8 @@ export async function getCalendarMonth(year: number, month: number) {
       list.push({
         id: order.id,
         reservationNumber: order.reservationNumber,
-        clientName: order.client.name,
+        clientName: clientLabel(order.client),
+        contactName: clientContact(order.client),
         prospect: QUOTE_STATUSES.includes(order.status),
       });
       byDay.set(key(date), list);
@@ -187,6 +218,25 @@ export async function getCalendarMonth(year: number, month: number) {
   const goingByDay = bucket(starting, (order) => order.startDate);
   const comingByDay = bucket(ending, (order) => order.endDate);
   const expiringByDay = bucket(expiring, (order) => order.quoteExpiresAt);
+
+  const today = businessToday();
+  const shippingByDay = new Map<string, CalendarOrder[]>();
+  for (const order of shippable) {
+    const ship = effectiveShipDate(order);
+    if (!ship || ship.date < gridStart || ship.date >= gridEnd) continue;
+    const shipped = ["SHIPPED", "ACTIVE", "COMPLETED"].includes(order.status);
+    const list = shippingByDay.get(key(ship.date)) ?? [];
+    list.push({
+      id: order.id,
+      reservationNumber: order.reservationNumber,
+      clientName: clientLabel(order.client),
+        contactName: clientContact(order.client),
+      prospect: QUOTE_STATUSES.includes(order.status),
+      shipped,
+      late: !shipped && ship.date < today,
+    });
+    shippingByDay.set(key(ship.date), list);
+  }
 
   const days: CalendarDay[] = [];
   for (
@@ -201,6 +251,8 @@ export async function getCalendarMonth(year: number, month: number) {
       going: goingByDay.get(key(date)) ?? [],
       coming: comingByDay.get(key(date)) ?? [],
       expiring: expiringByDay.get(key(date)) ?? [],
+      shipping: shippingByDay.get(key(date)) ?? [],
+      holiday: holidayOnLocal(date),
     });
   }
 

@@ -4,6 +4,9 @@ import { revalidatePath } from "next/cache";
 import { addDays } from "date-fns";
 import { prisma } from "@/lib/prisma";
 import { recurringFor } from "@/lib/orders/recurring";
+import { speedApplies, type ShippingSpeed } from "@/lib/orders/shipping";
+import { handoverShortfall, shortfallMessage, type MissingLine } from "@/lib/orders/handover";
+import { parseDateInput } from "@/lib/billing/calendar";
 import { requireEditor } from "@/lib/auth-utils";
 import {
   activateReservation,
@@ -48,7 +51,20 @@ import type {
 
 export type StageOutcome =
   | { status: "ok"; message: string; href?: string }
-  | { status: "error"; message: string };
+  | { status: "error"; message: string }
+  /** Refused by the stop gap: what is still to check out, for the dialog. */
+  | { status: "blocked"; message: string; move: "activate" | "ship"; missing: MissingLine[] };
+
+/** The stop gap, before anything is saved: every asset checked out. */
+async function notReady(id: string, move: "activate" | "ship"): Promise<StageOutcome | null> {
+  if (move === "activate") {
+    const order = await prisma.reservation.findUnique({ where: { id }, select: { reservationType: true } });
+    if (order?.reservationType === "CLOUD") return null;
+  }
+  const handover = await handoverShortfall(id);
+  if (handover.units === 0) return null;
+  return { status: "blocked", message: shortfallMessage(handover, move), move, missing: handover.missing };
+}
 
 /** The ported actions disagree about how to fail. This is the one reading. */
 function reasonFrom(error: unknown): string {
@@ -327,6 +343,9 @@ export async function shipOrder(
     };
   }
 
+  const blocked = await notReady(id, "ship");
+  if (blocked) return blocked;
+
   try {
     const result = await markShipped(id, email ? { email } : undefined);
     const problem = refusal(result);
@@ -371,6 +390,10 @@ export type ShippingDetails = {
   shippingMarginType: "FIXED" | "PERCENTAGE" | null;
   shippingMargin: number;
   deliveryNotes: string;
+  /** Outbound speed, where the method has one. */
+  shipSpeed: ShippingSpeed | null;
+  /** `YYYY-MM-DD` typed by hand, or "" to work it out from the speed. */
+  shipDate: string;
 };
 
 export async function saveShipping(
@@ -405,6 +428,14 @@ export async function saveShipping(
     };
   }
 
+  if (!speedApplies(shipping.deliveryMethod, shipping.shipSpeed)) {
+    return { status: "error", message: "That speed doesn't apply to this delivery method." };
+  }
+  const shipDate = shipping.shipDate.trim() ? parseDateInput(shipping.shipDate) : null;
+  if (shipping.shipDate.trim() && !shipDate) {
+    return { status: "error", message: "Enter the ship date as a date." };
+  }
+
   try {
     await updateReservation(id, {
       deliveryMethod: shipping.deliveryMethod ?? "",
@@ -420,6 +451,16 @@ export async function saveShipping(
       shippingMargin: shipping.shippingMargin,
       deliveryNotes: shipping.deliveryNotes,
     });
+    // v2-only and not priced, so written directly. A pickup ships nothing.
+    const ships = shipping.deliveryMethod !== null && shipping.deliveryMethod !== "CUSTOMER_PICKUP";
+    await prisma.reservation.update({
+      where: { id },
+      data: {
+        shipSpeed: ships ? shipping.shipSpeed : null,
+        shipDate: ships ? shipDate : null,
+      },
+    });
+    revalidatePath("/dashboard/calendar");
     touch(id);
     return {
       status: "ok",
@@ -597,6 +638,10 @@ export async function activateOrder(
   id: string,
   input?: { terms?: BillingTerms; invoiceNow?: boolean },
 ): Promise<StageOutcome> {
+  // Checked before the terms are saved, so a refused activation changes nothing.
+  const blocked = await notReady(id, "activate");
+  if (blocked) return blocked;
+
   if (input?.terms) {
     const saved = await saveBillingTerms(id, input.terms);
     if (saved.status === "error") return saved;
@@ -629,7 +674,7 @@ export async function activateOrder(
   }
 
   const invoiced = await invoiceOrder(id);
-  if (invoiced.status === "error") {
+  if (invoiced.status !== "ok") {
     return {
       status: "ok",
       message: `Order active. ${cycle} The invoice was not raised: ${invoiced.message}`,

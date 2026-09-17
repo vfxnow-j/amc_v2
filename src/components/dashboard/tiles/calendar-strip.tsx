@@ -47,6 +47,7 @@ export async function CalendarStripTile() {
   const going = week.reduce((sum, day) => sum + day.going.length, 0);
   const coming = week.reduce((sum, day) => sum + day.coming.length, 0);
   const expiring = week.reduce((sum, day) => sum + day.expiring.length, 0);
+  const shipping = week.reduce((sum, day) => sum + day.shipping.length, 0);
 
   const laterInMonth = days
     .slice(weekStart + 7)
@@ -61,9 +62,9 @@ export async function CalendarStripTile() {
       <TileHeader
         title="This week"
         meta={
-          going + coming + expiring === 0
+          shipping + going + coming + expiring === 0
             ? "nothing moves"
-            : `${going} out · ${coming} back${
+            : `${shipping > 0 ? `${shipping} to ship · ` : ""}${going} out · ${coming} back${
                 expiring > 0 ? ` · ${expiring} expiring` : ""
               }`
         }
@@ -71,7 +72,7 @@ export async function CalendarStripTile() {
         hrefLabel="Calendar →"
       />
 
-      {going + coming + expiring === 0 ? (
+      {shipping + going + coming + expiring === 0 ? (
         <Empty>
           Nothing goes out or comes back this week. Orders appear here on the day
           they start and the day they are due back — the Calendar shows the
@@ -129,6 +130,12 @@ function DayColumn({ day, now }: { day: CalendarDay; now: Date }) {
       >
         {WEEKDAY.format(day.date)} {day.date.getDate()}
       </span>
+      {day.holiday ? (
+        <span className="-mt-1 truncate text-micro text-ink-faint" title={day.holiday.name}>
+          {day.holiday.name}
+          {day.holiday.carrierClosed ? " · no shipping" : ""}
+        </span>
+      ) : null}
 
       {shown.map(({ order, kind }) => (
         <CalendarEntry key={`${kind}-${order.id}`} order={order} kind={kind} />

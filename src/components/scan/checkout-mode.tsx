@@ -15,6 +15,8 @@ import {
   type ScanOrderRow,
 } from "@/lib/actions/scan-desk";
 import { shipOrder, activateOrder, completeOrder } from "@/lib/actions/order-stage";
+import { NotReadyDialog } from "@/components/orders/order-actions";
+import type { MissingLine } from "@/lib/orders/handover";
 import { movesFor } from "@/lib/orders/lifecycle";
 import { STATUS_LABEL } from "@/lib/reservations/status";
 import type { Tone } from "@/lib/scan/audio";
@@ -81,6 +83,7 @@ export function CheckoutMode() {
   const [stray, setStray] = useState<{ assetName: string; barcode: string } | null>(null);
   const [notice, setNotice] = useState<{ tone: "ok" | "error"; message: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [notReady, setNotReady] = useState<{ move: "activate" | "ship"; missing: MissingLine[] } | null>(null);
 
   const seq = useRef(0);
   const heldCode = useRef("");
@@ -206,6 +209,12 @@ export function CheckoutMode() {
           ? await activateOrder(brief.id)
           : await completeOrder(brief.id);
     setBusy(false);
+    if (outcome.status === "blocked") {
+      // The stop gap: name what is still to scan, in its own dialog.
+      setNotReady({ move: outcome.move, missing: outcome.missing });
+      void refreshBrief(brief.id);
+      return;
+    }
     setNotice({
       tone: outcome.status === "ok" ? "ok" : "error",
       message: outcome.message,
@@ -351,6 +360,9 @@ export function CheckoutMode() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
+      {notReady ? (
+        <NotReadyDialog move={notReady.move} missing={notReady.missing} onClose={() => setNotReady(null)} />
+      ) : null}
       <section className="flex flex-col gap-3 rounded-card bg-panel p-4 shadow-sm">
         <div className="flex flex-wrap items-baseline gap-2">
           <h2 className="text-card-title">{brief.number}</h2>

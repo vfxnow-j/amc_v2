@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { FileX } from "lucide-react";
+import { FileX, Truck } from "lucide-react";
 import { MoveArrow } from "@/components/move-arrow";
 import type { CalendarDay, CalendarOrder } from "@/lib/queries/operate";
 
@@ -16,14 +16,18 @@ import type { CalendarDay, CalendarOrder } from "@/lib/queries/operate";
  * - **Quote expires** is not a movement, so it gets no arrow at all: a page
  *   with an X. It used to be read as a return, which is the confusion this
  *   component exists to end.
+ * - **Ship** is the day the kit has to leave to arrive for the start — a
+ *   truck, ahead of the order's "out" arrow (owner, 2026-09-17). Red when the
+ *   day has passed and it hasn't shipped; faded once it has.
  *
  * Shared by the Calendar screen and the week strip tile so the two cannot drift
  * the way the arrows once did.
  */
 
-export type CalendarEntryKind = "out" | "back" | "expires";
+export type CalendarEntryKind = "ship" | "out" | "back" | "expires";
 
 const KIND_LABEL: Record<CalendarEntryKind, string> = {
+  ship: "Ship",
   out: "Out",
   back: "Back",
   expires: "Quote expires",
@@ -41,7 +45,11 @@ export function CalendarEntry({
   const tone =
     kind === "expires"
       ? "border-transparent bg-sunken text-ink-muted"
-      : prospect
+      : kind === "ship" && order.late
+        ? "border-destructive bg-transparent font-bold text-destructive"
+        : kind === "ship" && order.shipped
+          ? "border-transparent bg-sunken text-ink-faint"
+          : prospect
         ? "border-dashed border-ink-faint bg-transparent text-ink-muted"
         : kind === "out"
           ? "border-transparent bg-accent-tint text-accent-on-tint"
@@ -50,12 +58,20 @@ export function CalendarEntry({
   return (
     <Link
       href={`/dashboard/orders/${order.id}`}
-      title={`${prospect ? "Prospect · " : ""}${KIND_LABEL[kind]}: ${
-        order.reservationNumber
-      } · ${order.clientName}`}
+      title={`${prospect ? "Prospect · " : ""}${KIND_LABEL[kind]}${
+        kind === "ship" ? (order.late ? " (late, not shipped)" : order.shipped ? " (shipped)" : " by") : ""
+      }: ${order.reservationNumber} · ${order.clientName}${order.contactName ? ` (${order.contactName})` : ""}`}
       className={`flex items-center gap-1 truncate rounded-[4px] border px-1 text-micro hover:underline ${tone}`}
     >
-      {kind === "expires" ? (
+      {kind === "ship" ? (
+        <>
+          <Truck aria-hidden="true" className="size-[1.2em] shrink-0" strokeWidth={2.25} />
+          <span className="sr-only">
+            {order.late ? "Late to ship" : order.shipped ? "Shipped" : "Ship by"}
+          </span>
+          {prospect ? <span className="sr-only">Prospect</span> : null}
+        </>
+      ) : kind === "expires" ? (
         <>
           <FileX
             aria-hidden="true"
@@ -77,17 +93,18 @@ export function CalendarEntry({
 
 /**
  * The entries a day shows, capped per kind so a busy day stays glanceable —
- * two out, two back, two expiring — plus how many were left off.
+ * two shipping, two out, two back, two expiring — plus how many were left off.
  */
 export function dayEntries(day: CalendarDay, perKind = 2) {
   const shown = [
+    ...day.shipping.slice(0, perKind).map((order) => ({ order, kind: "ship" as const })),
     ...day.going.slice(0, perKind).map((order) => ({ order, kind: "out" as const })),
     ...day.coming.slice(0, perKind).map((order) => ({ order, kind: "back" as const })),
     ...day.expiring
       .slice(0, perKind)
       .map((order) => ({ order, kind: "expires" as const })),
   ];
-  const total = day.going.length + day.coming.length + day.expiring.length;
+  const total = day.shipping.length + day.going.length + day.coming.length + day.expiring.length;
   return { shown, hidden: total - shown.length };
 }
 
@@ -97,6 +114,9 @@ export function CalendarLegend() {
   return (
     <span className="flex flex-wrap items-center gap-2 text-micro text-ink-muted">
       <span className={`${swatch} border-transparent bg-accent-tint text-accent-on-tint`}>
+        <Truck aria-hidden="true" className="size-[1.2em]" strokeWidth={2.25} /> Ship by
+      </span>
+      <span className={`${swatch} border-transparent bg-accent-tint text-accent-on-tint`}>
         <MoveArrow direction="out" labelled={false} /> Out
       </span>
       <span className={`${swatch} border-transparent bg-sunken`}>
@@ -104,6 +124,9 @@ export function CalendarLegend() {
       </span>
       <span className={`${swatch} border-dashed border-ink-faint`}>
         <MoveArrow direction="out" labelled={false} /> Prospect
+      </span>
+      <span className={`${swatch} border-destructive font-bold text-destructive`}>
+        <Truck aria-hidden="true" className="size-[1.2em]" strokeWidth={2.25} /> Late to ship
       </span>
       <span className={`${swatch} border-transparent bg-sunken`}>
         <FileX aria-hidden="true" className="size-[1.2em]" strokeWidth={2.25} />{" "}

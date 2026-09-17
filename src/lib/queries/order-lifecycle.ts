@@ -1,3 +1,4 @@
+import { handoverShortfall, type MissingLine } from "@/lib/orders/handover";
 import type {
   BillingCycleType,
   DiscountType,
@@ -99,6 +100,8 @@ export type OrderLifecycle = {
     unitsOutstanding: number;
     /** No scannable lines at all — a services-only or cloud order. */
     nothingToScan: boolean;
+    /** Each line still short, for the "not ready" dialog. */
+    missing: MissingLine[];
   };
   /**
    * What the client has not produced yet — a signed agreement, ID, insurance.
@@ -188,15 +191,9 @@ export async function getOrderLifecycle(
         amountPaid: true,
       },
     }),
-    prisma.reservationItem.findMany({
-      where: {
-        reservationId: id,
-        assetId: { not: null },
-        parentId: null,
-        package: { isActive: true },
-      },
-      select: { quantity: true, checkedOutCount: true },
-    }),
+    // What is still to check out — one definition, shared with the ship and
+    // activation gates (lib/orders/handover).
+    handoverShortfall(id),
     prisma.quoteToken.aggregate({
       where: { reservationId: id, expiresAt: { gt: now }, usedAt: null },
       _max: { expiresAt: true },
@@ -206,9 +203,6 @@ export async function getOrderLifecycle(
 
   if (!order) return null;
 
-  const outstanding = scannable.filter(
-    (item) => item.checkedOutCount < item.quantity,
-  );
 
   const live = invoices.filter(
     (invoice) => invoice.status !== "VOID" && invoice.status !== "CANCELLED",
@@ -280,12 +274,10 @@ export async function getOrderLifecycle(
       latestExpiry: links._max.expiresAt,
     },
     handover: {
-      linesOutstanding: outstanding.length,
-      unitsOutstanding: outstanding.reduce(
-        (sum, item) => sum + (item.quantity - item.checkedOutCount),
-        0,
-      ),
-      nothingToScan: scannable.length === 0,
+      linesOutstanding: scannable.missing.length,
+      unitsOutstanding: scannable.units,
+      nothingToScan: scannable.nothingToScan,
+      missing: scannable.missing,
     },
   };
 }

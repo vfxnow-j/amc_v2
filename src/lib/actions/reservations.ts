@@ -1,5 +1,6 @@
 'use server'
 
+import { handoverShortfall, shortfallMessage } from '@/lib/orders/handover'
 import { revalidatePath } from 'next/cache'
 import { Prisma } from '@/generated/prisma/client'
 import { prisma } from '@/lib/prisma'
@@ -2641,33 +2642,13 @@ export async function markShipped(id: string, notifyClient?: { email: string }) 
     return { error: 'Can only mark shipped from Preparing status' }
   }
 
-  // Only check items from the active package, and only the ones that can
-  // actually be scanned. A line with no assetId is a service, a delivery charge
-  // or an ad-hoc fee — 477 of them in this database — and it has no unit to
-  // check out, so its checkedOutCount is permanently 0. Counting those meant an
-  // order carrying a single service line could never be shipped, whatever the
-  // warehouse did. Components (parentId set) are pricing rows beneath their
-  // parent and are excluded for the same reason checkoutReservationItem
-  // excludes them.
-  const activePackage = reservation.packages.find((p) => p.isActive)
-  const inPackage = activePackage
-    ? reservation.items.filter((i) => i.packageId === activePackage.id)
-    : reservation.items
-  const itemsToCheck = inPackage.filter((i) => i.assetId && !i.parentId)
-
-  // An order with nothing physical on it — all services, or a cloud order — has
-  // nothing to check out and ships on the say-so of whoever is shipping it.
-  const outstanding = itemsToCheck.filter(
-    (item) => item.checkedOutCount < item.quantity
-  )
-  if (outstanding.length > 0) {
-    const units = outstanding.reduce(
-      (sum, item) => sum + (item.quantity - item.checkedOutCount),
-      0
-    )
-    return {
-      error: `${units} ${units === 1 ? 'unit is' : 'units are'} still to be checked out across ${outstanding.length} ${outstanding.length === 1 ? 'line' : 'lines'}. Scan everything out before shipping.`,
-    }
+  // The stop gap (lib/orders/handover): every asset on the chosen option,
+  // parts chosen from stock included, is checked out before it ships. A line
+  // with no asset — a service, a fee, a spec part — has nothing to scan; an
+  // order with nothing physical ships on the say-so of whoever ships it.
+  const handover = await handoverShortfall(id)
+  if (handover.units > 0) {
+    return { error: shortfallMessage(handover, 'ship') }
   }
 
   const updated = await prisma.$transaction(async (tx) => {
@@ -3078,6 +3059,14 @@ export async function activateReservation(id: string) {
 
   if (!['APPROVED', 'PREPARING', 'SHIPPED'].includes(existingReservation.status)) {
     throw new Error('Reservation must be approved, preparing, or shipped to activate')
+  }
+
+  // The stop gap (owner, 2026-09-17): not activated until every asset on it is
+  // checked out. A cloud order is exempt — its hardware is allocated, and
+  // activation is what marks it in use.
+  if (existingReservation.reservationType !== 'CLOUD') {
+    const handover = await handoverShortfall(id)
+    if (handover.units > 0) throw new Error(shortfallMessage(handover, 'activate'))
   }
 
   const previousStatus = existingReservation.status
@@ -3969,11 +3958,13 @@ export async function checkoutReservationItem(
     })
     await maybeRecalcRto(tx, reservationId, newTotal)
 
-    // Auto-activate reservation on first checkout
-    if (['APPROVED', 'PREPARING', 'SHIPPED'].includes(reservation.status)) {
+    // The first scan on an approved order starts preparing it. It no longer
+    // activates it: an order is activated only once everything is out, and
+    // deliberately, through its Activate step (owner, 2026-09-17).
+    if (reservation.status === 'APPROVED') {
       await tx.reservation.update({
         where: { id: reservationId },
-        data: { status: 'ACTIVE' },
+        data: { status: 'PREPARING', preparingAt: reservation.preparingAt ?? new Date() },
       })
     }
 
@@ -4337,11 +4328,13 @@ export async function bulkCheckoutReservation(
       })
     }
 
-    // Auto-activate reservation on first checkout
-    if (['APPROVED', 'PREPARING', 'SHIPPED'].includes(reservation.status)) {
+    // The first scan on an approved order starts preparing it. It no longer
+    // activates it: an order is activated only once everything is out, and
+    // deliberately, through its Activate step (owner, 2026-09-17).
+    if (reservation.status === 'APPROVED') {
       await tx.reservation.update({
         where: { id: reservationId },
-        data: { status: 'ACTIVE' },
+        data: { status: 'PREPARING', preparingAt: reservation.preparingAt ?? new Date() },
       })
     }
 
@@ -4938,6 +4931,8 @@ export async function duplicateReservation(
         subtotal: sub,
         isOneTime: isSaleTarget ? true : item.isOneTime,
         costBasis: item.costBasis,
+        // Base parts stay included in their machine's rate on the copy.
+        includedInParent: item.includedInParent,
         marginPercent: sanitizeMarginPercent(
           item.marginPercent != null ? Number(item.marginPercent) : null,
           targetType
@@ -5067,7 +5062,7 @@ export async function duplicateReservation(
     }
 
     return res
-  })
+  }, { timeout: 30_000 })
 
   revalidatePath('/dashboard/orders')
   revalidatePath('/dashboard/rent-to-own')
@@ -5354,12 +5349,23 @@ export async function duplicatePackage(
       },
     })
 
-    if (sourcePackage.items.length > 0) {
-      await tx.reservationItem.createMany({
-        data: sourcePackage.items.map((item, index) => ({
+    // Machines first, then their parts under the copies — a configured
+    // workstation stays one line with its RAM, drives and GPUs nested under it,
+    // base parts still included in its rate. A flat copy dropped `parentId` and
+    // `includedInParent`, so every part became its own charged line.
+    const ordered = [...sourcePackage.items].sort(
+      (a, b) => a.sortOrder - b.sortOrder || a.createdAt.getTime() - b.createdAt.getTime(),
+    )
+    const idMap = new Map<string, string>()
+    const copy = (item: (typeof ordered)[number], parentId: string | null) =>
+      tx.reservationItem.create({
+        data: {
           reservationId: sourcePackage.reservationId,
           packageId: pkg.id,
+          parentId,
           assetId: item.assetId,
+          serviceId: item.serviceId,
+          cloudProductId: item.cloudProductId,
           description: item.description,
           category: item.category,
           pricingType: item.pricingType,
@@ -5367,14 +5373,26 @@ export async function duplicatePackage(
           quantity: item.quantity,
           subtotal: item.subtotal,
           isOneTime: item.isOneTime,
+          costBasis: item.costBasis,
+          marginPercent: item.marginPercent,
+          includedInParent: item.includedInParent,
           notes: item.notes,
-          sortOrder: index,
-        })),
+          sortOrder: item.sortOrder,
+        },
       })
+    for (const item of ordered) {
+      if (item.parentId) continue
+      idMap.set(item.id, (await copy(item, null)).id)
+    }
+    for (const item of ordered) {
+      if (!item.parentId) continue
+      // A part whose machine isn't in this option has nothing to sit under.
+      const parentId = idMap.get(item.parentId)
+      idMap.set(item.id, (await copy(item, parentId ?? null)).id)
     }
 
     return pkg
-  })
+  }, { timeout: 30_000 })
 
   revalidatePath('/dashboard/orders')
   revalidatePath(`/dashboard/orders/${sourcePackage.reservationId}`)

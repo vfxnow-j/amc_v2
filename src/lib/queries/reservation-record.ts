@@ -73,10 +73,10 @@ export async function getReservationHeader(
       },
       items: {
         // The option the order goes ahead with: an alternative the client may
-        // never choose has nothing to pull, send or bring back.
+        // never choose has nothing to pull, send or bring back. Parts chosen
+        // from stock under a machine (GPUs) are units too (lib/orders/handover).
         where: {
           assetId: { not: null },
-          parentId: null,
           OR: [{ packageId: null }, { package: { isActive: true } }],
         },
         select: {
@@ -151,6 +151,9 @@ export type RecordComponent = {
   includedInParent: boolean;
   /** Units scanned out against this part — a GPU married to its machine. */
   unitBarcodes: string[];
+  /** Scanned out so far; an asset part expects `quantity` of them. */
+  checkedOutCount: number;
+  checkedInCount: number;
 };
 
 export type RecordLine = {
@@ -172,6 +175,10 @@ export type RecordLine = {
   units: RecordUnit[];
   /** Ordered quantity not yet covered by an assigned or checked-out unit. */
   unassigned: number;
+  /** The same, for parts chosen from stock under this line (GPUs). */
+  partsUnassigned: number;
+  /** Units those parts call for in all. */
+  partsToScan: number;
   /**
    * Units currently out on this line, counted two ways.
    *
@@ -242,10 +249,14 @@ export async function getReservationLines(
           includedInParent: true,
           description: true,
           assetId: true,
+          checkedOutCount: true,
+          checkedInCount: true,
           asset: { select: { name: true } },
+          // Assigned or out, not yet back: out ones are the barcodes shown,
+          // and all of them cover the part's quantity for assignment.
           units: {
-            where: { checkedOutAt: { not: null }, checkedInAt: null },
-            select: { assetUnit: { select: { barcode: true } } },
+            where: { checkedInAt: null },
+            select: { checkedOutAt: true, assetUnit: { select: { barcode: true } } },
           },
         },
       },
@@ -297,7 +308,9 @@ export async function getReservationLines(
         subtotal: Number(part.subtotal),
         isOneTime: part.isOneTime,
         includedInParent: part.includedInParent,
-        unitBarcodes: part.units.map((unit) => unit.assetUnit.barcode),
+        unitBarcodes: part.units.filter((unit) => unit.checkedOutAt).map((unit) => unit.assetUnit.barcode),
+        checkedOutCount: part.checkedOutCount,
+        checkedInCount: part.checkedInCount,
       })),
       label:
         item.asset?.name ??
@@ -320,6 +333,13 @@ export async function getReservationLines(
       unassigned: item.assetId
         ? Math.max(0, item.quantity - units.filter((u) => !u.checkedInAt).length)
         : 0,
+      // A part chosen from stock under this machine (a GPU) is its own unit to
+      // assign: a workstation with one GPU is two scans, not one.
+      partsUnassigned: item.components.reduce(
+        (sum, part) => sum + (part.assetId ? Math.max(0, part.quantity - part.units.length) : 0),
+        0,
+      ),
+      partsToScan: item.components.reduce((sum, part) => sum + (part.assetId ? part.quantity : 0), 0),
       // Both sides are "currently out": the counters are cumulative, so the
       // difference is what hasn't come back.
       countedOut: item.checkedOutCount - item.checkedInCount,

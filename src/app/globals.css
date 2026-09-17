@@ -656,7 +656,10 @@
   --warning-on: light-dark(#ffffff, var(--color-surface-13));
 
   --segmented-track: light-dark(var(--color-surface-3), var(--color-surface-10));
-  --segmented-thumb: light-dark(var(--color-surface-0), var(--color-surface-2));
+  /* Dark thumb is a raised mid surface, not surface-2: dark `--ink` *is*
+     surface-2, so the selected label vanished into its own thumb. surface-8
+     holds ink at 5.2–6.4:1 in all twelve themes and reads off the track. */
+  --segmented-thumb: light-dark(var(--color-surface-0), var(--color-surface-8));
   --row-hover: light-dark(var(--color-surface-3), var(--color-surface-10));
 }
 

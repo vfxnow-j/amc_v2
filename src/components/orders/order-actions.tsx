@@ -3,7 +3,8 @@
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Check, Copy, ExternalLink } from "lucide-react";
+import { Check, Copy, ExternalLink, ScanLine } from "lucide-react";
+import type { MissingLine } from "@/lib/orders/handover";
 import type {
   BillingCycleType,
   ReservationStatus,
@@ -62,6 +63,8 @@ export type OrderActionsProps = {
     linesOutstanding: number;
     unitsOutstanding: number;
     nothingToScan: boolean;
+    /** Each line still short — what the "not ready" dialog lists. */
+    missing: MissingLine[];
   };
   /**
    * What the client has not produced — agreement, ID, insurance.
@@ -78,6 +81,7 @@ export function OrderActions(props: OrderActionsProps) {
   const router = useRouter();
   const [open, setOpen] = useState<Move | null>(null);
   const [outcome, setOutcome] = useState<StageOutcome | null>(null);
+  const [notReady, setNotReady] = useState<{ move: "activate" | "ship"; missing: MissingLine[] } | null>(null);
   const [busy, startTransition] = useTransition();
 
   const moves = movesFor(props.status, props.type);
@@ -86,6 +90,14 @@ export function OrderActions(props: OrderActionsProps) {
   function run(work: () => Promise<StageOutcome>) {
     startTransition(async () => {
       const result = await work();
+      if (result.status === "blocked") {
+        // The server's stop gap refused — the page was older than the scans.
+        setOpen(null);
+        setOutcome(null);
+        setNotReady({ move: result.move, missing: result.missing });
+        router.refresh();
+        return;
+      }
       setOutcome(result);
       if (result.status === "ok") {
         setOpen(null);
@@ -117,21 +129,29 @@ export function OrderActions(props: OrderActionsProps) {
       {moves.length === 0 ? null : (
         <div className="flex flex-wrap items-center gap-2">
           {moves.map((spec) => {
-            // Offering a button that the server will refuse is worse than not
-            // offering it: the person scans nothing and learns nothing.
-            const gated = spec.move === "ship" && blocked;
+            // The stop gap: shipping or activating with anything still to
+            // check out opens a dialog that names what is missing, instead of
+            // a greyed button that explains nothing (owner, 2026-09-17). A
+            // cloud order's hardware is allocated, not scanned, so it activates.
+            const gated =
+              blocked &&
+              (spec.move === "ship" || (spec.move === "activate" && props.type !== "CLOUD"));
             return (
             <button
               key={spec.move}
               type="button"
               title={
                 gated
-                  ? `${handover.unitsOutstanding} units still to check out`
+                  ? `${handover.unitsOutstanding} ${handover.unitsOutstanding === 1 ? "unit" : "units"} still to check out`
                   : spec.detail
               }
-              disabled={busy || gated}
+              disabled={busy}
               onClick={() => {
                 setOutcome(null);
+                if (gated) {
+                  setNotReady({ move: spec.move as "activate" | "ship", missing: handover.missing });
+                  return;
+                }
                 setOpen(spec.move);
               }}
               className={
@@ -162,6 +182,9 @@ export function OrderActions(props: OrderActionsProps) {
         </Notice>
       ) : null}
 
+      {notReady ? (
+        <NotReadyDialog move={notReady.move} missing={notReady.missing} onClose={() => setNotReady(null)} />
+      ) : null}
       {open === "send-quote" ? <SendQuoteDialog {...shared} /> : null}
       {open === "prepare" ? <PrepareDialog {...shared} /> : null}
       {open === "activate" ? <ActivateDialog {...shared} /> : null}
@@ -1225,5 +1248,82 @@ export function EditBillingTerms({
         </Modal>
       ) : null}
     </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// The stop gap
+// ---------------------------------------------------------------------------
+
+/**
+ * Why an order can't ship or be activated yet: the items still to check out.
+ *
+ * Its own dialog rather than a notice under the buttons, because it is a stop,
+ * not a hint — nothing moves until the list is empty (owner, 2026-09-17). Only
+ * assets are listed; a service, a fee or a spec part has nothing to scan. A
+ * part is shown under the machine it goes in, since "RTX 4090" alone doesn't
+ * say which workstation is missing its card.
+ */
+export function NotReadyDialog({
+  move,
+  missing,
+  onClose,
+}: {
+  move: "activate" | "ship";
+  missing: MissingLine[];
+  onClose: () => void;
+}) {
+  const units = missing.reduce((sum, line) => sum + line.missing, 0);
+  return (
+    <Modal
+      open
+      onOpenChange={(next) => !next && onClose()}
+      wide
+      title={move === "ship" ? "Can't ship yet" : "Can't activate yet"}
+      blurb={`Every item on the order has to be checked out first. ${units} ${
+        units === 1 ? "unit is" : "units are"
+      } still to scan.`}
+      footer={
+        <button
+          type="button"
+          onClick={onClose}
+          className="h-9 rounded-pill bg-accent-solid px-4 text-pill text-accent-on-solid"
+        >
+          Back to scanning
+        </button>
+      }
+    >
+      <div className="flex items-start gap-3 rounded-well border border-destructive/40 bg-destructive/5 p-3">
+        <ScanLine aria-hidden className="mt-[2px] size-5 flex-none text-destructive" />
+        <div className="min-w-0 flex-1">
+          <p className="text-detail font-bold text-destructive">Not checked out</p>
+          <ul className="mt-2 flex flex-col gap-px">
+            {missing.map((line) => (
+              <li
+                key={line.itemId}
+                className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-3 rounded-row px-2 py-[6px] text-detail odd:bg-row-alt"
+              >
+                <span className="min-w-0">
+                  <span className="block truncate font-bold text-ink">{line.label}</span>
+                  {line.parentLabel ? (
+                    <span className="block truncate text-micro text-ink-muted">↳ in {line.parentLabel}</span>
+                  ) : null}
+                </span>
+                <span className="text-right tabular-nums text-ink-muted">
+                  <span className="font-bold text-destructive">{line.missing} missing</span>
+                  <span className="block text-micro">
+                    {line.out} of {line.ordered} out
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+      <p className="mt-3 text-micro text-ink-faint">
+        Scan each one against the order. Services, fees and spec options like memory are never scanned, so they
+        aren&rsquo;t listed.
+      </p>
+    </Modal>
   );
 }

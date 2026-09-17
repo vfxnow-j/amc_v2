@@ -183,6 +183,15 @@ export async function LinesCard({
                           out: {part.unitBarcodes.join(", ")}
                         </span>
                       ) : null}
+                      {/* An option chosen from stock is a unit to scan, like
+                          the machine it goes in; a spec option is not. */}
+                      {editable && part.assetId && part.unitBarcodes.length < part.quantity ? (
+                        <span className="mr-1 rounded-pill bg-sunken px-[6px] text-micro text-ink-muted">
+                          {part.checkedInCount >= part.quantity && part.checkedOutCount >= part.quantity
+                            ? "returned"
+                            : `scan ${part.quantity - part.unitBarcodes.length}${part.unitBarcodes.length > 0 ? ` more` : ""} at check-out`}
+                        </span>
+                      ) : null}
                       {part.assetId ? (
                         <Link
                           href={`/dashboard/assets/${part.assetId}`}
@@ -268,10 +277,13 @@ export async function LinesCard({
                   ? `Ordered quantity and counters are both exactly double the ${line.units.length} units attached — this line was imported twice. The units are here; the quantity is what needs correcting.`
                   : `The line counter says ${line.countedOut} out, the attached units say ${line.attachedOut}. The units are the physical record; the counter is derived and has drifted.`}
               </p>
-            ) : line.unassigned > 0 ? (
+            ) : line.unassigned + line.partsUnassigned > 0 ? (
               <p className="mt-1 px-2 text-detail text-ink-muted">
-                {line.unassigned} of {line.quantity} still to assign — scan a
-                unit against this line to attach it.
+                {line.unassigned + line.partsUnassigned} of {line.quantity + line.partsToScan} still to assign
+                {line.partsToScan > 0
+                  ? ` (${line.quantity} ${line.quantity === 1 ? "machine" : "machines"} + ${line.partsToScan} ${line.partsToScan === 1 ? "part" : "parts"} from stock)`
+                  : ""}{" "}
+                — scan {line.unassigned + line.partsUnassigned === 1 ? "a unit" : "each unit"} to attach it.
               </p>
             ) : null}
           </li>

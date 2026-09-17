@@ -2,11 +2,12 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Trash2 } from "lucide-react";
+import { Pencil, Plus, Trash2 } from "lucide-react";
 import { Modal, ModalCancel } from "@/components/feedback/modal";
 import { Notice } from "@/components/feedback/notice";
 import {
   addBuildComponent,
+  editBuildOption,
   lookupConfigurableCandidates,
   lookupParts,
   removeBuildComponent,
@@ -19,7 +20,7 @@ import type { ConfigSlot } from "@/generated/prisma/client";
 const SLOTS: { value: ConfigSlot; label: string; hint: string }[] = [
   { value: "GPU", label: "GPU", hint: "Graphics cards — usually assets, scanned out with the machine" },
   { value: "MEMORY", label: "Memory", hint: "RAM configurations — one per machine, priced per option" },
-  { value: "STORAGE", label: "Storage", hint: "Drive configurations — one per machine" },
+  { value: "STORAGE", label: "Storage", hint: "Drives — a base drive, plus any extra drives on top" },
   { value: "ADDON", label: "Add-ons", hint: "Capture cards, network cards, anything extra" },
   { value: "OTHER", label: "Other", hint: "" },
 ];
@@ -140,12 +141,12 @@ export function ConfigurableItemEditor({
                           <th className="w-[56px] px-1 text-left font-normal">Qty</th>
                           <th className="w-[110px] px-1 text-left font-normal">Rental price</th>
                           <th className="w-[110px] px-1 text-left font-normal">Sale price</th>
-                          <th className="w-[28px]" />
+                          <th className="w-[56px]" />
                         </tr>
                       </thead>
                       <tbody>
                         {rows.map((row) => (
-                          <OptionRow key={row.id} row={row} busy={busy} run={run} />
+                          <OptionRow key={row.id} assetId={assetId} row={row} busy={busy} run={run} />
                         ))}
                       </tbody>
                     </table>
@@ -167,11 +168,13 @@ export function ConfigurableItemEditor({
           <p>
             Adding {assetName} to an order brings its <span className="text-ink">base</span> parts with it, included in
             its rate and listed as its spec. The line&rsquo;s <span className="text-ink">Configure</span> button offers
-            everything here: one memory and one storage choice, and any GPUs and add-ons, each upgrade priced on top.
+            everything here: one memory choice, and any drives, GPUs and add-ons — several at once, like a 1TB base drive
+            plus a 4TB add-on — each upgrade priced on top.
           </p>
           <p className="mt-2">
-            A GPU that is an asset is scanned out with the machine and attaches under it on the order, instead of
-            appearing as a separate line.
+            An option chosen from stock (&ldquo;An asset we stock&rdquo;, like a GPU) is a unit to scan: the order
+            expects one scan per piece at check-out and check-in, and a scanned GPU attaches under its machine
+            instead of opening a separate line. Spec options are never scanned.
           </p>
           <p className="mt-2">
             A blank price follows the part asset&rsquo;s own rate. For a spec option, blank means no charge.
@@ -187,14 +190,17 @@ function money(value: string) {
 }
 
 function OptionRow({
+  assetId,
   row,
   busy,
   run,
 }: {
+  assetId: string;
   row: BuildRow;
   busy: boolean;
   run: (action: () => Promise<BuildOutcome>) => void;
 }) {
+  const [editing, setEditing] = useState(false);
   const [quantity, setQuantity] = useState(String(row.quantity));
   const [rental, setRental] = useState(row.rateOverride === null ? "" : String(row.rateOverride));
   const [sale, setSale] = useState(row.salePrice === null ? "" : String(row.salePrice));
@@ -208,11 +214,12 @@ function OptionRow({
   }
 
   return (
+    <>
     <tr className="bg-row-alt">
       <td className="rounded-l-row px-2 py-[6px]">
         <span className="block truncate font-bold">{row.name}</span>
         <span className="block text-micro text-ink-faint">
-          {row.componentAssetId ? `asset · ${row.fleet} in fleet` : "spec option"}
+          {row.componentAssetId ? `asset · ${row.fleet} in fleet · scanned` : "spec option"}
           {row.isDefault ? " · included in base rate" : " · upgrade"}
         </span>
       </td>
@@ -267,17 +274,192 @@ function OptionRow({
         />
       </td>
       <td className="rounded-r-row px-1">
-        <button
-          type="button"
-          disabled={busy}
-          aria-label={`Remove ${row.name}`}
-          onClick={() => run(() => removeBuildComponent(row.id))}
-          className="text-ink-faint hover:text-destructive disabled:opacity-50"
-        >
-          <Trash2 className="size-4" aria-hidden />
-        </button>
+        <span className="flex items-center gap-2">
+          <button
+            type="button"
+            disabled={busy}
+            aria-label={`Edit ${row.name}`}
+            aria-expanded={editing}
+            onClick={() => setEditing((open) => !open)}
+            className={`hover:text-ink disabled:opacity-50 ${editing ? "text-ink" : "text-ink-faint"}`}
+          >
+            <Pencil className="size-4" aria-hidden />
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            aria-label={`Remove ${row.name}`}
+            onClick={() => run(() => removeBuildComponent(row.id))}
+            className="text-ink-faint hover:text-destructive disabled:opacity-50"
+          >
+            <Trash2 className="size-4" aria-hidden />
+          </button>
+        </span>
       </td>
     </tr>
+    {editing ? (
+      <tr>
+        <td colSpan={6} className="px-2 pb-2">
+          <EditOption
+            assetId={assetId}
+            row={row}
+            busy={busy}
+            onCancel={() => setEditing(false)}
+            onSave={(input) => {
+              run(() => editBuildOption(row.id, input));
+              setEditing(false);
+            }}
+          />
+        </td>
+      </tr>
+    ) : null}
+    </>
+  );
+}
+
+/** Change what an option is — its name, the asset it stands for, or its group. */
+function EditOption({
+  assetId,
+  row,
+  busy,
+  onCancel,
+  onSave,
+}: {
+  assetId: string;
+  row: BuildRow;
+  busy: boolean;
+  onCancel: () => void;
+  onSave: (input: { slot: ConfigSlot; componentAssetId: string | null; label: string | null }) => void;
+}) {
+  const [slot, setSlot] = useState<ConfigSlot>(row.slot);
+  const [kind, setKind] = useState<"spec" | "asset">(row.componentAssetId ? "asset" : "spec");
+  const [label, setLabel] = useState(row.componentAssetId ? "" : row.name);
+  const [part, setPart] = useState<{ id: string; name: string } | null>(
+    row.componentAssetId ? { id: row.componentAssetId, name: row.name } : null,
+  );
+  const [query, setQuery] = useState("");
+  const [hits, setHits] = useState<Awaited<ReturnType<typeof lookupParts>>>([]);
+  const latest = useRef(0);
+
+  useEffect(() => {
+    if (kind !== "asset" || part) return;
+    const ticket = ++latest.current;
+    const timer = setTimeout(async () => {
+      const found = query.trim().length >= 2 ? await lookupParts(query, assetId) : [];
+      if (ticket === latest.current) setHits(found);
+    }, 160);
+    return () => clearTimeout(timer);
+  }, [query, kind, part, assetId]);
+
+  const ready = kind === "spec" ? label.trim().length > 0 : part !== null;
+
+  return (
+    <div className="flex flex-col gap-2 rounded-well border border-hairline bg-panel p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <div role="radiogroup" aria-label="Option kind" className="inline-flex w-fit gap-px rounded-pill bg-segmented-track p-[3px]">
+          {(
+            [
+              ["spec", "Spec with a price"],
+              ["asset", "An asset we stock"],
+            ] as const
+          ).map(([value, text]) => (
+            <button
+              key={value}
+              type="button"
+              role="radio"
+              aria-checked={kind === value}
+              onClick={() => setKind(value)}
+              className={`rounded-pill px-3 py-1 text-pill ${kind === value ? "bg-segmented-thumb text-ink shadow-sm" : "text-ink-muted"}`}
+            >
+              {text}
+            </button>
+          ))}
+        </div>
+        <label className="ml-auto flex items-center gap-2 text-detail">
+          <span className="text-micro uppercase text-ink-muted">Group</span>
+          <select
+            aria-label={`${row.name} group`}
+            value={slot}
+            onChange={(event) => setSlot(event.target.value as ConfigSlot)}
+            className={FIELD}
+          >
+            {SLOTS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      {kind === "spec" ? (
+        <input
+          aria-label="Option name"
+          autoFocus
+          value={label}
+          onChange={(event) => setLabel(event.target.value)}
+          placeholder="e.g. 128GB DDR5"
+          className={`${FIELD} h-9`}
+        />
+      ) : part ? (
+        <div className="flex items-center gap-2 text-detail">
+          <span className="font-bold">{part.name}</span>
+          <button type="button" onClick={() => setPart(null)} className="text-accent-text hover:underline">
+            Change
+          </button>
+        </div>
+      ) : (
+        <>
+          <input
+            aria-label="Search assets"
+            autoFocus
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search assets, e.g. RTX 4090"
+            className={`${FIELD} h-9`}
+          />
+          {hits.length > 0 ? (
+            <ul className="flex flex-col gap-px rounded-well bg-sunken p-1">
+              {hits.map((hit) => (
+                <li key={hit.id}>
+                  <button
+                    type="button"
+                    onClick={() => setPart({ id: hit.id, name: hit.name })}
+                    className="flex w-full items-baseline gap-2 rounded-row px-2 py-[5px] text-left text-detail hover:bg-row-hover"
+                  >
+                    <span className="min-w-0 flex-1 truncate">{hit.name}</span>
+                    <span className="text-ink-faint">{hit.fleet} in fleet</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </>
+      )}
+
+      <p className="text-micro text-ink-faint">
+        Orders already configured keep the parts they have; the change applies the next time a line is configured.
+      </p>
+      <div className="flex gap-2">
+        <button
+          type="button"
+          disabled={busy || !ready}
+          onClick={() =>
+            onSave({
+              slot,
+              componentAssetId: kind === "asset" ? (part?.id ?? null) : null,
+              label: kind === "spec" ? label : null,
+            })
+          }
+          className="h-8 rounded-pill bg-accent-solid px-3 text-pill text-accent-on-solid disabled:opacity-50"
+        >
+          Save option
+        </button>
+        <button type="button" onClick={onCancel} className="h-8 rounded-pill bg-sunken px-3 text-pill text-ink hover:bg-row-hover">
+          Cancel
+        </button>
+      </div>
+    </div>
   );
 }
 

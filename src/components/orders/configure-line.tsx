@@ -21,12 +21,17 @@ const SLOT_LABEL: Record<ConfigSlot, string> = {
   ADDON: "Add-ons",
   OTHER: "Other",
 };
-/** One choice per machine in these slots; the rest take any number. */
-const PICK_ONE: ConfigSlot[] = ["MEMORY", "STORAGE"];
+/**
+ * One choice per machine in these slots; the rest take any number. Memory is a
+ * configuration (64GB *or* 128GB). Storage is not: a machine goes out with its
+ * base drive and, often, an extra one — 1TB default plus a 4TB add-on (owner,
+ * 2026-09-17).
+ */
+const PICK_ONE: ConfigSlot[] = ["MEMORY"];
 
 /**
  * Configure a machine on an order (Settings → Configurable items defines what
- * it can take). Memory and storage are one choice each; GPUs and add-ons are
+ * it can take). Memory is one choice; storage, GPUs and add-ons are
  * ticked with a quantity per machine. The configured price — the machine's rate
  * plus its upgrades — updates as options change, and saving writes the parts
  * under the line and reprices the order.
@@ -125,10 +130,19 @@ export function ConfigureLine({ reservationId, itemId }: { reservationId: string
               const pickOne = PICK_ONE.includes(slot);
               return (
                 <fieldset key={slot}>
-                  <legend className="mb-1 text-micro uppercase text-ink-muted">
-                    {SLOT_LABEL[slot]}
-                    {pickOne ? " · choose one" : ""}
-                  </legend>
+                  <legend className="sr-only">{SLOT_LABEL[slot]}</legend>
+                  <div
+                    aria-hidden
+                    className="grid grid-cols-[20px_minmax(0,1fr)_72px_110px] items-baseline gap-2 px-2 pb-1 text-micro uppercase text-ink-muted"
+                  >
+                    <span />
+                    <span>
+                      {SLOT_LABEL[slot]}
+                      <span className="normal-case text-ink-faint">{pickOne ? " · choose one" : " · tick any, add more than one"}</span>
+                    </span>
+                    <span className="text-right">{pickOne ? "" : "Qty"}</span>
+                    <span className="text-right">Price</span>
+                  </div>
                   <ul className="flex flex-col gap-px">
                     {options.map((option) => {
                       const count = chosen[option.optionId] ?? 0;
@@ -136,7 +150,7 @@ export function ConfigureLine({ reservationId, itemId }: { reservationId: string
                       return (
                         <li
                           key={option.optionId}
-                          className={`grid grid-cols-[20px_minmax(0,1fr)_auto_110px] items-center gap-2 rounded-row px-2 py-[6px] text-detail ${
+                          className={`grid grid-cols-[20px_minmax(0,1fr)_72px_110px] items-center gap-2 rounded-row px-2 py-[6px] text-detail ${
                             on ? "bg-accent-tint/60" : "odd:bg-row-alt"
                           }`}
                         >
@@ -162,7 +176,7 @@ export function ConfigureLine({ reservationId, itemId }: { reservationId: string
                             <span className="block truncate font-bold">{option.name}</span>
                             <span className="block text-micro text-ink-faint">
                               {option.base ? "base" : "upgrade"}
-                              {option.tracked ? " · scanned out with the machine" : ""}
+                              {option.asset ? " · from stock, scanned at check-out and check-in" : " · spec, not scanned"}
                               {option.out > 0 ? ` · ${option.out} out with client` : ""}
                             </span>
                           </label>
@@ -175,13 +189,19 @@ export function ConfigureLine({ reservationId, itemId }: { reservationId: string
                                 const value = Math.max(option.out > 0 ? 1 : 0, Number(event.target.value.replace(/[^\d]/g, "")) || 0);
                                 setChosen((current) => ({ ...current, [option.optionId]: Math.min(value, 16) }));
                               }}
-                              className="h-7 w-12 rounded-well border border-hairline bg-sunken px-2 text-right tabular-nums outline-none"
+                              className="h-7 w-14 justify-self-end rounded-well border border-hairline bg-sunken px-2 text-right tabular-nums outline-none"
                             />
                           ) : (
                             <span />
                           )}
                           <span className="text-right tabular-nums text-ink-muted">
                             {option.included || option.rate === 0 ? "included" : `+${MONEY.format(option.rate)}${unit}`}
+                            {on && !option.included && option.rate > 0 && count > 1 ? (
+                              <span className="block text-micro text-ink-faint">
+                                {count} × = +{MONEY.format(option.rate * count)}
+                                {unit}
+                              </span>
+                            ) : null}
                           </span>
                         </li>
                       );
