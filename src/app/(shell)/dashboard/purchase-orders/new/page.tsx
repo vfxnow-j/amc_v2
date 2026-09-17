@@ -5,7 +5,7 @@ import { PageHeader } from "@/components/shell/page-header";
 import { PODenied } from "@/components/procurement/po-denied";
 import { POForm, type POFormValues } from "@/components/procurement/po-form";
 import { getSessionUser } from "@/lib/roles";
-import { isAdminRole } from "@/lib/settings/pages";
+import { canRaise } from "@/lib/procurement/access";
 import { getFundingPrefill, getPOFormOptions } from "@/lib/procurement/po-queries";
 
 export const metadata = { title: "New purchase order" };
@@ -31,7 +31,7 @@ export default async function NewPurchaseOrderPage({
 }) {
   const user = await getSessionUser();
   if (!user) redirect("/login");
-  if (!isAdminRole(user.role)) {
+  if (!canRaise(user.role)) {
     return <PODenied title="New purchase order" role={user.title} />;
   }
 

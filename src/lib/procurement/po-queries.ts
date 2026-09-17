@@ -64,6 +64,7 @@ export async function getPOForEdit(id: string) {
       poNumber: true,
       status: true,
       leaseId: true,
+      raisedById: true,
       vendorId: true,
       shipToLocationId: true,
       orderDate: true,
@@ -102,6 +103,7 @@ export async function getPOForEdit(id: string) {
     id: po.id,
     poNumber: po.poNumber,
     status: po.status,
+    raisedById: po.raisedById,
     onLease: po.leaseId !== null,
     initial: {
       vendorId: po.vendorId,

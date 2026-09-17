@@ -2,7 +2,9 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/auth-utils";
+import { requireEditor } from "@/lib/auth-utils";
+import { mayCreateModelOnReceive } from "@/lib/procurement/access";
+import { actorFor, releaseGate } from "@/lib/approvals/core";
 import {
   receivePurchaseOrder,
   type NewAssetData,
@@ -86,7 +88,9 @@ export async function receivePO(
   purchaseOrderId: string,
   input: { receivedOn: string; lines: ReceiveLineInput[] },
 ): Promise<ReceiveOutcome> {
-  const auth = await requireAdmin();
+  // Phase 6 (docs/procurement.md): receiving is the warehouse's work, so STAFF
+  // may receive — against a PO that is cleared, and without creating models.
+  const auth = await requireEditor();
   if (!auth.authorized) return { status: "error", message: auth.error };
 
   const receivedOn = dayFrom(input.receivedOn);
@@ -130,6 +134,26 @@ export async function receivePO(
           : `${po.poNumber} is ${po.status.toLowerCase()} — nothing more can be received.`,
     };
   }
+  if (!mayCreateModelOnReceive(auth.role) && wanted.some((line) => line.model?.kind === "new")) {
+    return {
+      status: "error",
+      message:
+        "Creating a new model is for administrators — it is catalog and pricing, not a count. Pick an existing model for the line, or ask an admin to receive it.",
+    };
+  }
+
+  // Checked here as well as in the ported transaction so the refusal arrives
+  // before anyone's barcodes are validated, in the same words.
+  const gate = await releaseGate({
+    type: "PURCHASE_ORDER",
+    id: purchaseOrderId,
+    actor: await actorFor(auth.userId, auth.role),
+    act: "receiving against it",
+    raise: false,
+    always: false,
+  });
+  if (gate.status === "held") return { status: "error", message: gate.message };
+
   const items = new Map(po.items.map((item) => [item.id, item]));
 
   const locationIds = new Set(

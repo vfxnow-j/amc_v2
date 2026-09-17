@@ -11,7 +11,7 @@ import { moneyCompact } from "@/lib/format";
 import { getPOHeaderStats } from "@/lib/queries/accounting";
 import { getAwaitingReceipt } from "@/lib/queries/procurement";
 import { getSessionUser } from "@/lib/roles";
-import { isAdminRole } from "@/lib/settings/pages";
+import { canRaise } from "@/lib/procurement/access";
 
 export const metadata = { title: "Procurement" };
 
@@ -37,20 +37,22 @@ async function HeaderBlurb() {
  * the money went to. Read-only, and every figure is a sum or count of stored
  * rows — nothing here is projected, and every card says what it leaves out.
  *
- * Admin-only like the rest of the cluster. The rail already hides Procurement
- * from other roles, but a hidden link is not a gate, so the page checks too.
+ * Staff and up, like the rest of the cluster since Phase 6 — the people who
+ * raise POs are the people who need to see what is already on order. The rail
+ * hides Procurement from other roles, but a hidden link is not a gate, so the
+ * page checks too.
  */
 export default async function ProcurementOverviewPage() {
   const user = await getSessionUser();
   if (!user) redirect("/login");
 
-  if (!isAdminRole(user.role)) {
+  if (!canRaise(user.role)) {
     return (
       <>
         <PageHeader eyebrow="Procurement" title="Overview" />
         <section className="flex flex-1 items-center justify-center rounded-card bg-panel p-[14px] shadow-sm">
           <p className="max-w-md text-center text-body text-balance text-ink-muted">
-            Procurement is for administrators. You are signed in with{" "}
+            Procurement is for staff and administrators. You are signed in with{" "}
             {user.title} access, which can&rsquo;t open it. An administrator
             can change your role under Settings → Users.
           </p>

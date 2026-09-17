@@ -5,7 +5,7 @@ import { PageHeader } from "@/components/shell/page-header";
 import { PODenied } from "@/components/procurement/po-denied";
 import { POForm } from "@/components/procurement/po-form";
 import { getSessionUser } from "@/lib/roles";
-import { isAdminRole } from "@/lib/settings/pages";
+import { mayWorkOnPO } from "@/lib/procurement/access";
 import { PO_STATUS_LABEL } from "@/lib/accounting/labels";
 import { getPOForEdit, getPOFormOptions } from "@/lib/procurement/po-queries";
 
@@ -33,8 +33,20 @@ export default async function EditPurchaseOrderPage({ params }: Params) {
   const [po, options] = await Promise.all([getPOForEdit(id), getPOFormOptions()]);
   if (!po) notFound();
 
-  if (!isAdminRole(user.role)) {
-    return <PODenied title={`Edit ${po.poNumber}`} role={user.title} />;
+  if (po.status !== "CANCELLED" && !mayWorkOnPO(user, po)) {
+    return (
+      <PODenied
+        title={`Edit ${po.poNumber}`}
+        role={user.title}
+        reason={
+          user.role === "STAFF"
+            ? po.raisedById === user.id
+              ? `${po.poNumber} has been submitted, so it is no longer yours to change. Ask an administrator, or have it revised back to draft.`
+              : `${po.poNumber} was raised by someone else. Staff edit their own draft POs; an administrator can change this one.`
+            : undefined
+        }
+      />
+    );
   }
 
   if (po.status === "CANCELLED") {

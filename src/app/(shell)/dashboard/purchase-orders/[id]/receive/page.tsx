@@ -5,7 +5,8 @@ import { PageHeader } from "@/components/shell/page-header";
 import { PODenied } from "@/components/procurement/po-denied";
 import { POReceive } from "@/components/procurement/po-receive";
 import { getSessionUser } from "@/lib/roles";
-import { isAdminRole } from "@/lib/settings/pages";
+import { mayReceive } from "@/lib/procurement/access";
+import { receivingRefusal } from "@/lib/procurement/receive-gate";
 import { PO_STATUS_LABEL } from "@/lib/accounting/labels";
 import { getPOHeader, getPOLines, getReceivingLocations } from "@/lib/queries/po-record";
 import { getPOFormOptions, getReceiveCategories } from "@/lib/procurement/po-queries";
@@ -36,15 +37,18 @@ export default async function ReceivePurchaseOrderPage({ params }: Params) {
   const { id } = await params;
   const po = await getPOHeader(id);
   if (!po) notFound();
-  if (!isAdminRole(user.role)) {
+  if (!mayReceive(user.role)) {
     return <PODenied title={`Receive ${po.poNumber}`} role={user.title} />;
   }
 
-  const [lines, locations, categories, options] = await Promise.all([
+  const [lines, locations, categories, options, refusal] = await Promise.all([
     getPOLines(id),
     getReceivingLocations(),
     getReceiveCategories(),
     getPOFormOptions(),
+    // Phase 6: the role, state and approval answer in one — a PO whose approval
+    // is outstanding is not offered for receiving, rather than refused on Save.
+    receivingRefusal(id, user),
   ]);
   const outstanding = lines.filter((line) => line.remaining > 0);
 
@@ -57,7 +61,7 @@ export default async function ReceivePurchaseOrderPage({ params }: Params) {
         ? "Every line on this PO has been received in full."
         : locations.length === 0
           ? "There is nowhere to receive into. Add a location first, so no unit is ever in stock with no idea where it is."
-          : null;
+          : refusal;
 
   return (
     <>

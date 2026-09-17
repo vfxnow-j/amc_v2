@@ -2,7 +2,9 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/auth-utils";
+import { requireAdmin, requireEditor } from "@/lib/auth-utils";
+import { actorFor, releaseGate } from "@/lib/approvals/core";
+import { mayRevisePO, mayWorkOnPO } from "@/lib/procurement/access";
 import {
   assignPurchaseOrderToFundingRequest,
   assignPurchaseOrderToLease,
@@ -25,10 +27,13 @@ import { LINE_KIND, PO_METHODS, type LineKind } from "@/lib/procurement/po-label
  * pattern — the ported actions throw (or return `{ success: false }`, which is
  * a second way to fail), and a form needs one shape it can render in place.
  *
- * Procurement is admin-only (docs/procurement.md). Every export checks the role
- * itself, even though the ported action it calls checks again: a server action
- * is reachable by a direct POST whatever the rail shows, and the check that
- * matters is the one nearest the write.
+ * Roles follow Phase 6 (docs/procurement.md, and `./access.ts`): STAFF and up
+ * raise a PO and work on their own drafts; admins work on any; canceling and
+ * the loan and funding links stay admin-only. Submitting is where a PO raised by
+ * someone who does not approve POs is held (`lib/approvals/core.ts`). Every
+ * export checks the role itself, even though the ported action it calls checks
+ * again: a server action is reachable by a direct POST whatever the rail shows,
+ * and the check that matters is the one nearest the write.
  *
  * Only async functions may be exported from a "use server" file. Constants and
  * types that the client needs live in ./po-labels.
@@ -191,7 +196,7 @@ async function validate(
 
 /** Raise a purchase order as a draft. */
 export async function raisePurchaseOrder(input: POInput): Promise<POOutcome> {
-  const auth = await requireAdmin();
+  const auth = await requireEditor();
   if (!auth.authorized) return { status: "error", message: auth.error };
 
   const checked = await validate(input);
@@ -243,16 +248,22 @@ export async function raisePurchaseOrder(input: POInput): Promise<POOutcome> {
  * about hardware the loan paid for.
  */
 export async function savePurchaseOrder(id: string, input: POInput): Promise<POOutcome> {
-  const auth = await requireAdmin();
+  const auth = await requireEditor();
   if (!auth.authorized) return { status: "error", message: auth.error };
 
   const existing = await prisma.purchaseOrder.findUnique({
     where: { id },
-    select: { status: true, leaseId: true, poNumber: true },
+    select: { status: true, leaseId: true, poNumber: true, raisedById: true },
   });
   if (!existing) return { status: "error", message: "That purchase order no longer exists." };
   if (existing.status === "CANCELLED") {
     return { status: "error", message: `${existing.poNumber} is canceled and can no longer be edited.` };
+  }
+  if (!mayWorkOnPO({ id: auth.userId, role: auth.role }, existing)) {
+    return {
+      status: "error",
+      message: `${existing.poNumber} is not your draft, so an administrator has to change it.`,
+    };
   }
 
   const checked = await validate(input);
@@ -262,7 +273,11 @@ export async function savePurchaseOrder(id: string, input: POInput): Promise<POO
   try {
     const result = await updatePurchaseOrder(id, checked.data);
     if (!result.success) return { status: "error", message: result.error };
-    return { status: "ok", id, message: `${existing.poNumber} saved.` };
+    return {
+      status: "ok",
+      id,
+      message: `${existing.poNumber} saved.${result.approval ? ` ${result.approval.message}` : ""}`,
+    };
   } catch (error) {
     return { status: "error", message: reasonFrom(error, "The changes were not saved.") };
   }
@@ -281,12 +296,44 @@ export async function savePurchaseOrder(id: string, input: POInput): Promise<POO
  * inside the action's own try/catch, so it logs and the submission stands.
  */
 export async function submitPO(id: string): Promise<POOutcome> {
-  const auth = await requireAdmin();
+  const auth = await requireEditor();
   if (!auth.authorized) return { status: "error", message: auth.error };
+
+  const po = await prisma.purchaseOrder.findUnique({
+    where: { id },
+    select: { status: true, raisedById: true, poNumber: true },
+  });
+  if (!po) return { status: "error", message: "That purchase order no longer exists." };
+  if (!mayWorkOnPO({ id: auth.userId, role: auth.role }, po)) {
+    return { status: "error", message: `${po.poNumber} is not your draft, so an administrator has to submit it.` };
+  }
+  if (po.status !== "DRAFT") {
+    return { status: "error", message: `${po.poNumber} has already been submitted.` };
+  }
 
   const lines = await prisma.pOItem.count({ where: { purchaseOrderId: id } });
   if (lines === 0) {
     return { status: "error", message: "There is nothing on this PO. Add a line before sending it to the vendor." };
+  }
+
+  // Pressing Submit is asking. Someone who does not approve POs gets a request
+  // raised and the approvers told; the PO stays a draft until one says yes, and
+  // then Submit goes through. An approver's own submit clears on the spot.
+  const gate = await releaseGate({
+    type: "PURCHASE_ORDER",
+    id,
+    actor: await actorFor(auth.userId, auth.role),
+    act: "submitting it to the vendor",
+    raise: true,
+    always: true,
+    note: "Submit to the vendor",
+  });
+  if (gate.status === "held") {
+    revalidatePath(`/dashboard/purchase-orders/${id}`);
+    revalidatePath("/dashboard/approvals");
+    return gate.raised
+      ? { status: "ok", message: gate.message }
+      : { status: "error", message: gate.message };
   }
 
   try {
@@ -299,8 +346,15 @@ export async function submitPO(id: string): Promise<POOutcome> {
 
 /** Take a submitted PO back to draft, to change it before the vendor acts on it. */
 export async function revisePO(id: string): Promise<POOutcome> {
-  const auth = await requireAdmin();
+  const auth = await requireEditor();
   if (!auth.authorized) return { status: "error", message: auth.error };
+  const po = await prisma.purchaseOrder.findUnique({
+    where: { id },
+    select: { status: true, raisedById: true, poNumber: true },
+  });
+  if (po && !mayRevisePO({ id: auth.userId, role: auth.role }, po)) {
+    return { status: "error", message: `${po.poNumber} is not yours, so an administrator has to revise it.` };
+  }
   try {
     const po = (await revisePurchaseOrder(id)) as { poNumber: string };
     return { status: "ok", message: `${po.poNumber} is a draft again. Submit it once it is right.` };

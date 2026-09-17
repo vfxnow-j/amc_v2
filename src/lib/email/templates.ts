@@ -2024,3 +2024,132 @@ export function fundingRequestSubmittedEmail(data: FundingRequestSubmittedEmailD
     `),
   }
 }
+
+// ============================================
+// APPROVALS (docs/procurement.md, Phase 6)
+// ============================================
+
+export type ApprovalEmailFact = { label: string; value: string }
+
+export type ApprovalRequestedEmailData = {
+  recipientName: string
+  /** "purchase order", "funding request", "quote". */
+  noun: string
+  recordLabel: string
+  /** Vendor or client — who the money goes to or comes from. */
+  party: ApprovalEmailFact | null
+  amount: string
+  requestedBy: string
+  /** Why this was raised now: "Submit to the vendor", "Total changed from $X to $Y". */
+  note: string | null
+  /** The record's own words about why — PO notes, business purpose, project. */
+  why: string | null
+  facts: ApprovalEmailFact[]
+  lines: string[]
+  /** What approving it lets happen. */
+  releases: string
+  url: string
+}
+
+/**
+ * The ask, addressed to one approver.
+ *
+ * Written to be decided from: what it is, who the money goes to, how much, why,
+ * who asked, and the lines — so the approver can open the record already
+ * knowing their answer. The decision itself is made in the app, where it is
+ * recorded against the signed-in approver; a link in an email cannot prove who
+ * clicked it, so there is no approve button here.
+ */
+export function approvalRequestedEmail(data: ApprovalRequestedEmailData) {
+  const row = (label: string, value: string) => `
+    <tr style="border-top: 1px solid #e4e4e7;">
+      <td style="padding: 8px 0; color: #71717a; font-size: 14px;">${escapeHtml(label)}</td>
+      <td style="padding: 8px 0; text-align: right; font-weight: 600; color: #18181b;">${escapeHtml(value)}</td>
+    </tr>`
+
+  const facts = [
+    row('Amount', data.amount),
+    row('Asked by', data.requestedBy),
+    ...(data.party ? [row(data.party.label, data.party.value)] : []),
+    ...data.facts.map((fact) => row(fact.label, fact.value)),
+  ].join('')
+
+  const block = (label: string, text: string) => `
+    <div style="margin: 20px 0;">
+      <p style="margin: 0 0 6px; color: #71717a; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px;">${escapeHtml(label)}</p>
+      <p style="margin: 0; color: #3f3f46; line-height: 1.6; white-space: pre-wrap;">${escapeHtml(text)}</p>
+    </div>`
+
+  const linesHtml = data.lines.length
+    ? `<div style="margin: 20px 0; padding: 14px 16px; background: #f4f4f5; border-radius: 8px; color: #3f3f46; font-size: 14px; line-height: 1.7;">
+        ${data.lines.map((line) => escapeHtml(line)).join('<br />')}
+      </div>`
+    : ''
+
+  return {
+    subject: `Approval needed: ${data.recordLabel} — ${data.amount}`,
+    html: baseLayout(`
+      <h2 style="margin: 0 0 16px; color: #18181b; font-size: 20px;">A ${escapeHtml(data.noun)} is waiting on you</h2>
+      <p style="color: #3f3f46; line-height: 1.6;">
+        Hi ${escapeHtml(data.recipientName)}, ${escapeHtml(data.requestedBy)} needs an approver's yes on
+        <strong>${escapeHtml(data.recordLabel)}</strong>. Until one of you decides, it is held:
+        ${escapeHtml(data.releases.charAt(0).toLowerCase() + data.releases.slice(1))} waits.
+      </p>
+      ${data.note ? block('Asked because', data.note) : ''}
+      ${data.why ? block('What it is for', data.why) : ''}
+      <table style="width: 100%; margin: 20px 0; border-collapse: collapse;">
+        ${facts}
+      </table>
+      ${linesHtml}
+      <div style="text-align: center; margin: 24px 0;">
+        <a href="${escapeHtml(data.url)}" style="background: #18181b; color: #ffffff; padding: 12px 32px; border-radius: 6px; text-decoration: none; font-weight: 500; display: inline-block;">
+          Review ${escapeHtml(data.recordLabel)}
+        </a>
+      </div>
+      <p style="color: #71717a; font-size: 14px; line-height: 1.6;">
+        Approve or deny it on the record. A denial needs a reason, and the reason goes back to ${escapeHtml(data.requestedBy)}.
+      </p>
+    `),
+  }
+}
+
+export type ApprovalDecidedEmailData = {
+  recipientName: string
+  noun: string
+  recordLabel: string
+  approved: boolean
+  decidedBy: string
+  amount: string
+  reason: string | null
+  /** What to do now: "Submit it to the vendor from the record." */
+  next: string
+  url: string
+}
+
+/** The answer, back to whoever asked. */
+export function approvalDecidedEmail(data: ApprovalDecidedEmailData) {
+  const verdict = data.approved ? 'approved' : 'denied'
+  const reasonHtml = data.reason
+    ? `<div style="margin: 20px 0; padding: 14px 16px; background: ${data.approved ? '#f0fdf4' : '#fef2f2'}; border-radius: 8px; color: #3f3f46; font-size: 14px; line-height: 1.6; white-space: pre-wrap;">
+        <strong style="color: #18181b;">${data.approved ? 'Note' : 'Why'}</strong><br />${escapeHtml(data.reason)}
+      </div>`
+    : ''
+
+  return {
+    subject: `${data.approved ? 'Approved' : 'Denied'}: ${data.recordLabel} — ${data.amount}`,
+    html: baseLayout(`
+      <h2 style="margin: 0 0 16px; color: #18181b; font-size: 20px;">${escapeHtml(data.recordLabel)} was ${verdict}</h2>
+      <p style="color: #3f3f46; line-height: 1.6;">
+        Hi ${escapeHtml(data.recipientName)}, ${escapeHtml(data.decidedBy)} ${verdict} the ${escapeHtml(data.noun)}
+        you asked about, at <strong>${escapeHtml(data.amount)}</strong>.
+      </p>
+      ${reasonHtml}
+      <p style="color: #3f3f46; line-height: 1.6;">${escapeHtml(data.next)}</p>
+      <div style="text-align: center; margin: 24px 0;">
+        <a href="${escapeHtml(data.url)}" style="background: #18181b; color: #ffffff; padding: 12px 32px; border-radius: 6px; text-decoration: none; font-weight: 500; display: inline-block;">
+          Open ${escapeHtml(data.recordLabel)}
+        </a>
+      </div>
+    `),
+  }
+}

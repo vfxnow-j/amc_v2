@@ -25,6 +25,9 @@ import { PO_METHOD_LABEL, PO_ORDER_TYPE_LABEL } from "@/lib/procurement/po-label
 import { getPOFinancing } from "@/lib/procurement/po-queries";
 import { getSessionUser } from "@/lib/roles";
 import { isAdminRole } from "@/lib/settings/pages";
+import { ApprovalCard } from "@/components/approvals/approval-card";
+import { isApprover } from "@/lib/approvals/core";
+import { mayReceive, mayRevisePO, mayWorkOnPO } from "@/lib/procurement/access";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -52,14 +55,19 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
  *
  * The record also carries the middle of the trail a unit reads back — which
  * funding requests cite this PO and which loan pays for it — and the controls
- * that move the PO along. Both are admin writes; everyone who can open the
- * record can read them.
+ * that move the PO along. Since Phase 6 the person who raised a draft can edit
+ * and submit it and STAFF can receive; the loan, funding links and cancel stay
+ * admin writes. Submitting is held for approval unless the submitter approves
+ * POs, and the Approval card says where that stands.
  */
 export default async function PurchaseOrderRecordPage({ params }: Params) {
   const { id } = await params;
   const [po, user] = await Promise.all([getPOHeader(id), getSessionUser()]);
   if (!po) notFound();
   const admin = user ? isAdminRole(user.role) : false;
+  const canWork = user ? mayWorkOnPO(user, po) : false;
+  const canRevise = user ? mayRevisePO(user, po) : false;
+  const approvesPOs = user ? await isApprover(user, "PURCHASE_ORDER") : false;
 
   const receivable = RECEIVABLE.includes(po.status);
 
@@ -79,6 +87,7 @@ export default async function PurchaseOrderRecordPage({ params }: Params) {
             {" · ordered "}
             {dayYear(po.orderDate)}
             {po.expectedDate ? ` · expected ${dayYear(po.expectedDate)}` : ""}
+            {po.raisedBy ? ` · raised by ${po.raisedBy.name}` : ""}
             {po.receivedDate ? ` · received ${dayYear(po.receivedDate)}` : ""}
           </>
         }
@@ -95,13 +104,17 @@ export default async function PurchaseOrderRecordPage({ params }: Params) {
             >
               PDF
             </a>
-            {admin ? (
+            {canWork || canRevise || admin ? (
               <POControls
                 id={po.id}
                 poNumber={po.poNumber}
                 status={po.status}
                 outstanding={po.outstanding}
                 unitsReceived={po.unitsReceived}
+                canWork={canWork}
+                canRevise={canRevise}
+                canCancel={admin}
+                approvesPOs={approvesPOs}
               />
             ) : null}
           </>
@@ -137,9 +150,18 @@ export default async function PurchaseOrderRecordPage({ params }: Params) {
         </Suspense>
 
         <div className="flex min-h-0 flex-col gap-3">
+          <Suspense fallback={<CardSkeleton title="Approval" rows={2} />}>
+            <ApprovalCard
+              type="PURCHASE_ORDER"
+              id={id}
+              viewer={user}
+              act={receivable ? "receiving against it" : "submitting it to the vendor"}
+            />
+          </Suspense>
+
           {receivable ? (
             <Suspense fallback={<CardSkeleton title="Receive" rows={3} />}>
-              <Receiving id={id} canReceive={admin} />
+              <Receiving id={id} canReceive={user ? mayReceive(user.role) : false} />
             </Suspense>
           ) : (
             <Card title="Receive">

@@ -26,6 +26,8 @@ export async function getPOHeader(id: string) {
       taxExempt: true,
       total: true,
       notes: true,
+      raisedById: true,
+      raisedBy: { select: { name: true } },
       vendor: {
         select: {
           id: true,

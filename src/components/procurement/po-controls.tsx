@@ -32,6 +32,10 @@ export function POControls({
   status,
   outstanding,
   unitsReceived,
+  canWork,
+  canRevise,
+  canCancel,
+  approvesPOs,
 }: {
   id: string;
   poNumber: string;
@@ -39,6 +43,13 @@ export function POControls({
   /** Items still to come — said in the cancel dialog. */
   outstanding: number;
   unitsReceived: number;
+  /** Edit and submit — an admin, or the STAFF member whose draft it is. */
+  canWork: boolean;
+  canRevise: boolean;
+  /** Admin only. */
+  canCancel: boolean;
+  /** Whether a submit by this person goes straight through. */
+  approvesPOs: boolean;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState<Move | null>(null);
@@ -55,16 +66,16 @@ export function POControls({
   }
 
   const moves: { move: Move; label: string; primary?: boolean }[] = [];
-  if (status === "DRAFT") moves.push({ move: "submit", label: "Submit", primary: true });
-  if (status === "SUBMITTED") moves.push({ move: "revise", label: "Revise" });
-  if (status !== "RECEIVED" && status !== "CANCELLED") {
+  if (status === "DRAFT" && canWork) moves.push({ move: "submit", label: "Submit", primary: true });
+  if (status === "SUBMITTED" && canRevise) moves.push({ move: "revise", label: "Revise" });
+  if (status !== "RECEIVED" && status !== "CANCELLED" && canCancel) {
     moves.push({ move: "cancel", label: "Cancel PO" });
   }
 
   return (
     <div className="flex flex-col items-end gap-2">
       <div className="flex flex-wrap items-center justify-end gap-2">
-        {status !== "CANCELLED" ? (
+        {status !== "CANCELLED" && canWork ? (
           <Link
             href={`/dashboard/purchase-orders/${id}/edit`}
             className="h-9 rounded-pill bg-sunken px-3 text-pill leading-9 text-ink hover:bg-row-hover"
@@ -100,7 +111,11 @@ export function POControls({
         open={open === "submit"}
         onOpenChange={(next) => !next && setOpen(null)}
         title={`Submit ${poNumber}`}
-        blurb="Marks it as sent to the vendor, so hardware can be received against it. Edits stay possible afterwards, but the vendor will be working from this version."
+        blurb={
+          approvesPOs
+            ? "Marks it as sent to the vendor, so hardware can be received against it. You approve purchase orders, so it goes straight through and is recorded as cleared by you."
+            : "Asks an approver first, unless this total is already approved. The PO stays a draft until one of them says yes; then submit it again to send it to the vendor."
+        }
         footer={
           <>
             <ModalCancel />

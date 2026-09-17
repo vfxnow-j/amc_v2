@@ -3,7 +3,10 @@
 import { revalidatePath } from 'next/cache'
 import { prisma } from '@/lib/prisma'
 import { auth } from '@/lib/auth'
-import { requireAdmin, requireAuth } from '@/lib/auth-utils'
+import { requireAdmin, requireAuth, requireEditor } from '@/lib/auth-utils'
+import { isAdmin } from '@/lib/auth'
+import { mayRevisePO, mayWorkOnPO } from '@/lib/procurement/access'
+import { actorFor, noteMoneyChange, releaseGate, supersedePending } from '@/lib/approvals/core'
 import { serialize } from '@/lib/utils'
 import { generateBarcode } from '@/lib/utils/barcode'
 import { syncUnitsToPurchaseOrderLease } from '@/lib/funding/lease-sync'
@@ -223,8 +226,10 @@ export async function getPurchaseOrder(id: string) {
 }
 
 export async function createPurchaseOrder(data: POFormData) {
-  const authResult = await requireAdmin()
-  if (!authResult.authorized) return { success: false as const, error: authResult.error || 'Admin access required' }
+  // Phase 6: STAFF raise POs. Raising commits nothing — a draft goes nowhere
+  // until it is submitted, and submitting is where approval is asked for.
+  const authResult = await requireEditor()
+  if (!authResult.authorized) return { success: false as const, error: authResult.error || 'Edit access required' }
 
   const poNumber = await generatePONumber()
 
@@ -272,6 +277,9 @@ export async function createPurchaseOrder(data: POFormData) {
       orderType: (data.orderType as any) || null,
       notes: data.notes || null,
       status: 'DRAFT',
+      // v2-only: whose draft this is, so STAFF can work on their own and no one
+      // else's. See lib/procurement/access.ts.
+      raisedById: authResult.userId,
       items: {
         create: itemsWithAmounts.map((item) => ({
           description: item.description,
@@ -306,8 +314,22 @@ export async function createPurchaseOrder(data: POFormData) {
 }
 
 export async function updatePurchaseOrder(id: string, data: POFormData) {
-  const authResult = await requireAdmin()
-  if (!authResult.authorized) return { success: false as const, error: authResult.error || 'Admin access required' }
+  const authResult = await requireEditor()
+  if (!authResult.authorized) return { success: false as const, error: authResult.error || 'Edit access required' }
+
+  const before = await prisma.purchaseOrder.findUnique({
+    where: { id },
+    select: { status: true, raisedById: true, total: true },
+  })
+  if (!before) return { success: false as const, error: 'Purchase order not found' }
+  if (!mayWorkOnPO({ id: authResult.userId, role: authResult.role }, before)) {
+    return {
+      success: false as const,
+      error: isAdmin(authResult.role)
+        ? 'A canceled purchase order is not edited.'
+        : 'Only your own draft purchase orders can be edited. An administrator can change this one.',
+    }
+  }
 
   const purchaseOrder = await prisma.$transaction(async (tx) => {
     const existing = await tx.purchaseOrder.findUnique({
@@ -468,14 +490,25 @@ export async function updatePurchaseOrder(id: string, data: POFormData) {
     return updated
   })
 
+  // Phase 6: an edit that moves the total under an approval — or under a PO
+  // already sent before approvals existed — goes back for approval, unless the
+  // editor approves POs themselves. The gate at receiving enforces it either way.
+  const approval = await noteMoneyChange({
+    type: 'PURCHASE_ORDER',
+    id,
+    before: Number(before.total),
+    actor: await actorFor(authResult.userId, authResult.role),
+  })
+
   revalidatePath('/dashboard/purchase-orders')
   revalidatePath(`/dashboard/purchase-orders/${id}`)
+  revalidatePath('/dashboard/approvals')
 
-  return { success: true as const, data: serialize(purchaseOrder) }
+  return { success: true as const, data: serialize(purchaseOrder), approval }
 }
 
 export async function submitPurchaseOrder(id: string) {
-  const authResult = await requireAdmin()
+  const authResult = await requireEditor()
   if (!authResult.authorized) throw new Error(authResult.error)
 
   const existing = await prisma.purchaseOrder.findUnique({
@@ -487,9 +520,28 @@ export async function submitPurchaseOrder(id: string) {
     throw new Error('Purchase order not found')
   }
 
+  if (!mayWorkOnPO({ id: authResult.userId, role: authResult.role }, existing)) {
+    throw new Error('Only your own draft purchase orders can be submitted.')
+  }
+
   if (existing.status !== 'DRAFT') {
     throw new Error('Can only submit draft purchase orders')
   }
+
+  // Phase 6: sending to the vendor is the release. Refuses unless the PO is
+  // cleared at its current total, or the submitter approves POs. It does not
+  // raise a request — a direct call cannot ask in someone's name; submitPO on
+  // the record asks first and then calls this.
+  const gate = await releaseGate({
+    type: 'PURCHASE_ORDER',
+    id,
+    actor: await actorFor(authResult.userId, authResult.role),
+    act: 'submitting it to the vendor',
+    raise: false,
+    always: true,
+    note: 'Submit to the vendor',
+  })
+  if (gate.status === 'held') throw new Error(gate.message)
 
   const updated = await prisma.purchaseOrder.update({
     where: { id },
@@ -543,7 +595,7 @@ export async function submitPurchaseOrder(id: string) {
 }
 
 export async function revisePurchaseOrder(id: string) {
-  const authResult = await requireAdmin()
+  const authResult = await requireEditor()
   if (!authResult.authorized) throw new Error(authResult.error)
 
   const existing = await prisma.purchaseOrder.findUnique({
@@ -552,6 +604,10 @@ export async function revisePurchaseOrder(id: string) {
 
   if (!existing) {
     throw new Error('Purchase order not found')
+  }
+
+  if (!mayRevisePO({ id: authResult.userId, role: authResult.role }, existing)) {
+    throw new Error('Only the person who raised this PO, or an administrator, can take it back to draft.')
   }
 
   if (existing.status !== 'SUBMITTED') {
@@ -590,8 +646,13 @@ export async function cancelPurchaseOrder(id: string) {
     data: { status: 'CANCELLED' },
   })
 
+  // Nothing is left to approve on a canceled PO; an ask still open would sit in
+  // the approvers' queue forever.
+  await supersedePending('PURCHASE_ORDER', id)
+
   revalidatePath('/dashboard/purchase-orders')
   revalidatePath(`/dashboard/purchase-orders/${id}`)
+  revalidatePath('/dashboard/approvals')
 
   return serialize(updated)
 }
@@ -765,8 +826,26 @@ export async function deletePurchaseOrder(id: string) {
 }
 
 export async function receivePurchaseOrder(id: string, data: ReceivePOData) {
-  const authResult = await requireAdmin()
+  // Phase 6: receiving is the warehouse's job, so STAFF may — but a new model is
+  // catalog, not a count, and stays an admin's call.
+  const authResult = await requireEditor()
   if (!authResult.authorized) throw new Error(authResult.error)
+  if ((data.newAssets?.length ?? 0) > 0 && !isAdmin(authResult.role)) {
+    throw new Error('Creating a new model while receiving is for administrators. Link the line to an existing model, or ask an admin to receive it.')
+  }
+
+  // Held when its approval is outstanding: a PO whose money changed after it was
+  // approved, or that was never cleared. A PO sent before approvals existed and
+  // untouched since has no history and is not held.
+  const gate = await releaseGate({
+    type: 'PURCHASE_ORDER',
+    id,
+    actor: await actorFor(authResult.userId, authResult.role),
+    act: 'receiving against it',
+    raise: false,
+    always: false,
+  })
+  if (gate.status === 'held') throw new Error(gate.message)
 
   const result = await prisma.$transaction(async (tx) => {
     // Load PO with items

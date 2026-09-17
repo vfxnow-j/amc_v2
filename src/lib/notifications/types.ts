@@ -73,7 +73,7 @@ export const NOTIFICATION_TRIGGER: Record<NotificationType, string> = {
   INVOICE_REMINDER:
     "An invoice is unsettled and past its due date. Goes to admins.",
   APPROVAL_REQUEST:
-    "A checkout is waiting on your approval. Goes to the named approver only.",
+    "A purchase order, funding request or quote is waiting on your approval — raised the moment it is asked, for everyone who approves that type, and emailed to them too. The answer to a request you raised comes back the same way. Muting this hides them from your bell only; Procurement → Approvals still lists what waits on you. Also a checkout waiting on its named approver.",
   FOLLOW_UP_DUE:
     "A next step logged on an account or lead is due. Goes to the account's owner, or to whoever logged it if nobody owns the account.",
   QUOTE_UNANSWERED:

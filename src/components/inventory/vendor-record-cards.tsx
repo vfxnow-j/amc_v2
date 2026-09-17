@@ -12,7 +12,7 @@ import {
   getVendorUnits,
 } from "@/lib/queries/vendor-record";
 import { getSessionUser } from "@/lib/roles";
-import { isAdminRole } from "@/lib/settings/pages";
+import { canRaise } from "@/lib/procurement/access";
 
 /** The cards the vendor record is built from. */
 
@@ -160,9 +160,9 @@ export async function VendorPurchaseOrdersCard({ id }: { id: string }) {
   ]);
 
   // Where the next order to this vendor starts — the vendor is already chosen.
-  // Admin-only, as every Procurement write is; staff can read the history.
+  // Staff and up, since Phase 6 — raising commits nothing until it is submitted.
   const raise =
-    user && isAdminRole(user.role) ? (
+    user && canRaise(user.role) ? (
       <Link
         href={`/dashboard/purchase-orders/new?vendor=${id}`}
         className="text-detail text-accent-text hover:underline"

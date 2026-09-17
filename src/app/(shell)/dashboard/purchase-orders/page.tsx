@@ -22,7 +22,7 @@ import {
   getPurchaseOrders,
 } from "@/lib/queries/accounting";
 import { getSessionUser } from "@/lib/roles";
-import { isAdminRole } from "@/lib/settings/pages";
+import { canRaise } from "@/lib/procurement/access";
 
 export const metadata = { title: "Purchase orders" };
 
@@ -183,7 +183,7 @@ export default async function PurchaseOrdersPage({
         actions={
           <>
             <ListSearch placeholder="Search PO number, vendor" />
-            {user && isAdminRole(user.role) ? (
+            {user && canRaise(user.role) ? (
               <Link
                 href="/dashboard/purchase-orders/new"
                 className="h-9 flex-none rounded-pill bg-accent-solid px-4 text-pill leading-9 text-accent-on-solid transition-colors hover:bg-accent-800"
