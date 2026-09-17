@@ -3,6 +3,7 @@
 import { prisma } from "@/lib/prisma";
 import { getSessionUser } from "@/lib/roles";
 import { mayReceive } from "@/lib/procurement/access";
+import { receivingRefusal } from "@/lib/procurement/receive-gate";
 import { getPOHeader, getPOLines } from "@/lib/queries/po-record";
 
 /**
@@ -14,8 +15,10 @@ import { getPOHeader, getPOLines } from "@/lib/queries/po-record";
  * approval gate in front of it. A second write path from the scanner would be a
  * second place those checks could drift apart.
  *
- * Gated with `mayReceive`, the same call the receive screen makes, so the
- * scanner never offers a PO the screen it hands off to would refuse.
+ * Gated with `receivingRefusal` — role, PO state and approval — the one answer
+ * the receive screen also uses, so the scanner never offers a PO that screen
+ * would refuse. A PO held for approval is left out of the queue rather than
+ * offered and then refused after the pallet is scanned.
  */
 
 export type ReceiveQueueRow = {
@@ -48,9 +51,13 @@ export type ReceiveBrief = {
 
 const OPEN = ["SUBMITTED", "PARTIAL"] as const;
 
-async function allowed() {
+async function viewer() {
   const user = await getSessionUser();
-  return Boolean(user && mayReceive(user.role));
+  return user && mayReceive(user.role) ? user : null;
+}
+
+async function allowed() {
+  return Boolean(await viewer());
 }
 
 /**
@@ -60,7 +67,8 @@ async function allowed() {
  * nothing on it to scan, and offering it would open an empty session.
  */
 export async function scanReceiveQueue(search?: string): Promise<ReceiveQueueRow[]> {
-  if (!(await allowed())) return [];
+  const user = await viewer();
+  if (!user) return [];
 
   const term = search?.trim();
   const rows = await prisma.purchaseOrder.findMany({
@@ -91,7 +99,13 @@ export async function scanReceiveQueue(search?: string): Promise<ReceiveQueueRow
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
+  // Held POs are dropped here. One gate call per open PO; there are rarely more
+  // than a handful, and a second, cheaper definition of "held" is exactly the
+  // drift the gate exists to prevent.
+  const refusals = await Promise.all(rows.map((row) => receivingRefusal(row.id, user)));
+
   return rows
+    .filter((_, index) => refusals[index] === null)
     .map((row) => {
       const scannable = row.items
         .filter((item) => item.isInventoried || item.isResale)
@@ -113,8 +127,16 @@ export async function scanReceiveQueue(search?: string): Promise<ReceiveQueueRow
 }
 
 /** The lines of one PO a serial can be scanned onto, in the PO's own order. */
-export async function scanReceiveBrief(id: string): Promise<ReceiveBrief | null> {
-  if (!(await allowed())) return null;
+export async function scanReceiveBrief(
+  id: string,
+): Promise<ReceiveBrief | { refusal: string } | null> {
+  const user = await viewer();
+  if (!user) return null;
+
+  // Asked again at pick time: the queue may be minutes old, and an edit to the
+  // PO's money since then puts it back behind approval.
+  const refusal = await receivingRefusal(id, user);
+  if (refusal) return { refusal };
 
   const header = await getPOHeader(id);
   if (!header || !OPEN.includes(header.status as (typeof OPEN)[number])) return null;

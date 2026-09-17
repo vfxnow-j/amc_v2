@@ -102,6 +102,10 @@ export function ReceiveMode() {
     setBusy(true);
     const next = await scanReceiveBrief(id);
     setBusy(false);
+    if (next && "refusal" in next) {
+      setNotice({ tone: "error", message: next.refusal });
+      return;
+    }
     if (!next || next.lines.length === 0) {
       setNotice({
         tone: "error",
@@ -217,7 +221,7 @@ export function ReceiveMode() {
           <p className="text-detail text-ink-muted">
             {results
               ? `${rows.length} matching ${rows.length === 1 ? "PO" : "POs"} with units still to come`
-              : "Submitted or part-received, with units or serials still to come — earliest expected first"}
+              : "Submitted or part-received, cleared to receive, with units or serials still to come — earliest expected first"}
           </p>
         </div>
 
@@ -239,7 +243,8 @@ export function ReceiveMode() {
                 "No open purchase order matches that."
               ) : (
                 <>
-                  Nothing is waiting to be received.{" "}
+                  Nothing is cleared and waiting to be received — a PO held for approval
+                  appears here once it is approved.{" "}
                   <Link href="/dashboard/purchase-orders" className="text-accent-text hover:underline">
                     Purchase orders
                   </Link>{" "}
