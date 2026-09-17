@@ -2952,7 +2952,7 @@ export async function approveReservation(id: string, force?: boolean) {
 
   // Notify staff/recipients about approved order — only active package items
   try {
-    const { notifyReservationConfirmed } = await import('./notifications')
+    const { notifyReservationConfirmed } = await import('@/lib/notifications/outbound')
     const activeItems = reservation.activePackageId
       ? reservation.updated.items.filter((i: any) => i.packageId === reservation.activePackageId)
       : reservation.updated.items

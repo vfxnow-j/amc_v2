@@ -1,7 +1,7 @@
 import crypto from 'crypto'
 import { prisma } from '@/lib/prisma'
 import { findMatchingLead, mergeIntoLead } from '@/lib/leads/dedupe'
-import { notifyNewLead } from '@/lib/actions/notifications'
+import { notifyNewLead } from '@/lib/notifications/outbound'
 
 async function getConfig() {
   const [apiKey, apiSecret, webhookSecret] = await Promise.all([

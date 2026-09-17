@@ -5,7 +5,7 @@ import { apiPaginated, apiSuccess, parsePagination, parseSearchParams } from "@/
 import { logAudit } from "@/lib/actions/audit";
 import { findMatchingLead } from "@/lib/leads/dedupe";
 import { syncLeadContactSafely } from "@/lib/integrations/hubspot";
-import { notifyNewLead } from "@/lib/actions/notifications";
+import { notifyNewLead } from "@/lib/notifications/outbound";
 import {
   LEAD_SOURCES,
   LEAD_STATUSES,

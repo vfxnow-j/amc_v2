@@ -6,8 +6,19 @@ import { PageHeader } from "@/components/shell/page-header";
 import { getNotificationRecipients } from "@/lib/actions/notifications";
 import { APP_URL, EMAIL_FROM, isEmailConfigured } from "@/lib/email/client";
 import { getNotificationPreferences } from "@/lib/notifications/preferences";
+import { readRecipients } from "@/lib/notifications/recipients";
+import {
+  CATEGORY_META,
+  RECIPIENT_CATEGORIES,
+  receives,
+} from "@/lib/notifications/recipients-schema";
+import { REPORTS, REPORT_KEYS } from "@/lib/notifications/reports/registry";
+import { readSchedule, readSentState, type RunRecord } from "@/lib/notifications/reports/run";
+import { nextRunLabel } from "@/lib/notifications/reports/schedule";
 import { getSessionUser } from "@/lib/roles";
 import { PreferencesForm } from "./preferences-form";
+import { RecipientsEditor } from "./recipients-editor";
+import { ReportSchedules, type ReportRow } from "./report-schedules";
 import { TestEmailForm } from "./test-email-form";
 
 export const metadata = { title: "Notification preferences" };
@@ -15,24 +26,24 @@ export const metadata = { title: "Notification preferences" };
 /**
  * Settings → Notifications.
  *
- * Preferences belong here rather than on the feed for the same reason the theme
- * switch isn't on the Overview: what you want to be told is account
- * configuration, not part of the task you opened the feed to do. It is also
- * where v1 kept its notification settings and where the build plan's Stage 8
- * lists `notifications` among the fourteen settings children, so nobody has to
- * learn a new place.
+ * Two kinds of setting on one screen, told apart by who may change them:
  *
- * Two cards, and they answer two different questions. The first is "what
- * reaches me", which is per-user and editable by whoever is signed in. The
- * second is "who else is on the digest", which is the `notification_recipients`
- * setting ported from v1 — a global list of addresses, some of which are
- * distribution lists rather than users. It is shown read-only because its
- * editor is a Stage 8 settings deliverable, and because a per-user screen
- * silently rewriting a company-wide list would be a nasty surprise.
+ * - **What reaches you** — per user, editable by whoever is signed in: the feed,
+ *   the bell and the personal digest.
+ * - **The company's mail** — admins only: the outbound email state and a test
+ *   send, the recipient list (`notification_recipients`, the setting v1 keeps,
+ *   addresses that may be distribution lists), the scheduled reports and Send
+ *   now, and the template gallery. Everyone else sees the recipient list
+ *   read-only, because who receives the company's mail is not a secret among
+ *   staff and a screen that hid it would leave the cron handler as the only
+ *   place to find out.
+ *
+ * The admin check here is presentation. Every write re-checks in its action.
  */
 export default async function NotificationSettingsPage() {
   const user = await getSessionUser();
   if (!user) redirect("/login");
+  const admin = user.role === "ADMIN" || user.role === "SUPER_ADMIN";
 
   return (
     <>
@@ -40,35 +51,64 @@ export default async function NotificationSettingsPage() {
         eyebrow="Settings"
         title="Notifications"
         blurb={
-          <>
-            What reaches {user.email}, and by which route. These switches apply
-            to this account only.
-          </>
+          admin ? (
+            <>
+              What reaches {user.email}, and — for the company — who receives
+              each kind of mail and when the reports go out.
+            </>
+          ) : (
+            <>
+              What reaches {user.email}, and by which route. These switches apply
+              to this account only.
+            </>
+          )
         }
         actions={
-          <Link
-            href="/dashboard/notifications"
-            className="rounded-pill bg-sunken px-3 py-[6px] text-pill text-ink transition-colors hover:bg-row-hover"
-          >
-            Open the feed
-          </Link>
+          <div className="flex gap-2">
+            {admin ? (
+              <Link
+                href="/dashboard/settings/notifications/templates"
+                className="rounded-pill bg-sunken px-3 py-[6px] text-pill text-ink transition-colors hover:bg-row-hover"
+              >
+                Email templates
+              </Link>
+            ) : null}
+            <Link
+              href="/dashboard/notifications"
+              className="rounded-pill bg-sunken px-3 py-[6px] text-pill text-ink transition-colors hover:bg-row-hover"
+            >
+              Open the feed
+            </Link>
+          </div>
         }
       />
 
-      <div className="grid min-h-0 flex-1 items-start gap-3 lg:grid-cols-[2fr_1fr]">
+      <div className="grid shrink-0 items-start gap-3 lg:grid-cols-[2fr_1fr]">
         <Suspense fallback={<CardSkeleton title="What reaches you" rows={6} />}>
           <YourPreferences userId={user.id} />
         </Suspense>
 
         <div className="flex min-w-0 flex-col gap-3">
-          {user.role === "ADMIN" || user.role === "SUPER_ADMIN" ? (
+          {admin ? (
             <OutboundEmail email={user.email} />
-          ) : null}
-          <Suspense fallback={<CardSkeleton title="Digest recipients" rows={3} />}>
-            <DigestRecipients />
-          </Suspense>
+          ) : (
+            <Suspense fallback={<CardSkeleton title="Company recipients" rows={3} />}>
+              <ReadOnlyRecipients />
+            </Suspense>
+          )}
         </div>
       </div>
+
+      {admin ? (
+        <>
+          <Suspense fallback={<CardSkeleton title="Recipients" rows={4} />}>
+            <Recipients />
+          </Suspense>
+          <Suspense fallback={<CardSkeleton title="Scheduled reports" rows={6} />}>
+            <ScheduledReports />
+          </Suspense>
+        </>
+      ) : null}
     </>
   );
 }
@@ -142,58 +182,121 @@ function OutboundEmail({ email }: { email: string }) {
 }
 
 /**
- * The addresses v1's notification settings put on the digest, unchanged.
- *
- * Kept visible because the daily digest genuinely sends to these as well as to
- * opted-in users — leaving it off this screen would mean the only way to find
- * out who receives the mail is to read the cron handler.
+ * Who receives the company's mail, for anyone who isn't an admin. Each address
+ * with the kinds of mail it is ticked for, in words.
  */
-async function DigestRecipients() {
+async function ReadOnlyRecipients() {
   const recipients = await getNotificationRecipients();
-  const onDigest = recipients.filter((recipient) => recipient.insights);
+
+  return (
+    <Card title="Company recipients" meta={recipients.length ? `${recipients.length} addresses` : undefined}>
+      {recipients.length === 0 ? (
+        <CardEmpty>
+          No addresses are configured, so the company&rsquo;s reports and alerts
+          go nowhere. An admin adds them here.
+        </CardEmpty>
+      ) : (
+        <ul className="flex flex-col gap-px px-2 pb-3">
+          {recipients.map((recipient) => {
+            const ticks = RECIPIENT_CATEGORIES.filter((category) => receives(recipient, category));
+            return (
+              <li key={recipient.email} className="rounded-row px-2 py-[6px] text-detail">
+                <span className="block truncate font-bold">
+                  {recipient.email}
+                  {typeof recipient.name === "string" && recipient.name ? (
+                    <span className="font-normal text-ink-muted"> · {recipient.name}</span>
+                  ) : null}
+                </span>
+                <span className="block text-ink-muted">
+                  {ticks.length ? ticks.map((category) => CATEGORY_META[category].label).join(", ") : "Nothing ticked"}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </Card>
+  );
+}
+
+async function Recipients() {
+  const recipients = await readRecipients();
+  const rows = recipients.map((recipient) => ({
+    email: recipient.email,
+    name: typeof recipient.name === "string" ? recipient.name : "",
+    categories: Object.fromEntries(
+      RECIPIENT_CATEGORIES.map((category) => [category, receives(recipient, category)]),
+    ) as Record<(typeof RECIPIENT_CATEGORIES)[number], boolean>,
+  }));
 
   return (
     <Card
-      title="Digest recipients"
-      meta={
-        recipients.length === 0
-          ? undefined
-          : `${onDigest.length} of ${recipients.length} on the digest`
-      }
+      className="shrink-0"
+      title="Recipients"
+      meta={`${recipients.length} ${recipients.length === 1 ? "address" : "addresses"} · people or distribution lists`}
     >
-      {recipients.length === 0 ? (
-        <CardEmpty>
-          No addresses are configured, so the daily digest currently goes only to
-          users who have switched it on for themselves. The company-wide list is
-          edited in v1&rsquo;s notification settings; its editor is part of the
-          Settings stage here.
-        </CardEmpty>
-      ) : (
-        <>
-          <ul className="flex flex-col gap-px px-2 pb-2">
-            {recipients.map((recipient) => (
-              <li
-                key={recipient.email}
-                className="grid grid-cols-[1fr_auto] items-baseline gap-2 rounded-row px-2 py-[6px] text-detail"
-              >
-                <span className="truncate">{recipient.email}</span>
-                <span
-                  className={
-                    recipient.insights ? "text-ink-muted" : "text-ink-faint"
-                  }
-                >
-                  {recipient.insights ? "Digest" : "Other categories"}
-                </span>
-              </li>
-            ))}
-          </ul>
-          <p className="mx-4 mb-4 rounded-well bg-sunken p-2 text-detail text-ink-muted">
-            A company-wide list carried over from v1, some of it distribution
-            addresses rather than people. Read-only here — its editor belongs
-            with the rest of Settings.
-          </p>
-        </>
-      )}
+      <p className="mx-4 mb-3 text-detail text-ink-muted">
+        Who receives the company&rsquo;s mail, and which kinds. Mail about a
+        person — approvals, tasks, the personal digest, security — goes to that
+        person and isn&rsquo;t set here. This list is the setting v1 keeps: a
+        refresh of v2 from v1 replaces it with v1&rsquo;s, and puts back only the
+        ticks v1 doesn&rsquo;t have (Coverage, Depreciation) and labels, by
+        address.
+      </p>
+      <RecipientsEditor initial={rows} />
+    </Card>
+  );
+}
+
+function when(run: RunRecord | undefined): string | null {
+  if (!run) return null;
+  const at = new Date(run.at).toLocaleString("en-US", {
+    timeZone: "America/Los_Angeles",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  const result =
+    run.skipped === "no-recipients"
+      ? "nobody ticked"
+      : run.skipped === "nothing-to-report"
+        ? "nothing to report"
+        : run.sent > 0
+          ? `sent to ${run.sent} of ${run.recipients}`
+          : `failed — ${run.error ?? "unknown error"}`;
+  return `${at} PT, ${result}${run.by && run.by !== "schedule" ? ` (${run.by})` : ""}`;
+}
+
+async function ScheduledReports() {
+  const now = new Date();
+  const recipients = await readRecipients();
+  const rows: ReportRow[] = await Promise.all(
+    REPORT_KEYS.map(async (key) => {
+      const def = REPORTS[key];
+      const [schedule, state] = await Promise.all([readSchedule(key), readSentState(key)]);
+      return {
+        key,
+        label: def.label,
+        what: def.what,
+        categoryLabel: CATEGORY_META[def.category].short,
+        recipients: recipients.filter((recipient) => receives(recipient, def.category)).length,
+        schedule,
+        next: nextRunLabel(schedule, state.occurrence, now),
+        lastScheduled: when(state.scheduled),
+        lastManual: when(state.manual),
+      };
+    }),
+  );
+
+  return (
+    <Card className="shrink-0" title="Scheduled reports" meta="Pacific time · checked hourly">
+      <p className="mx-4 mb-3 text-detail text-ink-muted">
+        An hourly job sends each report on the first check at or after its time,
+        once per occurrence. If that job isn&rsquo;t running, nothing here sends
+        on its own — Send now always works.
+      </p>
+      <ReportSchedules reports={rows} />
     </Card>
   );
 }

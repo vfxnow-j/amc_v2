@@ -2,7 +2,7 @@ import crypto from 'crypto'
 import { prisma } from '@/lib/prisma'
 import { logAudit } from '@/lib/actions/audit'
 import { findMatchingLead, mergeIntoLead } from '@/lib/leads/dedupe'
-import { notifyNewLead } from '@/lib/actions/notifications'
+import { notifyNewLead } from '@/lib/notifications/outbound'
 
 const SETTING_KEY = 'zapier_webhook_secret'
 

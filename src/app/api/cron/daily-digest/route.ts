@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { notifyDailyDigest } from "@/lib/actions/notifications";
+import { notifyDailyDigest } from "@/lib/notifications/outbound";
 import {
   emailConfigured,
   sendNotificationDigests,

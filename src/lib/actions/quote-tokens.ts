@@ -514,7 +514,7 @@ export async function approveQuote(
   try {
     const { quoteApprovedEmail } = await import('@/lib/email/templates')
     const { sendEmail } = await import('@/lib/email')
-    const { getRecipientsForCategory } = await import('./notifications')
+    const { recipientsFor } = await import('@/lib/notifications/recipients')
 
     const updatedRes = await prisma.reservation.findUnique({
       where: { id: reservation.id },
@@ -526,7 +526,7 @@ export async function approveQuote(
     if (updatedRes) {
       // Find the active (selected) package after the transaction committed
       const activePackage = updatedRes.packages.find((p) => p.isActive)
-      const recipients = await getRecipientsForCategory('reservations')
+      const recipients = await recipientsFor('reservations')
       const template = quoteApprovedEmail({
         clientName: updatedRes.client.name,
         reservationNumber: updatedRes.reservationNumber,
@@ -588,9 +588,9 @@ export async function requestQuoteChanges(token: string, changeNotes: string) {
   try {
     const { quoteChangesRequestedEmail } = await import('@/lib/email/templates')
     const { sendEmail } = await import('@/lib/email')
-    const { getRecipientsForCategory } = await import('./notifications')
+    const { recipientsFor } = await import('@/lib/notifications/recipients')
 
-    const recipients = await getRecipientsForCategory('reservations')
+    const recipients = await recipientsFor('reservations')
     const template = quoteChangesRequestedEmail({
       clientName: quoteToken.reservation.client.name,
       reservationNumber: quoteToken.reservation.reservationNumber,
@@ -776,9 +776,9 @@ export async function denyQuote(token: string, reason?: string) {
   try {
     const { quoteDeniedEmail } = await import('@/lib/email/templates')
     const { sendEmail } = await import('@/lib/email')
-    const { getRecipientsForCategory } = await import('./notifications')
+    const { recipientsFor } = await import('@/lib/notifications/recipients')
 
-    const recipients = await getRecipientsForCategory('reservations')
+    const recipients = await recipientsFor('reservations')
     const template = quoteDeniedEmail({
       clientName: reservation.client.name,
       reservationNumber: reservation.reservationNumber,

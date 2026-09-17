@@ -6,6 +6,12 @@ import { requireAdmin } from "@/lib/auth-utils";
 import { APP_URL, EMAIL_FROM, isEmailConfigured } from "@/lib/email/client";
 import { sendEmail } from "@/lib/email/send";
 import { layoutSpecimenEmail } from "@/lib/email/templates";
+import { logAudit } from "@/lib/actions/audit";
+import { RECIPIENTS_KEY, saveRecipients, type RecipientInput } from "@/lib/notifications/recipients";
+import { RECIPIENT_CATEGORIES } from "@/lib/notifications/recipients-schema";
+import { REPORTS, isReportKey } from "@/lib/notifications/reports/registry";
+import { runReportNow, saveSchedule, type ReportSchedule } from "@/lib/notifications/reports/run";
+import { describeSchedule } from "@/lib/notifications/reports/schedule";
 
 /**
  * What Settings → Notifications writes on the company's behalf: the test send,
@@ -82,5 +88,110 @@ export async function sendTestEmailAction(
     message: redirect
       ? `Sent. It was redirected to ${redirect} (the test redirect is on), with a banner naming ${to}.`
       : `Sent to ${to}.`,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Recipients
+// ---------------------------------------------------------------------------
+
+/**
+ * Save the recipient list from the editor.
+ *
+ * Takes the whole list as JSON rather than FormData because it is a grid —
+ * rows added and removed client-side — and validates every row server-side in
+ * `saveRecipients`, which also keeps keys this version doesn't know.
+ */
+export async function saveRecipientsAction(rows: RecipientInput[]): Promise<{ ok: boolean; message: string }> {
+  const auth = await requireAdmin();
+  if (!auth.authorized) return { ok: false, message: auth.error };
+  if (!Array.isArray(rows)) return { ok: false, message: "Nothing to save." };
+
+  const clean: RecipientInput[] = rows.map((row) => ({
+    email: String(row?.email ?? ""),
+    name: typeof row?.name === "string" ? row.name : undefined,
+    categories: Object.fromEntries(
+      RECIPIENT_CATEGORIES.map((category) => [category, row?.categories?.[category] === true]),
+    ),
+  }));
+
+  const result = await saveRecipients(clean);
+  if (!result.ok) return { ok: false, message: result.error };
+
+  await logAudit({
+    action: "UPDATE",
+    entityType: "Settings",
+    entityId: RECIPIENTS_KEY,
+    newValues: { recipients: clean.map((row) => row.email) },
+    userId: auth.userId,
+  });
+  refresh();
+  return { ok: true, message: `Saved ${result.saved} ${result.saved === 1 ? "address" : "addresses"}.` };
+}
+
+// ---------------------------------------------------------------------------
+// Report schedules and Send now
+// ---------------------------------------------------------------------------
+
+export async function saveReportScheduleAction(
+  _previous: ActionOutcome,
+  form: FormData,
+): Promise<ActionOutcome> {
+  const auth = await requireAdmin();
+  if (!auth.authorized) return { ok: false, message: auth.error };
+
+  const key = form.get("report");
+  if (!isReportKey(key)) return { ok: false, message: "Unknown report." };
+
+  const schedule: ReportSchedule = {
+    enabled: form.get("enabled") !== null,
+    frequency: String(form.get("frequency")) as ReportSchedule["frequency"],
+    dayOfWeek: Number(form.get("dayOfWeek")),
+    dayOfMonth: Number(form.get("dayOfMonth")),
+    hour: Number(form.get("hour")),
+  };
+  if (key === "inventory") {
+    const title = String(form.get("title") ?? "").trim();
+    Object.assign(schedule, {
+      horizonDays: Math.min(90, Math.max(1, Number(form.get("horizonDays")) || 14)),
+      maxEmailRows: Math.min(300, Math.max(5, Number(form.get("maxEmailRows")) || 40)),
+      attachPdf: form.get("attachPdf") !== null,
+      title: title.slice(0, 80) || REPORTS.inventory.defaults.title,
+    });
+  }
+
+  const saved = await saveSchedule(key, schedule);
+  refresh();
+  return { ok: true, message: `Saved. ${describeSchedule(saved)}` };
+}
+
+export async function sendReportNowAction(
+  _previous: ActionOutcome,
+  form: FormData,
+): Promise<ActionOutcome> {
+  const auth = await requireAdmin();
+  if (!auth.authorized) return { ok: false, message: auth.error };
+
+  const key = form.get("report");
+  if (!isReportKey(key)) return { ok: false, message: "Unknown report." };
+
+  const me = await prisma.user.findUnique({ where: { id: auth.userId }, select: { name: true } });
+  const result = await runReportNow(key, me?.name ?? auth.userId);
+  refresh();
+
+  if (result.skipped === "no-recipients") {
+    return { ok: false, message: `Nobody is ticked for ${REPORTS[key].label.toLowerCase()} — add a recipient first.` };
+  }
+  if (result.skipped === "nothing-to-report") {
+    return { ok: true, message: "Nothing to report right now, so nothing was sent." };
+  }
+  if (result.sent === 0) {
+    return { ok: false, message: `Not sent: ${result.error ?? "unknown error"}` };
+  }
+  const redirect = describeRedirect();
+  const partial = result.sent < result.recipients ? ` (${result.recipients - result.sent} failed: ${result.error})` : "";
+  return {
+    ok: true,
+    message: `Sent to ${result.sent} of ${result.recipients}${partial}.${redirect ? ` All redirected to ${redirect}.` : ""}`,
   };
 }

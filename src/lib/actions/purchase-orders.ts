@@ -14,7 +14,7 @@ import {
   generateAndSavePODocument,
   attachPODocumentsToAssets,
 } from '@/lib/actions/documents'
-import { notifyPurchaseOrderSubmitted } from '@/lib/actions/notifications'
+import { notifyPurchaseOrderSubmitted } from '@/lib/notifications/outbound'
 import { renderPurchaseOrderPdf } from '@/lib/actions/documents'
 import { poPurchaseMethodLabels, poOrderTypeLabels, type POOrderType } from '@/lib/types'
 import type { POStatus } from '@/lib/types'

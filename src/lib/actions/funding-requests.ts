@@ -26,7 +26,7 @@ import {
   FUNDING_LOCKED,
   FUNDING_PURCHASE_TYPE_LABEL,
 } from '@/lib/procurement/funding-labels'
-import { notifyFundingRequestSubmitted } from '@/lib/actions/notifications'
+import { notifyFundingRequestSubmitted } from '@/lib/notifications/outbound'
 import {
   renderFundingRequestPdf,
   generateAndSaveFundingRequestDocument,
