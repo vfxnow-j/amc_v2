@@ -318,6 +318,25 @@ create table carry.service_state as
 -- column somebody forgets.
 create table carry.po_state as
   select id, "raisedById" from public.purchase_orders where "raisedById" is not null;
+
+-- Notification settings that are v2's own (docs/notifications.md): each user's
+-- preferences, report schedules v1 has no row for, and what each report last
+-- sent — without the last, a refresh on a report's day would send it again.
+-- Rows restored with "on conflict do nothing", so a key v1 also has keeps v1's.
+create table carry.settings_state as
+  select key, value from public.settings
+   where key like 'notification_prefs:%' or key like 'report_schedule:%' or key like 'report_sent:%';
+
+-- The recipient list is v1's setting and comes back as v1's. What v1 doesn't
+-- have — a label and the coverage and depreciation ticks — is kept here by
+-- address and put back onto v1's entries in step 5. An address only v2 has is
+-- not re-added: v1's list is the list.
+create table carry.recipient_extras as
+  select lower(trim(e->>'email')) as email,
+         e - 'email' - 'leads' - 'reservations' - 'insights' - 'traffic'
+           - 'purchaseOrders' - 'inventory' - 'funding' as extras
+    from public.settings s, jsonb_array_elements(s.value) e
+   where s.key = 'notification_recipients' and jsonb_typeof(s.value) = 'array';
 SQL
 
 # ---------------------------------------------------------------------------
@@ -549,6 +568,18 @@ update public.purchase_orders p
   from carry.po_state c
  where p.id = c.id
    and exists (select 1 from public.users u where u.id = c."raisedById");
+
+insert into public.settings (id, key, value, "createdAt", "updatedAt")
+  select gen_random_uuid()::text, c.key, c.value, now(), now() from carry.settings_state c
+  on conflict (key) do nothing;
+
+update public.settings s
+   set value = (select jsonb_agg(e || coalesce(x.extras, '{}'::jsonb) order by n)
+                  from jsonb_array_elements(s.value) with ordinality as a(e, n)
+                  left join carry.recipient_extras x on x.email = lower(trim(e->>'email'))),
+       "updatedAt" = now()
+ where s.key = 'notification_recipients' and jsonb_typeof(s.value) = 'array'
+   and jsonb_array_length(s.value) > 0;
 
 -- Dropped from v2 on 2026-08-24 and not to be reintroduced by a refresh.
 drop table if exists public.chat_messages;

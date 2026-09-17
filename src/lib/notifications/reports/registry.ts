@@ -118,6 +118,6 @@ export function isReportKey(value: unknown): value is ReportKey {
   return typeof value === "string" && (REPORT_KEYS as readonly string[]).includes(value);
 }
 
-export function sentKey(key: ReportKey): string {
+export function sentKey(key: ReportKey | "sweep"): string {
   return `report_sent:${key}`;
 }

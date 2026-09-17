@@ -1227,3 +1227,169 @@ export function layoutSpecimenEmail(data: { sentBy: string; sentAt: string; appU
     cta: { label: 'Open notification settings', url: '/dashboard/settings/notifications' },
   })
 }
+
+// ============================================
+// INVENTORY REPORT — ported from v1, in the shared layout
+// ============================================
+
+export type InventoryReportRow = {
+  assetName: string
+  detail: string // manufacturer / model line
+  inStock: number
+  out: number
+  goingOut: number
+  comingBack: number
+  monthlyRate: number | null
+}
+
+export type InventoryReportCategory = {
+  category: string
+  rows: InventoryReportRow[]
+  totals: { inStock: number; out: number }
+}
+
+export type InventoryReportEmailData = {
+  title: string
+  generatedAtLabel: string
+  horizonLabel: string
+  horizonDays: number
+  cadenceNote: string
+  summary: { totalUnits: number; inStock: number; out: number; goingOut: number; comingBack: number; utilizationPercent: number }
+  categories: InventoryReportCategory[]
+  /** Set when the email table was trimmed and the PDF carries the full list. */
+  truncated?: { shown: number; total: number }
+  hasAttachment: boolean
+}
+
+export function inventoryReportEmail(data: InventoryReportEmailData) {
+  const rows: (string[] | { group: string; meta?: string })[] = []
+  for (const category of data.categories) {
+    rows.push({ group: category.category, meta: `${category.totals.inStock} in stock · ${category.totals.out} out` })
+    for (const row of category.rows) {
+      rows.push([
+        cell(row.assetName, { sub: row.detail || null }),
+        cell(String(row.inStock), { bold: true, tone: row.inStock > 0 ? 'success' : undefined, faintZero: true }),
+        cell(String(row.out), { faintZero: true }),
+        cell(String(row.goingOut), { tone: row.goingOut > 0 ? 'danger' : undefined, faintZero: true }),
+        cell(String(row.comingBack), { tone: row.comingBack > 0 ? 'accent' : undefined, faintZero: true }),
+        cell(row.monthlyRate ? moneyExact(row.monthlyRate) : '—', { faintZero: true }),
+      ])
+    }
+  }
+  const s = data.summary
+  return email(data.title, {
+    audience: 'staff',
+    wide: true,
+    preheader: `${s.inStock} in stock, ${s.out} out, ${s.goingOut} going out and ${s.comingBack} coming back in the next ${data.horizonDays} days.`,
+    eyebrow: 'Inventory report',
+    title: data.title,
+    subtitle: `${data.generatedAtLabel} · outlook ${data.horizonLabel}`,
+    body: [
+      stats([
+        { label: 'In stock', value: String(s.inStock), tone: 'success' },
+        { label: 'Out', value: String(s.out), sub: `${s.utilizationPercent}% of ${s.totalUnits}` },
+        { label: 'Going out', value: String(s.goingOut), tone: s.goingOut > 0 ? 'danger' : undefined, sub: `next ${data.horizonDays} days` },
+        { label: 'Coming back', value: String(s.comingBack), tone: 'accent', sub: `next ${data.horizonDays} days` },
+      ]),
+      section('Stock and monthly rates'),
+      table(
+        [
+          { label: 'Item' },
+          { label: 'In', align: 'center', width: '44px' },
+          { label: 'Out', align: 'center', width: '44px' },
+          { label: 'Going', align: 'center', width: '50px' },
+          { label: 'Back', align: 'center', width: '44px' },
+          { label: 'Monthly', align: 'right', width: '84px' },
+        ],
+        rows,
+        { dense: true },
+      ),
+      data.truncated
+        ? paragraph(`Showing ${data.truncated.shown} of ${data.truncated.total} items — the ones moving first, then the deepest stock.${data.hasAttachment ? ' The attached PDF has the full list.' : ''}`, { muted: true, small: true })
+        : '',
+      paragraph(`&ldquo;Going&rdquo; counts units on confirmed orders not yet checked out, including any whose ship date has passed. &ldquo;Back&rdquo; counts units due back inside the window; recurring rentals and returns already overdue are left out, because neither is a promise of stock. ${escapeHtml(data.cadenceNote)}`, { muted: true, small: true }),
+    ].join(''),
+    cta: { label: 'Open the inventory', url: '/dashboard/reports/stock-count' },
+  })
+}
+
+// ============================================
+// DEPRECIATION REPORT — v2 only
+// ============================================
+
+export type DepreciationEmailGroup = { name: string; grouped: boolean; units: number; cost: number; accumulated: number; book: number; periodExpense: number }
+export type DepreciationEmailUnit = { barcode: string; model: string; on: string; book: number }
+
+export type DepreciationReportEmailData = {
+  asOfLabel: string
+  periodLabel: string
+  cadenceNote: string
+  totals: { fleetUnits: number; valuedUnits: number; cost: number; accumulated: number; book: number; periodExpense: number; fullyDepreciated: number; fullyDepreciatingSoon: number }
+  groups: DepreciationEmailGroup[]
+  /** Groups beyond those listed, rolled into one line. */
+  otherGroups: { count: number; cost: number; accumulated: number; book: number; periodExpense: number } | null
+  soon: DepreciationEmailUnit[]
+  soonMore: number
+  excluded: { count: number; reasons: string[] }
+  notes: string[]
+  attachments: string[]
+}
+
+export function depreciationReportEmail(data: DepreciationReportEmailData) {
+  const t = data.totals
+  const groupRows: string[][] = data.groups.map((group) => [
+    cell(group.name, { sub: `${group.units} unit${group.units === 1 ? '' : 's'}${group.grouped ? '' : ' · model, no family'}` }),
+    cell(moneyExact(group.cost)),
+    cell(moneyExact(group.accumulated)),
+    cell(moneyExact(group.book), { bold: true }),
+    cell(moneyExact(group.periodExpense), { faintZero: group.periodExpense === 0 }),
+  ])
+  if (data.otherGroups) {
+    const o = data.otherGroups
+    groupRows.push([cell(`${o.count} more families and models`, { sub: 'every one is in the PDF and CSV' }), cell(moneyExact(o.cost)), cell(moneyExact(o.accumulated)), cell(moneyExact(o.book), { bold: true }), cell(moneyExact(o.periodExpense))])
+  }
+  groupRows.push([cell('Total', { bold: true }), cell(moneyExact(t.cost), { bold: true }), cell(moneyExact(t.accumulated), { bold: true }), cell(moneyExact(t.book), { bold: true, tone: 'accent' }), cell(moneyExact(t.periodExpense), { bold: true })])
+
+  return email(`Depreciation report — ${data.periodLabel}`, {
+    audience: 'staff',
+    wide: true,
+    preheader: `Net book value ${moneyExact(t.book)} on cost of ${moneyExact(t.cost)}; ${moneyExact(t.periodExpense)} expense for ${data.periodLabel}.`,
+    eyebrow: 'Depreciation report',
+    title: 'Book value of the fleet',
+    subtitle: `As of ${data.asOfLabel} · expense for ${data.periodLabel}`,
+    body: [
+      stats([
+        { label: 'Cost', value: moneyExact(t.cost) },
+        { label: 'Accumulated', value: moneyExact(t.accumulated) },
+        { label: 'Net book value', value: moneyExact(t.book), tone: 'accent' },
+        { label: 'Period expense', value: moneyExact(t.periodExpense), sub: data.periodLabel },
+      ]),
+      callout(
+        `${strong(`${t.valuedUnits} of ${t.fleetUnits}`)} fleet units are valued. ${
+          data.excluded.count > 0
+            ? `${strong(String(data.excluded.count))} are left out and listed in the PDF (${escapeHtml(data.excluded.reasons.join('; '))}). They are not valued at zero — they are not in any figure.`
+            : 'None are left out.'
+        }`,
+        { tone: data.excluded.count > 0 ? 'warning' : 'neutral', title: 'What is counted' },
+      ),
+      section('By family', 'largest cost first'),
+      table(
+        [{ label: 'Family / model' }, { label: 'Cost', align: 'right' }, { label: 'Accumulated', align: 'right' }, { label: 'Book value', align: 'right' }, { label: 'Expense', align: 'right' }],
+        groupRows,
+        { dense: true },
+      ),
+      section('Fully depreciating in the next 90 days', `${t.fullyDepreciatingSoon} units · ${t.fullyDepreciated} already fully depreciated, listed in the PDF`),
+      data.soon.length
+        ? table(
+            [{ label: 'Unit' }, { label: 'Model' }, { label: 'Fully depreciated', align: 'right' }, { label: 'Book now', align: 'right' }],
+            data.soon.map((unit) => [cell(unit.barcode, { mono: true }), cell(unit.model), cell(unit.on), cell(moneyExact(unit.book))]),
+            { dense: true },
+          ) + (data.soonMore > 0 ? paragraph(`And ${data.soonMore} more — all in the PDF.`, { muted: true, small: true }) : '')
+        : paragraph('Nothing reaches the end of its schedule in the next 90 days.', { muted: true, small: true }),
+      section('How these figures are made'),
+      bullets(data.notes),
+      paragraph(`Attached: ${escapeHtml(data.attachments.join(' and '))}. ${escapeHtml(data.cadenceNote)}`, { muted: true, small: true }),
+    ].join(''),
+    cta: { label: 'Open the inventory report', url: '/dashboard/reports/inventory' },
+  })
+}

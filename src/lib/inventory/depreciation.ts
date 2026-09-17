@@ -80,6 +80,7 @@ export function bookValue(
     usefulLifeMonths,
     salvage,
     receivedDate,
+    now,
   );
 
   // The same start date the schedule uses: received if we have it, ordered if

@@ -15,9 +15,11 @@ export function calculateDepreciatedValue(
   depreciationMethod: DepreciationMethod,
   usefulLifeMonths: number,
   salvageValue: number = 0,
-  receivedDate?: Date | null
+  receivedDate?: Date | null,
+  // As of when. Defaults to now; the depreciation report passes the start and
+  // end of a period to get that period's expense from this same schedule.
+  now: Date = new Date()
 ): number {
-  const now = new Date()
   const depreciationStart = receivedDate || purchaseDate
   const monthsOwned = Math.floor(
     (now.getTime() - depreciationStart.getTime()) / (1000 * 60 * 60 * 24 * 30)

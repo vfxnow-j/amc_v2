@@ -17,7 +17,10 @@ import {
   type ReportDefinition,
   type ReportKey,
 } from "@/lib/notifications/reports/registry";
-import { isDue, normalizeSchedule, type Schedule } from "@/lib/notifications/reports/schedule";
+import { isDue, normalizeSchedule, pacificParts, type Schedule } from "@/lib/notifications/reports/schedule";
+import { raiseNotifications, type RaiseResult } from "@/lib/notifications/raise";
+import { sendNotificationDigests, type DigestRun } from "@/lib/notifications/digest-email";
+import { sendDepreciationReport, sendInventoryReport } from "@/lib/notifications/reports/reports";
 
 /**
  * Running the scheduled reports: reading schedules, deciding what is due,
@@ -110,6 +113,8 @@ const RUNNERS: Partial<Record<ReportKey, Runner>> = {
       const { coverages, ...outcome } = await sendCoverageExpiryNotifications();
       return coverages === 0 ? { ...outcome, skipped: "nothing-to-report", detail: { coverages } } : { ...outcome, detail: { coverages } };
     }),
+  inventory: (def, schedule) => withRecipients(def, () => sendInventoryReport(schedule)),
+  depreciation: (def, schedule) => withRecipients(def, () => sendDepreciationReport(schedule)),
 };
 
 async function execute(key: ReportKey, schedule: ReportSchedule): Promise<RunResult> {
@@ -148,7 +153,7 @@ function record(result: RunResult, by?: string): RunRecord {
  * when it has). Raw SQL because Prisma's JSON filters can't express "is
  * distinct from" on a path.
  */
-async function claim(key: ReportKey, occurrence: string): Promise<boolean> {
+async function claim(key: ReportKey | "sweep", occurrence: string): Promise<boolean> {
   const name = sentKey(key);
   await prisma.$executeRaw`
     INSERT INTO settings (id, key, value, "createdAt", "updatedAt")
@@ -164,7 +169,7 @@ async function claim(key: ReportKey, occurrence: string): Promise<boolean> {
 }
 
 /** Give a claimed occurrence back, so the next hourly poll tries again. */
-async function release(key: ReportKey, occurrence: string): Promise<void> {
+async function release(key: ReportKey | "sweep", occurrence: string): Promise<void> {
   await prisma.$executeRaw`
     UPDATE settings
        SET value = value || jsonb_build_object('occurrence', value->'previous'),
@@ -173,7 +178,7 @@ async function release(key: ReportKey, occurrence: string): Promise<void> {
        AND value->>'occurrence' = ${occurrence}::text`;
 }
 
-async function writeRecord(key: ReportKey, field: "scheduled" | "manual", run: RunRecord): Promise<void> {
+async function writeRecord(key: ReportKey | "sweep", field: "scheduled" | "manual", run: RunRecord): Promise<void> {
   const name = sentKey(key);
   await prisma.$executeRaw`
     INSERT INTO settings (id, key, value, "createdAt", "updatedAt")
@@ -244,4 +249,43 @@ export function emailState() {
     configured: isEmailConfigured(),
     redirect: process.env.EMAIL_TEST_REDIRECT?.trim() || null,
   };
+}
+
+// ---------------------------------------------------------------------------
+// The daily sweep
+// ---------------------------------------------------------------------------
+
+/** The hour the in-app sweep runs, Pacific — "the 9am sweep" the preferences screen promises. */
+export const SWEEP_HOUR = 9;
+
+export type SweepOutcome =
+  | { ran: false; reason: string }
+  | { ran: true; raised: RaiseResult | null; digests: DigestRun | null };
+
+/**
+ * Raise the day's in-app notifications and send each opted-in person their
+ * digest — once per Pacific day, from the first hourly poll at or after 9:00.
+ *
+ * Not a report and not configurable: it fills everyone's feed, and a feed that
+ * depends on an admin's schedule setting is a bell that can silently stop.
+ * Claimed like a report occurrence, so it can't double up; released if the
+ * raise itself throws, so the next poll tries again.
+ */
+export async function runDailySweep(now: Date = new Date(), force = false): Promise<SweepOutcome> {
+  const p = pacificParts(now);
+  if (!force) {
+    if (p.hour < SWEEP_HOUR) return { ran: false, reason: "later today" };
+    if (!(await claim("sweep", p.dateKey))) return { ran: false, reason: "already ran today" };
+  }
+  const raised = await raiseNotifications(now).catch((error) => {
+    console.error("Raising notifications failed:", error);
+    return null;
+  });
+  if (!raised && !force) await release("sweep", p.dateKey);
+  // Digests after the raise, so today's items are in today's mail.
+  const digests = await sendNotificationDigests().catch((error) => {
+    console.error("Notification digests failed:", error);
+    return null;
+  });
+  return { ran: true, raised, digests };
 }

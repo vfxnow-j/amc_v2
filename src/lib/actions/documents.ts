@@ -195,13 +195,19 @@ export async function signDocument(
  * Server-side: read the company logo as a data URI for PDF rendering.
  */
 export async function getServerLogoDataUri(): Promise<string> {
-  try {
-    const logoPath = path.join(getProjectRoot(), 'public', 'logo-black.png')
-    const buffer = await fs.readFile(logoPath)
-    return `data:image/png;base64,${buffer.toString('base64')}`
-  } catch {
-    return ''
+  // `logo-black.png` is v1's file and was never copied into v2's public/, so
+  // every PDF here printed the text fallback. The brand folder's all-black logo
+  // is the same mark; it is the fallback rather than the replacement so a
+  // logo-black.png dropped in later still wins.
+  for (const file of [['logo-black.png'], ['brand', 'VFXnow-Logo-Allblack-Vector.png']]) {
+    try {
+      const buffer = await fs.readFile(path.join(getProjectRoot(), 'public', ...file))
+      return `data:image/png;base64,${buffer.toString('base64')}`
+    } catch {
+      // try the next
+    }
   }
+  return ''
 }
 
 /**
