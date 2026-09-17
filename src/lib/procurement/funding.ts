@@ -2,18 +2,18 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/auth-utils";
+import { requireAdmin, requireEditor } from "@/lib/auth-utils";
+import { actorFor, decide, historyFor, isApprover } from "@/lib/approvals/core";
+import { mayEditFunding } from "@/lib/procurement/access";
 import type {
   CustomerCommitment,
   FundingPurchaseType,
 } from "@/generated/prisma/client";
 import {
-  approveFundingRequest,
   attachPurchaseOrderToFundingRequest,
   attachReservationToFundingRequest,
   cancelFundingRequest,
   createFundingRequest,
-  declineFundingRequest,
   detachPurchaseOrderFromFundingRequest,
   detachReservationFromFundingRequest,
   markFundingRequestFulfilled,
@@ -276,15 +276,20 @@ function failure(error: unknown, fallback: string): FundingOutcome {
   };
 }
 
-async function gate(): Promise<FundingOutcome | null> {
-  const auth = await requireAdmin();
+/**
+ * The role floor for each export. Phase 6 (docs/procurement.md): STAFF raise
+ * and move their own requests — the ported actions check ownership — while
+ * funding, fulfilling, canceling and the evidence joins stay with admins.
+ */
+async function gate(floor: "editor" | "admin" = "admin"): Promise<FundingOutcome | null> {
+  const auth = floor === "editor" ? await requireEditor() : await requireAdmin();
   return auth.authorized
     ? null
     : { status: "error", message: auth.error ?? "Unauthorized" };
 }
 
 export async function createFunding(input: FundingRequestInput): Promise<FundingOutcome> {
-  const denied = await gate();
+  const denied = await gate("editor");
   if (denied) return denied;
 
   try {
@@ -316,13 +321,13 @@ export async function createFunding(input: FundingRequestInput): Promise<Funding
 }
 
 export async function updateFunding(id: string, input: FundingRequestInput): Promise<FundingOutcome> {
-  const denied = await gate();
-  if (denied) return denied;
+  const auth = await requireEditor();
+  if (!auth.authorized) return { status: "error", message: auth.error };
 
   try {
     const existing = await prisma.fundingRequest.findUnique({
       where: { id },
-      select: { status: true },
+      select: { status: true, requestedById: true },
     });
     if (!existing) return { status: "error", message: "That funding request no longer exists." };
     if (FUNDING_LOCKED.includes(existing.status)) {
@@ -331,11 +336,19 @@ export async function updateFunding(id: string, input: FundingRequestInput): Pro
         message: "A fulfilled or canceled request is the record of what happened — it is not edited.",
       };
     }
+    if (!mayEditFunding({ id: auth.userId, role: auth.role }, existing)) {
+      return {
+        status: "error",
+        message: "Staff edit their own draft requests. An administrator can change this one.",
+      };
+    }
 
     const data = await toFormData(input);
     // No join ids: the update leaves attachments exactly as they are.
-    await updateFundingRequest(id, data);
-    return { status: "ok", id };
+    const saved = (await updateFundingRequest(id, data)) as {
+      approval: { message: string } | null;
+    };
+    return { status: "ok", id, message: saved.approval?.message };
   } catch (error) {
     return failure(error, "That request could not be saved.");
   }
@@ -374,8 +387,9 @@ async function step(
   run: () => Promise<unknown>,
   fallback: string,
   message?: (result: unknown) => string | undefined,
+  floor: "editor" | "admin" = "admin",
 ): Promise<FundingOutcome> {
-  const denied = await gate();
+  const denied = await gate(floor);
   if (denied) return denied;
   try {
     const result = await run();
@@ -390,38 +404,91 @@ export async function submitFunding(id: string): Promise<FundingOutcome> {
     id,
     () => submitFundingRequest(id),
     "That request could not be submitted.",
-    (result) => describeDispatch((result as { dispatch: AccountingDispatch }).dispatch),
+    (result) => {
+      const { dispatch, approval } = result as {
+        dispatch: AccountingDispatch;
+        approval: { message: string };
+      };
+      return `${approval.message} ${describeDispatch(dispatch)}`;
+    },
+    "editor",
   );
 }
 
 export async function reviseFunding(id: string): Promise<FundingOutcome> {
-  return step(id, () => reviseFundingRequest(id), "That request could not be pulled back.");
+  return step(
+    id,
+    () => reviseFundingRequest(id),
+    "That request could not be pulled back.",
+    () => "Back to draft. The open request for approval was withdrawn; submitting again asks again.",
+    "editor",
+  );
 }
 
-export type ApprovalInput = {
-  operations: string;
-  finance: string;
-  executive: string;
-  /** yyyy-mm-dd; blank means today. */
-  date: string;
-};
+/**
+ * Approve or decline a submitted request — the approval decision, made through
+ * `lib/approvals` so it is recorded from the session, refused to its requester,
+ * and never edited afterwards. v1's three typed sign-off names are gone from
+ * this path; what they recorded was what somebody typed.
+ *
+ * A request submitted before approvals were recorded (v1 has one) has no open
+ * ask to decide. It gets one here, in its original requester's name, and is
+ * decided in the same breath — so approving it still leaves a trail that says
+ * who asked and who answered.
+ */
+async function decideFunding(id: string, approve: boolean, reason: string | null): Promise<FundingOutcome> {
+  const auth = await requireEditor();
+  if (!auth.authorized) return { status: "error", message: auth.error };
 
-export async function approveFunding(id: string, input: ApprovalInput): Promise<FundingOutcome> {
-  const denied = await gate();
-  if (denied) return denied;
-  try {
-    const approvalDate = parseDay(input.date, "Approval date");
-    await approveFundingRequest(id, {
-      operationsApprovedBy: text(input.operations),
-      // Blank falls back to the approver's own name, as in v1.
-      financeApprovedBy: text(input.finance),
-      executiveApprovedBy: text(input.executive),
-      approvalDate,
-    });
-    return { status: "ok", id };
-  } catch (error) {
-    return failure(error, "That request could not be approved.");
+  const request = await prisma.fundingRequest.findUnique({
+    where: { id },
+    select: { status: true, requestNumber: true, requestedBy: true, requestedById: true, amountRequested: true },
+  });
+  if (!request) return { status: "error", message: "That funding request no longer exists." };
+  if (request.status !== "SUBMITTED") {
+    return {
+      status: "error",
+      message: `${request.requestNumber} is not waiting on a decision. A decision, once made, is not changed — pull it back to draft and submit it again to ask again.`,
+    };
   }
+
+  const actor = await actorFor(auth.userId, auth.role);
+  if (!(await isApprover(actor, "FUNDING_REQUEST"))) {
+    return {
+      status: "error",
+      message: "You are not an approver for funding requests. A super admin sets that in Settings → Users.",
+    };
+  }
+
+  let pending = (await historyFor("FUNDING_REQUEST", id)).find((row) => row.status === "PENDING");
+  if (!pending) {
+    if (request.requestedById === auth.userId) {
+      return { status: "error", message: "You raised this request, so another approver has to decide it." };
+    }
+    pending = await prisma.approvalRequest.create({
+      data: {
+        recordType: "FUNDING_REQUEST",
+        recordId: id,
+        recordLabel: request.requestNumber,
+        requestedById: request.requestedById,
+        requestedByName: request.requestedBy,
+        amountAtRequest: request.amountRequested,
+        note: "Submitted before approvals were recorded",
+      },
+    });
+  }
+
+  const outcome = await decide(pending.id, actor, approve, reason);
+  revalidatePath(`/dashboard/funding/${id}`);
+  revalidatePath("/dashboard/funding");
+  revalidatePath("/dashboard/approvals");
+  return outcome.status === "ok"
+    ? { status: "ok", id, message: outcome.message }
+    : { status: "error", message: outcome.message };
+}
+
+export async function approveFunding(id: string): Promise<FundingOutcome> {
+  return decideFunding(id, true, null);
 }
 
 export async function declineFunding(id: string, reason: string): Promise<FundingOutcome> {
@@ -430,7 +497,7 @@ export async function declineFunding(id: string, reason: string): Promise<Fundin
   // revise — so v2 asks for one.
   const why = text(reason);
   if (!why) return { status: "error", message: "Say why it was declined." };
-  return step(id, () => declineFundingRequest(id, why), "That request could not be declined.");
+  return decideFunding(id, false, why);
 }
 
 export async function fundFunding(id: string, leaseId: string): Promise<FundingOutcome> {

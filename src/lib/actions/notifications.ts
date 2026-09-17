@@ -11,7 +11,7 @@ import { EMAIL_FROM } from '@/lib/email/client'
 import { overdueReminderEmail, systemAlertEmail, newLeadEmail, reservationConfirmedStaffEmail, purchaseOrderSubmittedEmail, insightsDigestEmail, weeklyReportEmail, dailyDigestEmail, dailyTrafficReportEmail, coverageExpiryEmail, type NewLeadEmailData, type ReservationConfirmedEmailData, type PurchaseOrderSubmittedEmailData, type InsightsDigestData, type WeeklyReportData, type DailyDigestData, type DailyOrderRow, type DailyTrafficReportData, type TrafficReportClientGroup, type TrafficReportUnit, type CoverageExpiryEmailData } from '@/lib/email/templates'
 import { fundingRequestSubmittedEmail, type FundingRequestSubmittedEmailData } from '@/lib/email/templates'
 import { coverageTypeLabels } from '@/lib/types'
-import { requireAdmin, requireAuth } from '@/lib/auth-utils'
+import { requireAdmin, requireAuth, requireEditor } from '@/lib/auth-utils'
 
 /**
  * Send overdue reminder emails to clients with overdue invoices.
@@ -1097,7 +1097,8 @@ export async function sendCoverageExpiryNotifications(): Promise<{ sent: number;
  *
  * Two departures. v1's helper had no auth check; in a "use server" file every
  * export is a callable action, and this one mails whatever it is handed to
- * staff, so it asks for an admin session like the action that calls it. And it
+ * staff, so it asks for a signed-in editor — STAFF submit their own requests
+ * since Phase 6, and the recipients are only ever the configured ones. And it
  * reads the recipients itself rather than through `getRecipientsForCategory`,
  * whose category list predates funding in v2 — the stored setting, restored from
  * v1, already carries the `funding` flag.
@@ -1110,7 +1111,7 @@ export async function notifyFundingRequestSubmitted(
   data: FundingRequestSubmittedEmailData,
   attachments?: EmailAttachment[]
 ): Promise<{ sent: number; recipients: number; error?: string }> {
-  const authResult = await requireAdmin()
+  const authResult = await requireEditor()
   if (!authResult.authorized) return { sent: 0, recipients: 0, error: authResult.error }
 
   try {

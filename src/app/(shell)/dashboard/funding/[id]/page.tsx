@@ -12,7 +12,10 @@ import {
   moneyOrNull,
 } from "@/components/procurement/funding-cards";
 import { FundingEvidence } from "@/components/procurement/funding-evidence";
-import { FundingLifecycle } from "@/components/procurement/funding-lifecycle";
+import { FundingLifecycle, type Step } from "@/components/procurement/funding-lifecycle";
+import { ApprovalCard } from "@/components/approvals/approval-card";
+import { historyFor, isApprover } from "@/lib/approvals/core";
+import { canRaise, isProcurementAdmin, mayEditFunding, mayMoveOwnFunding } from "@/lib/procurement/access";
 import { FundingMarkers } from "@/components/procurement/funding-markers";
 import { PO_STATUS_LABEL } from "@/lib/accounting/labels";
 import { dayYear, moneyExact } from "@/lib/format";
@@ -30,7 +33,7 @@ import {
   type FundingRecord,
 } from "@/lib/queries/funding";
 import { STATUS_LABEL as ORDER_STATUS_LABEL, TYPE_LABEL as ORDER_TYPE_LABEL } from "@/lib/reservations/status";
-import { getSessionUser } from "@/lib/roles";
+import { getSessionUser, type SessionUser } from "@/lib/roles";
 import { isAdminRole } from "@/lib/settings/pages";
 import { computeFundingMetrics } from "@/lib/utils/funding";
 
@@ -67,7 +70,8 @@ export default async function FundingRequestRecordPage({ params }: Params) {
 
   const admin = !!user && isAdminRole(user.role);
   const locked = FUNDING_LOCKED.includes(record.status);
-  const canRaisePO = admin && FUNDING_CAN_RAISE_PO.includes(record.status);
+  const canEdit = !!user && mayEditFunding(user, record);
+  const canRaisePO = !!user && canRaise(user.role) && FUNDING_CAN_RAISE_PO.includes(record.status);
 
   const metrics = computeFundingMetrics({
     totalEquipmentCost: record.totalEquipmentCost,
@@ -122,7 +126,7 @@ export default async function FundingRequestRecordPage({ params }: Params) {
             >
               PDF
             </a>
-            {admin && !locked ? (
+            {canEdit ? (
               <Link
                 href={`/dashboard/funding/${record.id}/edit`}
                 className="rounded-pill bg-sunken px-4 py-[6px] text-pill text-ink hover:bg-row-hover"
@@ -318,13 +322,14 @@ export default async function FundingRequestRecordPage({ params }: Params) {
 
         <div className="flex min-h-0 flex-col gap-3">
           <Card title="Lifecycle" meta={FUNDING_STATUS_LABEL[record.status]}>
-            {admin ? (
+            {user && user.role !== "VIEWER" && user.role !== "FLOW_USER" ? (
               <Suspense fallback={<div className="h-[40px]" />}>
-                <Lifecycle record={record} userName={user?.name ?? ""} />
+                <Lifecycle record={record} viewer={user} />
               </Suspense>
             ) : (
               <p className="px-4 pb-4 text-body text-ink-muted">
-                Moving a request along is for administrators.
+                Your access reads requests. Staff raise them, approvers decide
+                them and administrators fund them.
               </p>
             )}
             <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 border-t border-hairline px-4 py-3 text-detail">
@@ -342,17 +347,32 @@ export default async function FundingRequestRecordPage({ params }: Params) {
             ) : null}
           </Card>
 
-          <Card title="Approvals">
-            <Grid>
-              <Value label="Operations" value={record.operationsApprovedBy} />
-              <Value label="Finance" value={record.financeApprovedBy} />
-              <Value label="Executive" value={record.executiveApprovedBy} />
-              <Value
-                label="Date"
-                value={record.approvalDate ? dayYear(record.approvalDate) : null}
-              />
-            </Grid>
-          </Card>
+          <Suspense fallback={<CardSkeleton title="Approval" rows={2} />}>
+            <ApprovalCard
+              type="FUNDING_REQUEST"
+              id={record.id}
+              viewer={user}
+              act="funding it"
+              decideHere={false}
+            />
+          </Suspense>
+
+          {record.operationsApprovedBy || record.financeApprovedBy || record.executiveApprovedBy ? (
+            // v1's paper-form sign-offs: names typed by whoever approved, not
+            // verified against anyone. Kept visible on requests that have them
+            // (v1's own record does), labelled for what they are.
+            <Card title="Sign-offs typed on the form" meta="as entered, not verified">
+              <Grid>
+                <Value label="Operations" value={record.operationsApprovedBy} />
+                <Value label="Finance" value={record.financeApprovedBy} />
+                <Value label="Executive" value={record.executiveApprovedBy} />
+                <Value
+                  label="Date"
+                  value={record.approvalDate ? dayYear(record.approvalDate) : null}
+                />
+              </Grid>
+            </Card>
+          ) : null}
 
           <Card title="Funded by">
             {record.lease ? (
@@ -398,13 +418,13 @@ function whereItStands(record: FundingRecord): string {
     case "DRAFT":
       return "A draft. Nothing goes to accounting until it is submitted.";
     case "SUBMITTED":
-      return `With accounting since ${record.submittedAt ? dayYear(record.submittedAt) : "submission"}, waiting on a decision.`;
+      return `Submitted ${record.submittedAt ? dayYear(record.submittedAt) : ""}, waiting on an approver's decision.`;
     case "APPROVED":
       return pos === 0
         ? "Approved, not yet funded, and no purchase order is attached."
         : `Approved, not yet funded. ${pos} purchase ${pos === 1 ? "order" : "orders"} attached.`;
     case "DECLINED":
-      return "Declined. It can still be approved if the case changes.";
+      return "Declined. Pull it back to draft, change it, and submit it again to ask again.";
     case "FUNDED":
       return pos === 0
         ? "Funded. No purchase order is attached yet."
@@ -459,18 +479,55 @@ function EquipmentCard({ record }: { record: FundingRecord }) {
   );
 }
 
-async function Lifecycle({ record, userName }: { record: FundingRecord; userName: string }) {
-  const leases = await getFundingLeases();
+/**
+ * The steps this viewer may take, decided here rather than in the client so the
+ * screen offers exactly what the server will accept (Phase 6, and
+ * `lib/procurement/access.ts`): the requester or an admin submits and pulls
+ * back; an approver who is not the one who asked decides; admins fund, fulfil
+ * and cancel.
+ */
+async function stepsFor(record: FundingRecord, viewer: SessionUser): Promise<{ steps: Step[]; approves: boolean }> {
+  const own = mayMoveOwnFunding(viewer, record);
+  const admin = isProcurementAdmin(viewer.role);
+  const approves = await isApprover(viewer, "FUNDING_REQUEST");
+  let asker = record.requestedById;
+  if (record.status === "SUBMITTED") {
+    const pending = (await historyFor("FUNDING_REQUEST", record.id)).find((row) => row.status === "PENDING");
+    if (pending) asker = pending.requestedById;
+  }
+  const canDecide = approves && asker !== viewer.id;
+
+  const steps: Step[] = [];
+  switch (record.status) {
+    case "DRAFT":
+      if (own) steps.push("submit");
+      break;
+    case "SUBMITTED":
+      if (canDecide) steps.push("approve", "decline");
+      if (own) steps.push("revise");
+      break;
+    case "DECLINED":
+      if (own) steps.push("revise");
+      break;
+    case "APPROVED":
+      if (admin) steps.push("fund", "fulfil");
+      break;
+    case "FUNDED":
+      if (admin) steps.push("fulfil", "fund");
+      break;
+  }
+  if (admin && !FUNDING_LOCKED.includes(record.status)) steps.push("cancel");
+  return { steps, approves };
+}
+
+async function Lifecycle({ record, viewer }: { record: FundingRecord; viewer: SessionUser }) {
+  const [leases, { steps, approves }] = await Promise.all([getFundingLeases(), stepsFor(record, viewer)]);
   return (
     <FundingLifecycle
       id={record.id}
       status={record.status}
-      currentUserName={userName}
-      approvals={{
-        operations: record.operationsApprovedBy,
-        finance: record.financeApprovedBy,
-        executive: record.executiveApprovedBy,
-      }}
+      steps={steps}
+      approvesOwn={approves}
       leases={leases}
       currentLeaseId={record.leaseId}
       purchaseOrders={record.purchaseOrders.map((po) => ({

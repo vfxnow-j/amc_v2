@@ -24,13 +24,20 @@ import {
  * offered, so a refusal is the exception rather than the way a person finds out.
  *
  * Each step opens its own small panel instead of firing on click, because each
- * one either records something (three names, a reason, a loan) or does
- * something that cannot be quietly undone — submitting files the form and tries
- * to email accounting; funding against a loan moves purchase orders and their
- * units onto it. The panel says which, before the button is pressed.
+ * one either records something (a reason, a loan) or does something that cannot
+ * be quietly undone — submitting files the form, emails accounting and asks for
+ * approval; funding against a loan moves purchase orders and their units onto
+ * it. The panel says which, before the button is pressed.
+ *
+ * Which steps are offered is decided on the server (Phase 6): the requester or
+ * an admin submits and pulls back, approvers who did not raise it approve or
+ * decline, admins fund, fulfil and cancel. Approving records the signed-in
+ * approver — v1's three typed sign-off names are gone — and a decision is not
+ * reversed from here: a declined request is pulled back to draft and asked
+ * again, an approved one is canceled if it should not go ahead.
  */
 
-type Step = "submit" | "revise" | "approve" | "decline" | "fund" | "fulfil" | "cancel";
+export type Step = "submit" | "revise" | "approve" | "decline" | "fund" | "fulfil" | "cancel";
 
 type LeaseOption = { id: string; leaseNumber: string; leaseName: string; lender: string };
 
@@ -44,36 +51,21 @@ const STEP_LABEL: Record<Step, string> = {
   cancel: "Cancel request",
 };
 
-function stepsFor(status: FundingRequestStatus): Step[] {
-  switch (status) {
-    case "DRAFT":
-      return ["submit", "cancel"];
-    case "SUBMITTED":
-      return ["approve", "decline", "revise", "cancel"];
-    case "DECLINED":
-      return ["approve", "cancel"];
-    case "APPROVED":
-      return ["fund", "fulfil", "decline", "cancel"];
-    case "FUNDED":
-      return ["fulfil", "fund", "cancel"];
-    default:
-      return [];
-  }
-}
-
 export function FundingLifecycle({
   id,
   status,
-  currentUserName,
-  approvals,
+  steps,
+  approvesOwn,
   leases,
   currentLeaseId,
   purchaseOrders,
 }: {
   id: string;
   status: FundingRequestStatus;
-  currentUserName: string;
-  approvals: { operations: string | null; finance: string | null; executive: string | null };
+  /** The steps this viewer may take from this state, in the order to show them. */
+  steps: Step[];
+  /** The viewer approves funding requests, so their own submit goes straight through. */
+  approvesOwn: boolean;
   leases: LeaseOption[];
   currentLeaseId: string | null;
   /** Attached POs, and how many already sit on some loan. */
@@ -84,14 +76,8 @@ export function FundingLifecycle({
   const [outcome, setOutcome] = useState<FundingOutcome | null>(null);
   const [busy, startTransition] = useTransition();
 
-  const [operations, setOperations] = useState(approvals.operations ?? "");
-  const [finance, setFinance] = useState(approvals.finance ?? currentUserName);
-  const [executive, setExecutive] = useState(approvals.executive ?? "");
-  const [approvalDate, setApprovalDate] = useState("");
   const [reason, setReason] = useState("");
   const [leaseId, setLeaseId] = useState(currentLeaseId ?? "");
-
-  const steps = stepsFor(status);
 
   function run(action: () => Promise<FundingOutcome>) {
     setOutcome(null);
@@ -110,7 +96,9 @@ export function FundingLifecycle({
       <p className="px-4 pb-4 text-body text-ink-muted">
         {status === "FULFILLED"
           ? "Closed out — the hardware was bought and received. The request stays on file as the trail."
-          : "Canceled. The request stays on file, and nothing further can be done with it."}
+          : status === "CANCELLED"
+            ? "Canceled. The request stays on file, and nothing further can be done with it."
+            : "Nothing here is yours to move on. The requester submits and pulls back, an approver decides, and an administrator funds it."}
       </p>
     );
   }
@@ -158,7 +146,11 @@ export function FundingLifecycle({
 
       {open === "submit" ? (
         <Panel
-          note="Files the request form against this record and emails the notification recipients who have funding requests switched on. Outbound email is off on this instance, so the result will say nobody was emailed."
+          note={`Files the request form against this record and emails the notification recipients who have funding requests switched on. ${
+            approvesOwn
+              ? "You approve funding requests, so it is approved as it is submitted, recorded as cleared by you."
+              : "It then waits on an approver, who is told in the app and by email. Outbound email is off on this instance, so the result says who would have been emailed."
+          }`}
           confirm="Submit"
           busy={busy}
           onConfirm={() => run(() => submitFunding(id))}
@@ -167,7 +159,7 @@ export function FundingLifecycle({
 
       {open === "revise" ? (
         <Panel
-          note="Takes the request back from accounting so it can be edited. It has to be submitted again afterwards."
+          note="Takes the request back so it can be edited, and withdraws any open ask for approval. Submitting again asks again."
           confirm="Pull back to draft"
           busy={busy}
           onConfirm={() => run(() => reviseFunding(id))}
@@ -176,40 +168,16 @@ export function FundingLifecycle({
 
       {open === "approve" ? (
         <Panel
-          note="The three sign-offs from the paper form. A blank finance name records yours. Leave the date blank for today."
+          note="Records you as the approver, today, at the amount requested. The requester is told. A decision is not changed afterwards."
           confirm="Approve"
           busy={busy}
-          onConfirm={() =>
-            run(() =>
-              approveFunding(id, { operations, finance, executive, date: approvalDate }),
-            )
-          }
-        >
-          <div className="grid grid-cols-2 gap-2">
-            <Labeled label="Operations">
-              <input value={operations} onChange={(e) => setOperations(e.target.value)} className={INPUT} />
-            </Labeled>
-            <Labeled label="Finance">
-              <input value={finance} onChange={(e) => setFinance(e.target.value)} className={INPUT} />
-            </Labeled>
-            <Labeled label="Executive">
-              <input value={executive} onChange={(e) => setExecutive(e.target.value)} className={INPUT} />
-            </Labeled>
-            <Labeled label="Approval date">
-              <input
-                type="date"
-                value={approvalDate}
-                onChange={(e) => setApprovalDate(e.target.value)}
-                className={INPUT}
-              />
-            </Labeled>
-          </div>
-        </Panel>
+          onConfirm={() => run(() => approveFunding(id))}
+        />
       ) : null}
 
       {open === "decline" ? (
         <Panel
-          note="The request stays on file with the reason, and can still be approved later."
+          note="The reason goes back to the requester. The request stays on file as declined; they pull it back to draft to change it and ask again."
           confirm="Decline"
           busy={busy}
           disabled={!reason.trim()}

@@ -23,7 +23,7 @@ import {
   getFundingViewCounts,
 } from "@/lib/queries/funding";
 import { getSessionUser } from "@/lib/roles";
-import { isAdminRole } from "@/lib/settings/pages";
+import { canRaise } from "@/lib/procurement/access";
 
 export const metadata = { title: "Funding requests" };
 
@@ -203,7 +203,7 @@ export default async function FundingRequestsPage({
         actions={
           <>
             <ListSearch placeholder="Search request, customer, lender" />
-            {user && isAdminRole(user.role) ? (
+            {user && canRaise(user.role) ? (
               <Link
                 href="/dashboard/funding/new"
                 className="rounded-pill bg-accent-solid px-4 py-[6px] text-pill whitespace-nowrap text-accent-on-solid transition-colors hover:bg-accent-800"

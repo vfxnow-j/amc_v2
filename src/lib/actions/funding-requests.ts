@@ -3,7 +3,16 @@
 import { revalidatePath } from 'next/cache'
 import { prisma } from '@/lib/prisma'
 import { auth } from '@/lib/auth'
-import { requireAdmin, requireAuth } from '@/lib/auth-utils'
+import { requireAdmin, requireAuth, requireEditor } from '@/lib/auth-utils'
+import { mayEditFunding, mayMoveOwnFunding } from '@/lib/procurement/access'
+import {
+  actorFor,
+  isApprover,
+  noteMoneyChange,
+  releaseGate,
+  sameMoney,
+  supersedePending,
+} from '@/lib/approvals/core'
 import { serialize } from '@/lib/utils'
 import { computeFundingMetrics } from '@/lib/utils/funding'
 import type {
@@ -29,10 +38,13 @@ import { assignPurchaseOrdersToLeaseTx } from '@/lib/funding/lease-sync'
  *
  * The transactions, numbering and lifecycle guards are v1's. What changed:
  *
- * - **Roles.** v1 gated writes on `requireEditor`, so STAFF could raise, approve
- *   and fund a request. Procurement is admin-only in v2 until the owner says
- *   otherwise (docs/procurement.md, "Small calls"), so every write here is
- *   `requireAdmin`; reads stay `requireAuth`.
+ * - **Roles and approval** (Phase 6, docs/procurement.md). v1 gated writes on
+ *   `requireEditor`, so STAFF could raise, approve and fund a request, and the
+ *   approval was three names anyone typed. In v2 STAFF raise a request and work
+ *   on their own drafts; submitting is the ask, decided by an approver through
+ *   `lib/approvals` and recorded from the session; funding, fulfilling,
+ *   canceling and the evidence joins stay `requireAdmin`. The free-text
+ *   approve/decline actions are gone — they were a way round the decision.
  * - **Evidence joins.** Attach and detach live here as their own actions, and
  *   `updateFundingRequest` only rewrites the joins when it is handed them. The
  *   edit form does not carry them, so saving an edit can no longer silently
@@ -471,7 +483,7 @@ function scalarData(data: FundingRequestFormData) {
 }
 
 export async function createFundingRequest(data: FundingRequestFormData) {
-  const authResult = await requireAdmin()
+  const authResult = await requireEditor()
   if (!authResult.authorized) throw new Error(authResult.error)
 
   const requestNumber = await generateRequestNumber()
@@ -506,14 +518,30 @@ export async function createFundingRequest(data: FundingRequestFormData) {
 }
 
 export async function updateFundingRequest(id: string, data: FundingRequestFormData) {
-  const authResult = await requireAdmin()
+  const authResult = await requireEditor()
   if (!authResult.authorized) throw new Error(authResult.error)
 
   const existing = await prisma.fundingRequest.findUnique({
     where: { id },
-    select: { status: true },
+    select: { status: true, requestedById: true, amountRequested: true },
   })
   if (!existing) throw new Error('Funding request not found')
+  if (!mayEditFunding({ id: authResult.userId, role: authResult.role }, existing)) {
+    throw new Error(
+      FUNDING_LOCKED.includes(existing.status)
+        ? 'A fulfilled or canceled request is the record of what happened — it is not edited.'
+        : 'Only your own draft requests can be edited. An administrator can change this one.'
+    )
+  }
+
+  const actor = await actorFor(authResult.userId, authResult.role)
+  const amountChanges = !sameMoney(Number(existing.amountRequested), data.amountRequested)
+  // Money already drawn against an approval is not re-opened by someone who
+  // cannot approve it: sending a FUNDED request back to SUBMITTED would erase
+  // the draw from its lifecycle. An approver's change is recorded as theirs.
+  if (amountChanges && existing.status === 'FUNDED' && !(await isApprover(actor, 'FUNDING_REQUEST'))) {
+    throw new Error('This request is funded — the money is drawn. Only an approver for funding requests can change the amount now.')
+  }
 
   const updated = await prisma.$transaction(async (tx) => {
     // Line items are replaced wholesale — they carry no downstream state.
@@ -545,10 +573,30 @@ export async function updateFundingRequest(id: string, data: FundingRequestFormD
     })
   })
 
+  // Phase 6: the amount moving under an approval sends it back — an APPROVED
+  // request returns to SUBMITTED, so it cannot be funded at a figure nobody
+  // approved — unless the editor approves funding requests.
+  const approval = await noteMoneyChange({
+    type: 'FUNDING_REQUEST',
+    id,
+    before: Number(existing.amountRequested),
+    actor,
+  })
+  let status = updated.status
+  if (approval?.pending && updated.status === 'APPROVED') {
+    const back = await prisma.fundingRequest.update({
+      where: { id },
+      data: { status: 'SUBMITTED', approvalDate: null },
+      select: { status: true },
+    })
+    status = back.status
+  }
+
   revalidatePath('/dashboard/funding')
   revalidatePath(`/dashboard/funding/${id}`)
+  revalidatePath('/dashboard/approvals')
 
-  return serialize(updated)
+  return serialize({ ...updated, status, approval })
 }
 
 export async function deleteFundingRequest(id: string) {
@@ -815,14 +863,17 @@ async function dispatchToAccounting(
  * summary in the body and the full form attached as a PDF.
  */
 export async function submitFundingRequest(id: string) {
-  const authResult = await requireAdmin()
+  const authResult = await requireEditor()
   if (!authResult.authorized) throw new Error(authResult.error)
 
   const existing = await prisma.fundingRequest.findUnique({
     where: { id },
-    select: { status: true, requestedBy: true },
+    select: { status: true, requestedBy: true, requestedById: true },
   })
   if (!existing) throw new Error('Funding request not found')
+  if (!mayMoveOwnFunding({ id: authResult.userId, role: authResult.role }, existing)) {
+    throw new Error('Only the person who raised this request, or an administrator, can submit it.')
+  }
 
   if (existing.status !== 'DRAFT') {
     throw new Error('Only draft funding requests can be submitted')
@@ -842,100 +893,86 @@ export async function submitFundingRequest(id: string) {
 
   const dispatch = await dispatchToAccounting(id, authResult.userId, submittedBy)
 
+  // Phase 6: submitting is the ask. Unlike a PO or a quote, a request's own
+  // lifecycle already has the waiting state (SUBMITTED), so the ask is raised
+  // here rather than on the screen, and a direct call behaves the same way.
+  // An approver's own request is approved on the spot.
+  const gate = await releaseGate({
+    type: 'FUNDING_REQUEST',
+    id,
+    actor: await actorFor(authResult.userId, authResult.role),
+    act: 'approving the spend',
+    raise: true,
+    always: true,
+    note: 'Submitted for funding',
+  })
+  let status = updated.status
+  if (gate.status === 'clear') {
+    const approved = await prisma.fundingRequest.update({
+      where: { id },
+      data: { status: 'APPROVED', approvalDate: new Date(), declineReason: null },
+      select: { status: true },
+    })
+    status = approved.status
+  }
+
   revalidatePath('/dashboard/funding')
   revalidatePath(`/dashboard/funding/${id}`)
+  revalidatePath('/dashboard/approvals')
 
-  return serialize({ ...updated, dispatch })
+  return serialize({
+    ...updated,
+    status,
+    dispatch,
+    approval: {
+      cleared: gate.status === 'clear',
+      message:
+        gate.status === 'clear'
+          ? 'You approve funding requests, so it is approved and recorded as cleared by you.'
+          : gate.message,
+    },
+  })
 }
 
-/** Pull a submitted request back to draft for edits before accounting acts. */
+/**
+ * Pull a submitted request back to draft for edits before anyone decides it,
+ * or a declined one back to draft to change and ask again. The open ask is
+ * withdrawn; the denial, if there was one, stays on the trail as decided.
+ */
 export async function reviseFundingRequest(id: string) {
-  const authResult = await requireAdmin()
+  const authResult = await requireEditor()
   if (!authResult.authorized) throw new Error(authResult.error)
 
   const existing = await prisma.fundingRequest.findUnique({
     where: { id },
-    select: { status: true },
+    select: { status: true, requestedById: true },
   })
   if (!existing) throw new Error('Funding request not found')
-  if (existing.status !== 'SUBMITTED') {
-    throw new Error('Only submitted funding requests can be reverted to draft')
+  if (!mayMoveOwnFunding({ id: authResult.userId, role: authResult.role }, existing)) {
+    throw new Error('Only the person who raised this request, or an administrator, can pull it back.')
+  }
+  if (existing.status !== 'SUBMITTED' && existing.status !== 'DECLINED') {
+    throw new Error('Only submitted or declined funding requests can be taken back to draft')
   }
 
   const updated = await prisma.fundingRequest.update({
     where: { id },
     data: { status: 'DRAFT', submittedAt: null, submittedBy: null },
   })
+  await supersedePending('FUNDING_REQUEST', id)
 
   revalidatePath('/dashboard/funding')
   revalidatePath(`/dashboard/funding/${id}`)
+  revalidatePath('/dashboard/approvals')
 
   return serialize(updated)
 }
 
-export type FundingApprovalData = {
-  operationsApprovedBy?: string | null
-  financeApprovedBy?: string | null
-  executiveApprovedBy?: string | null
-  approvalDate?: Date | null
-}
-
-export async function approveFundingRequest(id: string, approval: FundingApprovalData = {}) {
-  const authResult = await requireAdmin()
-  if (!authResult.authorized) throw new Error(authResult.error)
-
-  const existing = await prisma.fundingRequest.findUnique({
-    where: { id },
-    select: { status: true },
-  })
-  if (!existing) throw new Error('Funding request not found')
-  if (existing.status !== 'SUBMITTED' && existing.status !== 'DECLINED') {
-    throw new Error('Only submitted or declined funding requests can be approved')
-  }
-
-  const session = await auth()
-
-  const updated = await prisma.fundingRequest.update({
-    where: { id },
-    data: {
-      status: 'APPROVED',
-      operationsApprovedBy: approval.operationsApprovedBy ?? undefined,
-      financeApprovedBy: approval.financeApprovedBy ?? session?.user?.name ?? undefined,
-      executiveApprovedBy: approval.executiveApprovedBy ?? undefined,
-      approvalDate: approval.approvalDate ?? new Date(),
-      declineReason: null,
-    },
-  })
-
-  revalidatePath('/dashboard/funding')
-  revalidatePath(`/dashboard/funding/${id}`)
-
-  return serialize(updated)
-}
-
-export async function declineFundingRequest(id: string, reason?: string | null) {
-  const authResult = await requireAdmin()
-  if (!authResult.authorized) throw new Error(authResult.error)
-
-  const existing = await prisma.fundingRequest.findUnique({
-    where: { id },
-    select: { status: true },
-  })
-  if (!existing) throw new Error('Funding request not found')
-  if (existing.status !== 'SUBMITTED' && existing.status !== 'APPROVED') {
-    throw new Error('Only submitted or approved funding requests can be declined')
-  }
-
-  const updated = await prisma.fundingRequest.update({
-    where: { id },
-    data: { status: 'DECLINED', declineReason: reason ?? null },
-  })
-
-  revalidatePath('/dashboard/funding')
-  revalidatePath(`/dashboard/funding/${id}`)
-
-  return serialize(updated)
-}
+// approveFundingRequest and declineFundingRequest were ported from v1 and are
+// deliberately gone. They took the approvers' names as typed text from any
+// admin and could approve a request its own author had submitted. Deciding a
+// request is `lib/approvals` now: recorded from the session, refused to its
+// requester, one decision per ask, never edited afterwards.
 
 /**
  * Mark the money as drawn, tying the request to the loan/lease it was funded
@@ -958,6 +995,18 @@ export async function markFundingRequestFunded(id: string, leaseId?: string | nu
   if (existing.status !== 'APPROVED' && existing.status !== 'FUNDED') {
     throw new Error('Only approved funding requests can be marked funded')
   }
+
+  // Phase 6: funded only at a figure somebody approved. A request approved
+  // before approvals were recorded has no history and is left as it was.
+  const gate = await releaseGate({
+    type: 'FUNDING_REQUEST',
+    id,
+    actor: await actorFor(authResult.userId, authResult.role),
+    act: 'marking it funded',
+    raise: false,
+    always: false,
+  })
+  if (gate.status === 'held') throw new Error(gate.message)
 
   const lease = leaseId
     ? await prisma.lease.findUnique({
@@ -1040,9 +1089,11 @@ export async function cancelFundingRequest(id: string) {
     where: { id },
     data: { status: 'CANCELLED' },
   })
+  await supersedePending('FUNDING_REQUEST', id)
 
   revalidatePath('/dashboard/funding')
   revalidatePath(`/dashboard/funding/${id}`)
+  revalidatePath('/dashboard/approvals')
 
   return serialize(updated)
 }

@@ -3,7 +3,7 @@
 import React from 'react'
 import { revalidatePath } from 'next/cache'
 import { prisma } from '@/lib/prisma'
-import { requireAdmin, requireAuth, requireEditor } from '@/lib/auth-utils'
+import { requireAuth, requireEditor } from '@/lib/auth-utils'
 import { serialize } from '@/lib/utils'
 import { formatDate } from '@/lib/utils/format'
 import fs from 'fs/promises'
@@ -1265,15 +1265,17 @@ export async function renderFundingRequestPdf(
  * exists, unless `force` is set, in which case the file is rewritten and the
  * existing Document row updated in place (preserving its ID).
  *
- * Ported from v1, with an admin check: it writes to disk and to the documents
- * table, and the only legitimate caller is the admin-gated submit.
+ * Ported from v1, with a role check: it writes to disk and to the documents
+ * table. Its caller is submit, which STAFF may do for their own requests since
+ * Phase 6 — and what it writes is only the request's own form, rendered from
+ * the database, so an editor may trigger it.
  */
 export async function generateAndSaveFundingRequestDocument(
   requestId: string,
   createdById: string,
   opts: { force?: boolean } = {}
 ): Promise<void> {
-  const authResult = await requireAdmin()
+  const authResult = await requireEditor()
   if (!authResult.authorized) throw new Error(authResult.error)
 
   try {

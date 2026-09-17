@@ -11,7 +11,7 @@ import {
 import { fundingInputFrom } from "@/lib/procurement/funding-input";
 import { getFundingFormOptions, getFundingRecord } from "@/lib/queries/funding";
 import { getSessionUser } from "@/lib/roles";
-import { isAdminRole } from "@/lib/settings/pages";
+import { mayEditFunding } from "@/lib/procurement/access";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -38,8 +38,20 @@ export default async function EditFundingRequestPage({ params }: Params) {
   const [record, options] = await Promise.all([getFundingRecord(id), getFundingFormOptions()]);
   if (!record) notFound();
 
-  if (!isAdminRole(user.role)) {
-    return <FundingDenied title={`Edit ${record.requestNumber}`} role={user.title} />;
+  if (!FUNDING_LOCKED.includes(record.status) && !mayEditFunding(user, record)) {
+    return (
+      <FundingDenied
+        title={`Edit ${record.requestNumber}`}
+        role={user.title}
+        reason={
+          user.role === "STAFF"
+            ? record.requestedById === user.id
+              ? `${record.requestNumber} has been submitted, so it is no longer a draft to change. Pull it back to draft from the request first.`
+              : `${record.requestNumber} was raised by someone else. Staff edit their own draft requests; an administrator can change this one.`
+            : undefined
+        }
+      />
+    );
   }
 
   if (FUNDING_LOCKED.includes(record.status)) {

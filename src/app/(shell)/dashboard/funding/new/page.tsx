@@ -12,7 +12,7 @@ import {
 } from "@/lib/procurement/funding-input";
 import { getFundingFormOptions } from "@/lib/queries/funding";
 import { getSessionUser } from "@/lib/roles";
-import { isAdminRole } from "@/lib/settings/pages";
+import { canRaise } from "@/lib/procurement/access";
 
 export const metadata = { title: "New funding request" };
 
@@ -36,7 +36,7 @@ export default async function NewFundingRequestPage({
 }) {
   const user = await getSessionUser();
   if (!user) redirect("/login");
-  if (!isAdminRole(user.role)) {
+  if (!canRaise(user.role)) {
     return <FundingDenied title="New funding request" role={user.title} />;
   }
 
