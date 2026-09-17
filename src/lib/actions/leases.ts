@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { prisma } from '@/lib/prisma'
 import { serialize } from '@/lib/utils'
 import { requireAuth, requireEditor } from '@/lib/auth-utils'
+import { nextNumber } from '@/lib/numbering/next'
 
 export type LeaseStatus = 'ACTIVE' | 'PAID_OFF' | 'DEFAULTED' | 'TRANSFERRED'
 
@@ -505,27 +506,13 @@ export async function seedLeasesFromNotOwned() {
     groups.get(key)!.push(unit)
   }
 
-  // Determine next sequential lease number
-  const lastLease = await prisma.lease.findFirst({
-    where: { leaseNumber: { startsWith: 'LSE-' } },
-    orderBy: { leaseNumber: 'desc' },
-    select: { leaseNumber: true },
-  })
-
-  let nextSeq = 1
-  if (lastLease) {
-    const match = lastLease.leaseNumber.match(/^LSE-(\d+)$/)
-    if (match) {
-      nextSeq = parseInt(match[1], 10) + 1
-    }
-  }
-
   const createdLeases = await prisma.$transaction(async (tx) => {
     const results = []
 
     for (const [loanName, groupUnits] of groups) {
-      const leaseNumber = `LSE-${String(nextSeq).padStart(4, '0')}`
-      nextSeq++
+      // Pattern: Settings → Business → Numbering. In the transaction, so each
+      // lease counts the ones generated before it.
+      const leaseNumber = await nextNumber('lease', tx)
 
       // Use earliest purchase date as start, default 5-year term
       const dates = groupUnits

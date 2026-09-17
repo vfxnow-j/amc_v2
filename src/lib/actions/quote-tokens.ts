@@ -1,6 +1,7 @@
 'use server'
 
 import { prisma } from '@/lib/prisma'
+import type { Prisma } from '@/generated/prisma/client'
 import { requireEditor } from '@/lib/auth-utils'
 import { serialize } from '@/lib/utils'
 import { calculatePeriods } from '@/lib/actions/reservations'
@@ -79,14 +80,10 @@ export async function generateQuoteToken(reservationId: string) {
 }
 
 /**
- * Fetch quote data by token (NO AUTH required — public access).
+ * What a quote is built from. Shared by the client's link and the staff preview
+ * so the two can never show different figures.
  */
-export async function getQuoteByToken(token: string) {
-  const quoteToken = await prisma.quoteToken.findUnique({
-    where: { token },
-    include: {
-      reservation: {
-        include: {
+const QUOTE_INCLUDE = {
           client: true,
           packages: {
             include: {
@@ -121,9 +118,17 @@ export async function getQuoteByToken(token: string) {
             },
             orderBy: { sortOrder: 'asc' },
           },
-        },
-      },
-    },
+        } satisfies Prisma.ReservationInclude
+
+type QuoteReservation = Prisma.ReservationGetPayload<{ include: typeof QUOTE_INCLUDE }>
+
+/**
+ * Fetch quote data by token (NO AUTH required — public access).
+ */
+export async function getQuoteByToken(token: string) {
+  const quoteToken = await prisma.quoteToken.findUnique({
+    where: { token },
+    include: { reservation: { include: QUOTE_INCLUDE } },
   })
 
   if (!quoteToken) return { error: 'Quote not found' }
@@ -134,7 +139,51 @@ export async function getQuoteByToken(token: string) {
     return { error: 'already_used', status }
   }
 
-  const { reservation } = quoteToken
+  return buildQuote(quoteToken.reservation, quoteToken.createdAt, quoteToken.expiresAt)
+}
+
+/**
+ * Staff preview of the online quote, by order (session required).
+ *
+ * The client's page as the client would see it, whatever stage the order is at
+ * — including before any link exists and after the link is spent — plus where
+ * the quote stands, so the order record can show "View online quote" at every
+ * stage. It reads only: no token is minted and nothing is marked as viewed.
+ */
+export async function getQuotePreview(reservationId: string) {
+  const { requireAuth } = await import('@/lib/auth-utils')
+  const authResult = await requireAuth()
+  if (!authResult.authorized) return { error: 'unauthorized' as const }
+
+  const reservation = await prisma.reservation.findUnique({
+    where: { id: reservationId },
+    include: QUOTE_INCLUDE,
+  })
+  if (!reservation) return { error: 'not_found' as const }
+
+  const latest = await prisma.quoteToken.findFirst({
+    where: { reservationId },
+    orderBy: { createdAt: 'desc' },
+    select: { createdAt: true, expiresAt: true, usedAt: true },
+  })
+  const links = await prisma.quoteToken.count({ where: { reservationId } })
+
+  return {
+    quote: await buildQuote(reservation, latest?.createdAt ?? null, latest?.expiresAt ?? null),
+    link: latest
+      ? { issuedAt: latest.createdAt, expiresAt: latest.expiresAt, answeredAt: latest.usedAt, count: links }
+      : null,
+    approvedAt: reservation.approvedAt,
+    quoteSentAt: reservation.quoteSentAt,
+    lostReason: reservation.lostReason,
+  }
+}
+
+async function buildQuote(
+  reservation: QuoteReservation,
+  issuedAt: Date | null,
+  tokenExpiresAt: Date | null,
+) {
 
   // Helper: group items by category. Components (parentId set) stay attached to
   // their parent's display group — the UI renders them indented beneath the parent.
@@ -290,8 +339,8 @@ export async function getQuoteByToken(token: string) {
     // Quote lifecycle — surfaced so the client sees when it was issued and how
     // long the pricing holds. The order-level expiration wins when set; the token
     // expiry is the fallback for links issued before that field existed.
-    issuedAt: quoteToken.createdAt,
-    expiresAt: reservation.quoteExpiresAt ?? quoteToken.expiresAt,
+    issuedAt,
+    expiresAt: reservation.quoteExpiresAt ?? tokenExpiresAt,
     clientName: reservation.client.name,
     companyName: reservation.client.companyName,
     projectName: reservation.projectName,

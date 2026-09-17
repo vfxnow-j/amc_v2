@@ -54,8 +54,9 @@ export type QuoteData = {
   reservationNumber: string;
   reservationType: string;
   status: string;
-  issuedAt: string;
-  expiresAt: string;
+  /** Null only in a staff preview of a quote no link has been issued for. */
+  issuedAt: string | null;
+  expiresAt: string | null;
   clientName: string;
   companyName: string | null;
   projectName: string | null;
@@ -126,6 +127,24 @@ const METHOD_LABEL: Record<string, string> = {
 type Answer = "approved" | "changes" | "declined";
 
 /**
+ * Where a quote stands, for the staff preview. The client's answer buttons are
+ * replaced by what the client would see at that stage — nothing can be answered
+ * from a preview.
+ */
+export type PreviewStage = "draft" | "sent" | "changes" | "approved" | "declined";
+
+const PREVIEW_ANSWER: Record<PreviewStage, string> = {
+  draft:
+    "Not sent yet. Once it is, the client approves, asks for changes or declines here.",
+  sent: "Live. The client can approve, ask for changes or decline here.",
+  changes:
+    "The client asked for changes, so their link is closed and shows: “We have your notes and are repricing.”",
+  approved:
+    "Approved. The client's link now shows: “This quote has been approved and is now an order.”",
+  declined: "Declined. The client's link now shows: “Quote declined.”",
+};
+
+/**
  * The online quote.
  *
  * A replica of v1's in what it does — see the same quote, pick between
@@ -143,7 +162,15 @@ type Answer = "approved" | "changes" | "declined";
  * here — this only stops offering the buttons after an answer lands, and says
  * which answer it was.
  */
-export function QuotePortal({ token, quote }: { token: string; quote: QuoteData }) {
+export function QuotePortal({
+  token,
+  quote,
+  preview,
+}: {
+  token: string;
+  quote: QuoteData;
+  preview?: PreviewStage;
+}) {
   const [answer, setAnswer] = useState<Answer | null>(null);
   const [panel, setPanel] = useState<"approve" | "changes" | "decline" | null>(null);
   const [error, setError] = useState("");
@@ -173,7 +200,10 @@ export function QuotePortal({ token, quote }: { token: string; quote: QuoteData 
     total: selected?.total ?? quote.total,
   };
 
-  const expired = new Date(quote.expiresAt) < new Date();
+  const expired =
+    !!quote.expiresAt &&
+    new Date(quote.expiresAt) < new Date() &&
+    (preview === undefined || preview === "sent");
 
   if (answer) return <Answered answer={answer} />;
 
@@ -285,9 +315,28 @@ export function QuotePortal({ token, quote }: { token: string; quote: QuoteData 
         </p>
       ) : null}
 
-      {expired ? (
+      {preview && !expired ? (
+        <div className="flex flex-col gap-2">
+          {preview === "draft" || preview === "sent" ? (
+            <div className="flex flex-col gap-2 sm:flex-row" aria-hidden>
+              <span className="flex-1 cursor-not-allowed rounded-xl bg-[#16a34a] px-6 py-3 text-center text-sm font-semibold text-white opacity-60">
+                Approve quote
+              </span>
+              <span className="cursor-not-allowed rounded-xl border border-[#d4d4d8] bg-white px-6 py-3 text-center text-sm font-semibold opacity-60">
+                Request changes
+              </span>
+              <span className="cursor-not-allowed rounded-xl border border-[#d4d4d8] bg-white px-6 py-3 text-center text-sm font-semibold text-[#b91c1c] opacity-60">
+                Decline
+              </span>
+            </div>
+          ) : null}
+          <p className="rounded-2xl bg-white p-4 text-sm text-[#52525b] shadow-sm">
+            {PREVIEW_ANSWER[preview]}
+          </p>
+        </div>
+      ) : expired ? (
         <p className="rounded-2xl bg-white p-5 text-sm text-[#71717a] shadow-sm">
-          The pricing on this quote held until {day(quote.expiresAt)} and can no
+          The pricing on this quote held until {day(quote.expiresAt!)} and can no
           longer be accepted online. Reply to the email it came in and we will
           reissue it.
         </p>
@@ -385,18 +434,24 @@ function Header({ quote, total }: { quote: QuoteData; total: number }) {
           </h1>
           <p className="mt-1 text-sm text-[#71717a]">
             {quote.projectName ? `${quote.projectName} · ` : ""}
-            {day(quote.startDate)} – {day(quote.endDate)}
+            {/* A sale has no term — just the day it is ordered. */}
+            {quote.reservationType === "SALE"
+              ? `Ordered ${day(quote.startDate)}`
+              : `${day(quote.startDate)} – ${day(quote.endDate)}`}
           </p>
         </div>
         <div className="text-right">
           <p className="text-3xl font-bold tabular-nums">{money(total)}</p>
           <p className="mt-1 text-xs text-[#71717a]">
-            {CYCLE_TERM[quote.billingCycleType] ?? ""}
+            {quote.reservationType === "SALE"
+              ? "A one-time purchase."
+              : (CYCLE_TERM[quote.billingCycleType] ?? "")}
           </p>
         </div>
       </div>
       <p className="mt-4 border-t border-[#f4f4f5] pt-3 text-xs text-[#a1a1aa]">
-        Issued {day(quote.issuedAt)} · pricing held until {day(quote.expiresAt)}
+        {quote.issuedAt ? `Issued ${day(quote.issuedAt)}` : "Not issued yet"}
+        {quote.expiresAt ? ` · pricing held until ${day(quote.expiresAt)}` : ""}
       </p>
     </section>
   );

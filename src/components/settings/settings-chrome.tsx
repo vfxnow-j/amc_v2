@@ -73,7 +73,8 @@ export function SettingsDenied({
       <SettingsHeader id={id} />
       <section className="flex flex-1 items-center justify-center rounded-card bg-panel p-[14px] shadow-sm">
         <p className="max-w-md text-center text-body text-balance text-ink-muted">
-          {page?.label ?? "This screen"} is for administrators. You are signed in
+          {page?.label ?? "This screen"} is for{" "}
+          {page?.access === "super_admin" ? "super admins" : "administrators"}. You are signed in
           with {role} access, which can&rsquo;t open it. An administrator can
           change your role under Settings → Users.
         </p>

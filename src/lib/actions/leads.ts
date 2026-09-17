@@ -20,6 +20,8 @@ import {
   type OnboardingPayload,
 } from '@/lib/leads/onboarding'
 import type { LeadSource, LeadStatus, Prisma } from '@/generated/prisma/client'
+import { intendedDay } from '@/lib/billing/calendar'
+import { recurringFor } from '@/lib/orders/recurring'
 
 // ============================================
 // TYPES
@@ -476,12 +478,12 @@ export async function convertLeadToReservation(
       reservationNumber,
       clientId,
       reservationType: resType,
-      startDate: new Date(reservationData.startDate),
-      endDate: new Date(reservationData.endDate),
+      startDate: intendedDay(new Date(reservationData.startDate)),
+      endDate: intendedDay(new Date(reservationData.endDate)),
       status: 'DRAFT',
       billingCycleType,
       // RTO is financed via fixed monthly installments — recurring billing + term.
-      isRecurring: isRTO,
+      isRecurring: recurringFor(resType, billingCycleType),
       rtoTermMonths,
       projectName: reservationData.projectName || lead.companyName || undefined,
       notes: reservationData.notes || undefined,

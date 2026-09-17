@@ -1,5 +1,10 @@
 import type { ApprovalRecordType, Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
+import {
+  BILLING_ANCHOR_KEY,
+  describeBillingAnchor,
+  parseBillingAnchor,
+} from "@/lib/settings/business";
 
 /**
  * Reads behind the Settings area.
@@ -67,7 +72,9 @@ export async function getSettingsState(): Promise<SettingsState> {
       select: { realmId: true, expiresAt: true },
     }),
     prisma.setting.findMany({
-      where: { key: { in: ["zapier_webhook_secret", "hubspot_enabled"] } },
+      where: {
+        key: { in: ["zapier_webhook_secret", "hubspot_enabled", BILLING_ANCHOR_KEY] },
+      },
       select: { key: true, value: true },
     }),
   ]);
@@ -95,6 +102,7 @@ export async function getSettingsState(): Promise<SettingsState> {
     quickbooks: qbToken
       ? `Connected to realm ${qbToken.realmId}`
       : "Not connected",
+    business: describeBillingAnchor(parseBillingAnchor(settings.get(BILLING_ANCHOR_KEY))),
     integrations: connected.length
       ? `${connected.join(" and ")} configured`
       : "Nothing configured",

@@ -21,7 +21,7 @@ import type { Role } from "@/lib/roles";
  */
 
 /** Who can open a screen. Editing inside one may still be narrower. */
-export type SettingsAccess = "everyone" | "admin";
+export type SettingsAccess = "everyone" | "admin" | "super_admin";
 
 export type SettingsGroup =
   | "People and access"
@@ -76,6 +76,15 @@ export const SETTINGS_PAGES: SettingsPage[] = [
     href: "/dashboard/settings/dashboards",
     blurb: "The dashboard views everyone starts from, and what is on each.",
     access: "admin",
+    group: "The workspace",
+  },
+  {
+    // Terms that are written into client agreements, so super admins only.
+    id: "business",
+    label: "Business",
+    href: "/dashboard/settings/business",
+    blurb: "The day orders bill on, and how every record is numbered.",
+    access: "super_admin",
     group: "The workspace",
   },
   {
@@ -154,6 +163,7 @@ export function isAdminRole(role: Role): boolean {
 }
 
 export function canOpen(page: SettingsPage, role: Role): boolean {
+  if (page.access === "super_admin") return role === "SUPER_ADMIN";
   return page.access === "everyone" || isAdminRole(role);
 }
 

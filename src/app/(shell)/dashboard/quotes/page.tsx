@@ -106,7 +106,7 @@ async function Table({ search, page }: { search: string; page: number }) {
             ),
             window: (
               <span className="tabular-nums text-ink-muted">
-                {windowLabel(row.start, row.end)}
+                {windowLabel(row.start, row.end, row.type)}
               </span>
             ),
             value: money(row.value),

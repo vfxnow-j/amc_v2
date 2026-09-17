@@ -25,6 +25,7 @@ export function Modal({
   blurb,
   children,
   footer,
+  wide = false,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -33,13 +34,17 @@ export function Modal({
   blurb?: React.ReactNode;
   children?: React.ReactNode;
   footer: React.ReactNode;
+  /** For a dialog that holds a list or a table rather than a sentence. */
+  wide?: boolean;
 }) {
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-scrim/40 data-[state=open]:animate-in data-[state=open]:fade-in-0" />
         <DialogPrimitive.Content
-          className="fixed left-1/2 top-1/2 z-50 flex max-h-[85vh] w-[min(30rem,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-card bg-panel shadow-lg outline-none"
+          className={`fixed left-1/2 top-1/2 z-50 flex max-h-[85vh] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-card bg-panel shadow-lg outline-none ${
+            wide ? "w-[min(44rem,calc(100vw-2rem))]" : "w-[min(30rem,calc(100vw-2rem))]"
+          }`}
         >
           <header className="flex items-start gap-3 px-4 pt-4">
             <div className="min-w-0 flex-1">

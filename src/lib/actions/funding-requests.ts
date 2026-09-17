@@ -32,6 +32,7 @@ import {
   generateAndSaveFundingRequestDocument,
 } from '@/lib/actions/documents'
 import { assignPurchaseOrdersToLeaseTx } from '@/lib/funding/lease-sync'
+import { nextNumber } from '@/lib/numbering/next'
 
 /**
  * Equipment funding requests — ported from v1's `lib/actions/funding-requests.ts`.
@@ -139,20 +140,7 @@ export type FundingRequestFilters = {
  * fixed assets back to.
  */
 async function generateRequestNumber(): Promise<string> {
-  const year = new Date().getFullYear()
-  const last = await prisma.fundingRequest.findFirst({
-    where: { requestNumber: { startsWith: `FR-${year}-` } },
-    orderBy: { requestNumber: 'desc' },
-    select: { requestNumber: true },
-  })
-
-  let sequence = 1
-  if (last) {
-    const match = last.requestNumber.match(/^FR-\d{4}-(\d+)$/)
-    if (match) sequence = parseInt(match[1], 10) + 1
-  }
-
-  return `FR-${year}-${sequence.toString().padStart(5, '0')}`
+  return nextNumber('fundingRequest')
 }
 
 const detailInclude = {

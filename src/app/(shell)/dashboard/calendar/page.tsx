@@ -1,6 +1,10 @@
 import { Suspense } from "react";
 import Link from "next/link";
-import { MoveArrow } from "@/components/move-arrow";
+import {
+  CalendarEntry,
+  CalendarLegend,
+  dayEntries,
+} from "@/components/calendar-entry";
 import { PageHeader } from "@/components/shell/page-header";
 import {
   IncomingCard,
@@ -28,7 +32,7 @@ function isToday(date: Date, today: Date) {
 }
 
 function DayCell({ day, today }: { day: CalendarDay; today: Date }) {
-  const movements = day.going.length + day.coming.length;
+  const { shown, hidden } = dayEntries(day);
 
   return (
     <div
@@ -46,36 +50,15 @@ function DayCell({ day, today }: { day: CalendarDay; today: Date }) {
         {day.date.getDate()}
       </span>
 
-      {movements === 0 ? null : (
+      {shown.length === 0 ? null : (
         <ul className="flex flex-col gap-[2px]">
-          {day.going.slice(0, 2).map((order) => (
-            <li key={`out-${order.id}`}>
-              <Link
-                href={`/dashboard/orders/${order.id}`}
-                title={`Out: ${order.reservationNumber} · ${order.clientName}`}
-                className="flex items-center gap-1 truncate rounded-[4px] bg-accent-tint px-1 text-micro text-accent-on-tint hover:underline"
-              >
-                <MoveArrow direction="out" />
-                <span className="truncate">{order.clientName}</span>
-              </Link>
+          {shown.map(({ order, kind }) => (
+            <li key={`${kind}-${order.id}`}>
+              <CalendarEntry order={order} kind={kind} />
             </li>
           ))}
-          {day.coming.slice(0, 2).map((order) => (
-            <li key={`in-${order.id}`}>
-              <Link
-                href={`/dashboard/orders/${order.id}`}
-                title={`Back: ${order.reservationNumber} · ${order.clientName}`}
-                className="flex items-center gap-1 truncate rounded-[4px] bg-sunken px-1 text-micro text-ink-muted hover:underline"
-              >
-                <MoveArrow direction="back" />
-                <span className="truncate">{order.clientName}</span>
-              </Link>
-            </li>
-          ))}
-          {movements > 4 ? (
-            <li className="px-1 text-micro text-ink-faint">
-              +{movements - 4} more
-            </li>
+          {hidden > 0 ? (
+            <li className="px-1 text-micro text-ink-faint">+{hidden} more</li>
           ) : null}
         </ul>
       )}
@@ -89,6 +72,7 @@ async function Month({ year, month }: { year: number; month: number }) {
 
   const going = days.reduce((sum, day) => sum + (day.inMonth ? day.going.length : 0), 0);
   const coming = days.reduce((sum, day) => sum + (day.inMonth ? day.coming.length : 0), 0);
+  const expiring = days.reduce((sum, day) => sum + (day.inMonth ? day.expiring.length : 0), 0);
 
   const previous = new Date(year, month - 1, 1);
   const next = new Date(year, month + 1, 1);
@@ -101,6 +85,9 @@ async function Month({ year, month }: { year: number; month: number }) {
         <h2 className="text-card-title">{MONTH_LABEL.format(monthStart)}</h2>
         <span className="text-detail text-ink-muted">
           {going} out · {coming} back
+          {expiring > 0
+            ? ` · ${expiring} ${expiring === 1 ? "quote expires" : "quotes expire"}`
+            : ""}
         </span>
         <span className="ml-auto flex items-center gap-2 text-detail">
           <Link href={href(previous)} className="text-accent-text hover:underline">
@@ -114,6 +101,10 @@ async function Month({ year, month }: { year: number; month: number }) {
           </Link>
         </span>
       </header>
+
+      <div className="px-2 pb-3">
+        <CalendarLegend />
+      </div>
 
       <div className="grid grid-cols-7 gap-1 px-2 pb-1 text-colhead uppercase text-ink-muted">
         {WEEKDAYS.map((weekday) => (
@@ -179,7 +170,10 @@ async function HeaderBlurb() {
  * 35 when the Overview first shipped, and a calendar full of returns that
  * aren't returns is worse than no calendar.
  *
- * Two per direction per day in the grid, then a count — a cell that lists
+ * Quote-stage orders show dashed, and a quote's expiry date is its own entry
+ * with its own icon — see `components/calendar-entry.tsx` for why each shape.
+ *
+ * Two per kind per day in the grid, then a count — a cell that lists
  * fifteen orders stops being glanceable, and the day's real work is on the
  * order anyway.
  */

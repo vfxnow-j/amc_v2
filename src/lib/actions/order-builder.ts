@@ -6,6 +6,7 @@ import { requireEditor } from "@/lib/auth-utils";
 import { createReservation } from "@/lib/actions/reservations";
 import type { ReservationType } from "@/generated/prisma/client";
 import type { PricingType } from "@/lib/types";
+import { parseDateInput } from "@/lib/billing/calendar";
 import {
   findSubstitutes,
   searchAssetsForWindow,
@@ -32,7 +33,10 @@ export async function lookupAssets(
 ): Promise<AssetAvailability[]> {
   const auth = await requireEditor();
   if (!auth.authorized) return [];
-  return searchAssetsForWindow(query, new Date(start), new Date(end));
+  const from = parseDateInput(start);
+  const to = parseDateInput(end);
+  if (!from || !to) return [];
+  return searchAssetsForWindow(query, from, to);
 }
 
 export async function lookupSubstitutes(
@@ -43,7 +47,10 @@ export async function lookupSubstitutes(
 ): Promise<AssetAvailability[]> {
   const auth = await requireEditor();
   if (!auth.authorized) return [];
-  return findSubstitutes(assetId, quantity, new Date(start), new Date(end));
+  const from = parseDateInput(start);
+  const to = parseDateInput(end);
+  if (!from || !to) return [];
+  return findSubstitutes(assetId, quantity, from, to);
 }
 
 export type DraftLine = {
@@ -108,9 +115,16 @@ export async function createOrder(
     };
   }
 
-  const start = new Date(input.start);
-  const end = new Date(input.end);
-  if (!(start < end)) {
+  // Calendar days at noon UTC (lib/billing/calendar). `new Date("YYYY-MM-DD")`
+  // stored UTC midnight, which every Pacific screen then showed a day early.
+  const start = parseDateInput(input.start);
+  const requestedEnd = parseDateInput(input.end);
+  if (!start || (input.type !== "SALE" && !requestedEnd)) {
+    return { status: "error", message: "Choose the order's dates." };
+  }
+  // A sale has no term: it stores its order date as both.
+  const end = input.type === "SALE" ? start : requestedEnd!;
+  if (input.type !== "SALE" && !(start < end)) {
     return {
       status: "error",
       message: "The order has to end after it starts.",

@@ -209,7 +209,7 @@ export async function OrdersCard({ id }: { id: string }) {
                 {order.reservationNumber}
               </span>
               <span className="truncate text-ink-muted">
-                {windowLabel(order.start, order.end)}
+                {windowLabel(order.start, order.end, order.type)}
               </span>
               <span className="truncate text-ink-muted">
                 {STATUS_LABEL[order.status]}

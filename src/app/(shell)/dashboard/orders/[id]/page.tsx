@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import type { Metadata } from "next";
 import Link from "next/link";
+import { ExternalLink } from "lucide-react";
 import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/shell/page-header";
 import {
@@ -10,7 +11,10 @@ import {
   LinesCard,
 } from "@/components/reservations/record-cards";
 import { CheckoutPanel } from "@/components/reservations/checkout-panel";
-import { CheckinPanel } from "@/components/reservations/checkin-panel";
+import { CheckinSession } from "@/components/orders/checkin-session";
+import { ExtendOrder } from "@/components/orders/extend-order";
+import { extensionLines } from "@/lib/queries/extension";
+import { unitsOutOn } from "@/lib/queries/checkin";
 import {
   CommercialDetailsCard,
   MarginStrip,
@@ -32,6 +36,13 @@ import {
   TYPE_LABEL,
 } from "@/lib/reservations/status";
 import type { ReservationStatus, ReservationType } from "@/generated/prisma/client";
+import {
+  anchorOnOrBefore,
+  businessToday,
+  isAnchoredCycle,
+  periodFromAnchor,
+} from "@/lib/billing/calendar";
+import { getBillingAnchor } from "@/lib/settings/business";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -51,6 +62,60 @@ const DAY = new Intl.DateTimeFormat("en-US", {
   day: "numeric",
   year: "numeric",
 });
+
+/**
+ * What an order's two dates are called, by type. A sale has no term — only the
+ * day it was ordered — and only a rental has a date anything comes back on.
+ */
+function dateStamps(
+  header: {
+    type: ReservationType;
+    start: Date;
+    end: Date;
+    isRecurring: boolean;
+  },
+  /** The billing period running today, for a recurring rental or cloud order. */
+  period: { start: Date; end: Date } | null,
+): { label: string; value: string }[] {
+  const start = DAY.format(header.start);
+  const end = DAY.format(header.end);
+  const term = termLength(header.start, header.end);
+  // A recurring order's stored end date is its first period's, and nothing
+  // moves it: "Period ends Mar 31" on an order still out in September. The
+  // period that matters is the one running now.
+  if (period && header.type !== "RENT_TO_OWN") {
+    return [
+      { label: header.type === "CLOUD" ? "Started" : "Went out", value: start },
+      {
+        label: header.type === "CLOUD" ? "Renews" : "Period ends",
+        value: DAY.format(period.end),
+      },
+      { label: "Term", value: "Rolling, until returned" },
+    ];
+  }
+  switch (header.type) {
+    case "SALE":
+      return [{ label: "Ordered", value: start }];
+    case "RENT_TO_OWN":
+      return [
+        { label: "Starts", value: start },
+        { label: "Ends", value: end },
+        { label: "Term", value: term },
+      ];
+    case "CLOUD":
+      return [
+        { label: "Starts", value: start },
+        { label: "Renews", value: end },
+        { label: "Term", value: term },
+      ];
+    default:
+      return [
+        { label: "Goes out", value: start },
+        { label: header.isRecurring ? "Period ends" : "Due back", value: end },
+        { label: "Term", value: term },
+      ];
+  }
+}
 
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const { id } = await params;
@@ -95,8 +160,26 @@ export default async function OrderRecordPage({ params }: Params) {
 
   const user = await getSessionUser();
   const commercial = COMMERCIAL_TYPES.includes(header.type);
+  // The billing period running today (or the first one, before the start),
+  // on the business anchor — what a recurring order's dates should read.
+  const anchor = await getBillingAnchor();
+  const periodDay = (() => {
+    const today = businessToday();
+    return header.start > today ? header.start : today;
+  })();
+  const currentPeriod =
+    header.isRecurring && isAnchoredCycle(header.cycle)
+      ? periodFromAnchor(anchorOnOrBefore(periodDay, header.cycle, anchor), header.cycle, anchor)
+      : null;
   const isRto = header.type === "RENT_TO_OWN";
   const hasUnits = progress.ordered > 0;
+  const unitsOut = hasUnits ? await unitsOutOn(header.id) : [];
+  // A fixed-term rental that is out: its return date is real, so it can run
+  // late and can be extended. Monthly and weekly rentals recur instead.
+  const fixedTermOut =
+    header.type === "RENTAL" &&
+    !header.isRecurring &&
+    (header.status === "ACTIVE" || header.status === "SHIPPED");
 
   return (
     <>
@@ -118,6 +201,19 @@ export default async function OrderRecordPage({ params }: Params) {
         }
         actions={
           <>
+            {/* What the client sees, at whatever stage the order is — a draft
+                before it is sent, the live page once it is, what their link
+                says after they answer. A preview: no link is issued and nothing
+                is marked viewed (app/quote/preview). */}
+            <a
+              href={`/quote/preview/${header.id}`}
+              target="_blank"
+              rel="noopener"
+              className="inline-flex items-center gap-1 rounded-pill bg-sunken px-3 py-1 text-pill text-ink transition-colors hover:bg-row-hover"
+            >
+              View online quote
+              <ExternalLink className="size-3" aria-hidden />
+            </a>
             <span className="rounded-pill bg-sunken px-3 py-1 text-pill text-ink">
               {STATUS_LABEL[header.status]}
             </span>
@@ -140,12 +236,9 @@ export default async function OrderRecordPage({ params }: Params) {
           go out" means something different the day before the start date than
           it does a week after it. */}
       <section className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-card bg-panel px-4 py-3 shadow-sm">
-        <Stamp label="Goes out" value={DAY.format(header.start)} />
-        <Stamp
-          label={header.isRecurring ? "Period ends" : "Due back"}
-          value={DAY.format(header.end)}
-        />
-        <Stamp label="Term" value={termLength(header.start, header.end)} />
+        {dateStamps(header, currentPeriod).map((stamp) => (
+          <Stamp key={stamp.label} label={stamp.label} value={stamp.value} />
+        ))}
         <span aria-hidden className="h-7 w-px bg-hairline" />
         <Progress label="Ordered" value={progress.ordered} />
         <Progress label="Assigned" value={progress.assigned} />
@@ -212,12 +305,26 @@ export default async function OrderRecordPage({ params }: Params) {
           {/* checkoutReservationItem refuses before PREPARING, and an order with
               no asset-backed lines has nothing to scan either way — so the panel
               is only offered where it can actually work. */}
+          {/* A fixed-term rental that is out: when it is due back or how late
+              it is, and Extend (monthly and weekly rentals recur instead). */}
+          {fixedTermOut ? (
+            <ExtendOrder
+              reservationId={header.id}
+              endDate={header.end.toISOString()}
+              lines={await extensionLines(header.id)}
+            />
+          ) : null}
+
           {hasUnits && CHECKOUT_STATES.includes(header.status) ? (
             <>
+              {/* Out with the client: getting it back is the job now, so the
+                  check-in session comes first. It lists the units actually
+                  attached and out — the physical record, not the line
+                  counters, which drift on imported orders. */}
+              {unitsOut.length > 0 ? (
+                <CheckinSession reservationId={header.id} out={unitsOut} />
+              ) : null}
               <CheckoutPanel reservationId={header.id} />
-              {/* Only offered once something is actually out — an order with
-                  nothing checked out has nothing to take back. */}
-              {outNow > 0 ? <CheckinPanel reservationId={header.id} /> : null}
             </>
           ) : hasUnits ? (
             <Card title="Check out">
@@ -335,7 +442,7 @@ function termLength(start: Date, end: Date): string {
  * its end date says.
  */
 function handover(
-  header: { start: Date; end: Date; isRecurring: boolean },
+  header: { type: ReservationType; start: Date; end: Date; isRecurring: boolean },
   ordered: number,
   outNow: number,
   outstanding: number,
@@ -358,7 +465,15 @@ function handover(
     return `${outstanding} of ${ordered} still to go out${when}`;
   }
 
+  // Nothing on a sale comes back, and a rent-to-own or cloud term ends in
+  // ownership or renewal — neither has a return date to be early or late for.
+  if (header.type === "SALE") return `All ${ordered} handed over`;
+
   if (outNow === 0) return `All ${ordered} back`;
+
+  if (header.type === "RENT_TO_OWN" || header.type === "CLOUD") {
+    return `${outNow} of ${ordered} with the client, on a term — its end date is not a return`;
+  }
 
   if (header.isRecurring) {
     return `${outNow} of ${ordered} with the client, on a recurring order — its end date is a billing period, not a return`;

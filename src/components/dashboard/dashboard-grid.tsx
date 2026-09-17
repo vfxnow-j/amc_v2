@@ -80,7 +80,7 @@ export function DashboardGridEmpty({ canEdit }: { canEdit: boolean }) {
       <p className="max-w-md text-center text-body text-balance text-ink-muted">
         This view has no tiles on it that your access can see.{" "}
         {canEdit
-          ? "Choose another view above, or add tiles with Customise."
+          ? "Choose another view above, or add tiles with Customize."
           : "Choose another view above, or ask an administrator what belongs on it."}
       </p>
     </section>

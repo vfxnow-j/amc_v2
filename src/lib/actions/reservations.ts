@@ -12,7 +12,7 @@ import { quoteGate } from '@/lib/approvals/core'
 import { syncReservationDeal } from '@/lib/integrations/hubspot'
 import type { ReservationStatus, ReservationType, PricingType, BillingCycleType } from '@/lib/types'
 import { PACKAGE_EDITABLE_STATUSES } from '@/lib/types'
-import { addDays, addWeeks, startOfMonth, addMonths } from 'date-fns'
+import { addDays } from 'date-fns'
 import {
   calculatePeriods as calculateTermPeriods,
   computeItemSubtotal,
@@ -21,6 +21,14 @@ import {
   roundMoney,
 } from '@/lib/pricing/periods'
 import { deriveRentalRate, pricingTypeForBillingCycle } from '@/lib/pricing/rates'
+// One next-billing rule for the whole app. This file used to carry its own copy,
+// which read the 1st in server-local time and ignored the business anchor.
+import { calculateNextBillingDate } from '@/lib/utils/billing'
+import { getBillingAnchor } from '@/lib/settings/business'
+import { firstInvoiceStretch, stretchLabel } from '@/lib/billing/calendar'
+import { businessToday, intendedDay } from '@/lib/billing/calendar'
+import { recurringFor } from '@/lib/orders/recurring'
+import { kindForOrderType, nextNumber } from '@/lib/numbering/next'
 // Transaction client type for passing prisma tx to helpers
 type TxClient = Omit<typeof prisma, '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'>
 
@@ -175,86 +183,6 @@ function sanitizeMarginPercent(margin: number | null | undefined, reservationTyp
   return margin
 }
 
-// Calculate the next billing date based on the billing cycle configuration
-function calculateNextBillingDate(
-  startDate: Date,
-  billingCycleType: BillingCycleType,
-  billingCycleDay: number,
-  billingCycleDays?: number
-): Date | null {
-  const now = new Date()
-  const start = new Date(startDate)
-
-  switch (billingCycleType) {
-    case 'DAILY': {
-      let nextBilling = addDays(start, 1)
-      while (nextBilling <= now) {
-        nextBilling = addDays(nextBilling, 1)
-      }
-      return nextBilling
-    }
-
-    case 'WEEKLY': {
-      // Find the next occurrence of the specified day of week
-      let nextBilling = new Date(start)
-      const targetDay = billingCycleDay // 0 = Sunday, 6 = Saturday
-      const currentDay = nextBilling.getDay()
-      const daysUntilTarget = (targetDay - currentDay + 7) % 7
-      nextBilling = addDays(nextBilling, daysUntilTarget || 7) // If same day, go to next week
-
-      // If the calculated date is in the past, move forward
-      while (nextBilling <= now) {
-        nextBilling = addWeeks(nextBilling, 1)
-      }
-      return nextBilling
-    }
-
-    case 'BI_WEEKLY': {
-      // First billing is 14 days after start
-      let nextBilling = addDays(start, 14)
-
-      // If in the past, keep adding 14-day intervals
-      while (nextBilling <= now) {
-        nextBilling = addDays(nextBilling, 14)
-      }
-      return nextBilling
-    }
-
-    case 'MONTHLY': {
-      // Monthly billing always falls on the 1st of the month
-      let nextBilling = startOfMonth(start)
-
-      // If we're past the 1st this month, go to next month
-      if (nextBilling <= start) {
-        nextBilling = addMonths(nextBilling, 1)
-      }
-
-      // If still in the past, keep moving forward
-      while (nextBilling <= now) {
-        nextBilling = addMonths(nextBilling, 1)
-      }
-      return nextBilling
-    }
-
-    case 'CUSTOM': {
-      if (!billingCycleDays || billingCycleDays <= 0) return null
-
-      // First billing is N days after start
-      let nextBilling = addDays(start, billingCycleDays)
-
-      // If in the past, keep adding intervals
-      while (nextBilling <= now) {
-        nextBilling = addDays(nextBilling, billingCycleDays)
-      }
-      return nextBilling
-    }
-
-    case 'ONE_TIME':
-    default:
-      return null // No recurring billing
-  }
-}
-
 // Recalculate RTO monthly payment when totals change
 async function maybeRecalcRto(tx: TxClient, reservationId: string, newTotal: number): Promise<void> {
   const res = await tx.reservation.findUnique({
@@ -352,30 +280,34 @@ async function maybeAutoInvoice(tx: TxClient, reservationId: string): Promise<bo
   const paymentTerms = reservation.paymentTerms ?? reservation.client.paymentTerms ?? 30
   const dueDate = addDays(new Date(), paymentTerms)
 
-  // Generate invoice number
-  const year = new Date().getFullYear()
-  const lastInvoice = await tx.invoice.findFirst({
-    where: { invoiceNumber: { startsWith: `INV-${year}-` } },
-    orderBy: { invoiceNumber: 'desc' },
-    select: { invoiceNumber: true },
-  })
-  let sequence = 1
-  if (lastInvoice?.invoiceNumber) {
-    const match = lastInvoice.invoiceNumber.match(/INV-\d{4}-(\d+)/)
-    if (match) sequence = parseInt(match[1], 10) + 1
-  }
-  const invoiceNumber = `INV-${year}-${sequence.toString().padStart(5, '0')}`
+  // Generate invoice number (pattern: Settings → Business → Numbering)
+  const invoiceNumber = await nextNumber('invoice', tx)
+
+  // The order's first invoice on a recurring anchored cycle bills from the term
+  // start up to the next billing date — a prorated stub for a mid-period start —
+  // instead of one whole cycle. Later add-on invoices keep billing whole.
+  const stretch = existingInvoices.length === 0
+    ? firstInvoiceStretch(reservation, await getBillingAnchor())
+    : null
+  const lineAmount = (item: (typeof uninvoicedItems)[number]) =>
+    stretch
+      ? roundMoney((Number(item.quantity) || 1) * Number(item.rate) * stretch.periods)
+      : Number(item.subtotal)
 
   // Build line items from uninvoiced items only (use stored subtotals which include term periods)
   let subtotal = 0
   const buildLine = (item: (typeof uninvoicedItems)[number]) => {
-    const amount = Number(item.subtotal)
+    const amount = lineAmount(item)
     const periods = calculatePeriodsSync(reservation.startDate, reservation.endDate, item.pricingType, reservation.isRecurring)
     // Terms rarely land on whole periods, so spell out both the multiplier and the
     // plain-English term (e.g. "x 1.38 monthly — 6 weeks") on the invoice line.
-    const periodLabel = periods > 1
-      ? ` x ${formatPeriodCount(periods)} ${item.pricingType.toLowerCase()} — ${formatTermLength(reservation.startDate, reservation.endDate)}`
-      : ''
+    const periodLabel = stretch
+      ? Math.abs(stretch.periods - 1) < 0.0005
+        ? ''
+        : ` x ${formatPeriodCount(stretch.periods)}, ${stretchLabel(stretch.start, stretch.end)}`
+      : periods > 1
+        ? ` x ${formatPeriodCount(periods)} ${item.pricingType.toLowerCase()} — ${formatTermLength(reservation.startDate, reservation.endDate)}`
+        : ''
     return {
       description: `${item.asset?.name || item.description || 'Ad-hoc item'} (${item.pricingType} rate${periodLabel})`,
       quantity: Number(item.quantity) || 1,
@@ -385,7 +317,7 @@ async function maybeAutoInvoice(tx: TxClient, reservationId: string): Promise<bo
       reservationItemId: item.id,
     }
   }
-  for (const item of uninvoicedItems) subtotal += Number(item.subtotal)
+  for (const item of uninvoicedItems) subtotal += lineAmount(item)
 
   // Inherit tax rate from reservation
   const resTaxRate = Number(reservation.taxRate) || 0
@@ -406,6 +338,7 @@ async function maybeAutoInvoice(tx: TxClient, reservationId: string): Promise<bo
       total: invoiceTotal,
       status: 'DRAFT',
       notes: reservation.projectName ? `Project: ${reservation.projectName}` : undefined,
+      ...(stretch ? { periodStartDate: stretch.start, periodEndDate: stretch.end } : {}),
     },
   })
   const resItemIdToInvoiceItemId = new Map<string, string>()
@@ -446,28 +379,9 @@ export type ReservationFilters = {
 }
 
 // Generate unique reservation/sale number
+// The pattern is a business setting (Settings → Business → Numbering).
 export async function generateReservationNumber(type: ReservationType = 'RENTAL'): Promise<string> {
-  const prefix = type === 'SALE' ? 'SALE' : type === 'RENT_TO_OWN' ? 'RTO' : type === 'CLOUD' ? 'CLD' : 'RES'
-  const year = new Date().getFullYear()
-  const lastReservation = await prisma.reservation.findFirst({
-    where: {
-      reservationNumber: {
-        startsWith: `${prefix}-${year}-`,
-      },
-    },
-    orderBy: { reservationNumber: 'desc' },
-    select: { reservationNumber: true },
-  })
-
-  let sequence = 1
-  if (lastReservation?.reservationNumber) {
-    const match = lastReservation.reservationNumber.match(new RegExp(`${prefix}-\\d{4}-(\\d+)`))
-    if (match) {
-      sequence = parseInt(match[1], 10) + 1
-    }
-  }
-
-  return `${prefix}-${year}-${sequence.toString().padStart(5, '0')}`
+  return nextNumber(kindForOrderType(type))
 }
 
 export async function getReservations(filters: ReservationFilters = {}) {
@@ -650,16 +564,32 @@ export async function getReservation(id: string) {
   return serialize(reservation)
 }
 
-export async function createReservation(data: ReservationFormData) {
+export async function createReservation(input: ReservationFormData) {
   const authResult = await requireEditor()
   if (!authResult.authorized) throw new Error(authResult.error)
+
+  // Calendar days before anything prices or schedules against them, so the term
+  // that is priced is the term that is stored.
+  // A sale has no term (owner, 2026-09-16): its end date is its order date, so
+  // nothing downstream can read a "deliver by" as a term or a return.
+  const startDate = intendedDay(input.startDate)
+  const data: ReservationFormData = {
+    ...input,
+    startDate,
+    endDate: input.reservationType === 'SALE' ? startDate : intendedDay(input.endDate),
+  }
 
   const reservationNumber = await generateReservationNumber(data.reservationType || 'RENTAL')
 
   // Calculate totals (term-based: rate × quantity × periods, or rate × quantity for one-time)
   // A one-time billing cycle is non-recurring by definition, so it bills the full
   // term (monthly rate × months) rather than a single cycle.
-  const effectiveIsRecurring = (data.billingCycleType || 'MONTHLY') === 'ONE_TIME' ? false : data.isRecurring
+  // Recurring is derived from the type and the cycle (lib/orders/recurring.ts),
+  // never taken from the caller: nothing that builds an order sent it.
+  const effectiveCycle = data.reservationType === 'SALE' ? 'ONE_TIME'
+    : data.reservationType === 'RENT_TO_OWN' ? 'MONTHLY'
+    : (data.billingCycleType || 'MONTHLY')
+  const effectiveIsRecurring = recurringFor(data.reservationType || 'RENTAL', effectiveCycle)
   let subtotal = 0
   const itemsWithSubtotals = data.items.map((item) => {
     const quantity = item.quantity || 1
@@ -684,7 +614,8 @@ export async function createReservation(data: ReservationFormData) {
     data.startDate,
     billingCycleType,
     billingCycleDay,
-    billingCycleDays
+    billingCycleDays,
+    await getBillingAnchor()
   )
 
   // Tax rate: prefer explicit form value, fall back to location lookup
@@ -719,6 +650,8 @@ export async function createReservation(data: ReservationFormData) {
         reservationNumber,
         clientId: data.clientId,
         reservationType: data.reservationType || 'RENTAL',
+        // Order dates are calendar days at noon UTC (lib/billing/calendar), whatever
+        // shape the caller sent — a date input, a v1 payload or a raw timestamp.
         startDate: data.startDate,
         endDate: data.endDate,
         projectName: data.projectName,
@@ -743,12 +676,7 @@ export async function createReservation(data: ReservationFormData) {
         billingCycleDay,
         billingCycleDays,
         nextBillingDate: data.reservationType === 'SALE' ? null : nextBillingDate,
-        isRecurring: data.reservationType === 'SALE' ? false
-          : data.reservationType === 'RENT_TO_OWN' ? true
-          // A one-time charge is non-recurring by definition — bill once for the
-          // full term (monthly rate × months via non-recurring MONTHLY pricing).
-          : billingCycleType === 'ONE_TIME' ? false
-          : (data.isRecurring || false),
+        isRecurring: effectiveIsRecurring,
         notBilled: data.notBilled || false,
         paymentTerms: data.paymentTerms ?? null,
         // Rent-to-Own fields — monthly payment based on total (incl. tax/fees)
@@ -940,9 +868,16 @@ export async function createReservation(data: ReservationFormData) {
   return serialize(reservation)
 }
 
-export async function updateReservation(id: string, data: Partial<ReservationFormData>) {
+export async function updateReservation(id: string, input: Partial<ReservationFormData>) {
   const authResult = await requireEditor()
   if (!authResult.authorized) throw new Error(authResult.error)
+
+  // Calendar days before anything reprices against them (see createReservation).
+  const data: Partial<ReservationFormData> = {
+    ...input,
+    ...(input.startDate ? { startDate: intendedDay(input.startDate) } : {}),
+    ...(input.endDate ? { endDate: intendedDay(input.endDate) } : {}),
+  }
 
   const reservation = await prisma.$transaction(async (tx) => {
     const existingReservation = await tx.reservation.findUnique({
@@ -968,14 +903,14 @@ export async function updateReservation(id: string, data: Partial<ReservationFor
     // A one-time billing cycle is always non-recurring — it bills the full term
     // once (monthly rate × months) rather than a single cycle.
     const effectiveBillingCycle = data.billingCycleType ?? existingReservation.billingCycleType
-    const isOneTimeBilling = effectiveBillingCycle === 'ONE_TIME'
+    const derivedRecurring = recurringFor(data.reservationType ?? existingReservation.reservationType, effectiveBillingCycle)
     let subtotal = Number(existingReservation.subtotal)
     const updateCostBasisMap: Record<string, number> = {}
     if (data.items) {
       subtotal = 0
       const itemsWithSubtotals = data.items.map((item) => {
         const quantity = item.quantity || 1
-        const effectiveRecurring = isOneTimeBilling ? false : (data.isRecurring ?? existingReservation.isRecurring)
+        const effectiveRecurring = derivedRecurring
         const periods = item.isOneTime ? 1 : calculatePeriodsSync(effectiveStartDate, effectiveEndDate, item.pricingType, effectiveRecurring)
         const itemSubtotal = computeItemSubtotal(item.rate, quantity, periods)
         subtotal += itemSubtotal
@@ -1064,7 +999,7 @@ export async function updateReservation(id: string, data: Partial<ReservationFor
     // Monthly billing always uses the 1st of the month
     const billingCycleDay = billingCycleType === 'MONTHLY' ? 1 : (data.billingCycleDay ?? existingReservation.billingCycleDay)
     const billingCycleDays = data.billingCycleDays ?? existingReservation.billingCycleDays ?? undefined
-    const startDate = data.startDate ?? existingReservation.startDate
+    const startDate = intendedDay(data.startDate ?? existingReservation.startDate)
 
     // If billing cycle changed and items were NOT re-submitted, re-price existing items
     // onto the new unit. Both halves matter: switching pricingType to WEEKLY while
@@ -1084,7 +1019,7 @@ export async function updateReservation(id: string, data: Partial<ReservationFor
       const effectiveStart = data.startDate ?? existingReservation.startDate
       const effectiveEnd = data.endDate ?? existingReservation.endDate
       subtotal = 0
-      const effectiveRecurringForCycle = isOneTimeBilling ? false : (data.isRecurring ?? existingReservation.isRecurring)
+      const effectiveRecurringForCycle = derivedRecurring
 
       for (const item of cycleItems) {
         // One-time add-ons keep their own pricing
@@ -1112,7 +1047,7 @@ export async function updateReservation(id: string, data: Partial<ReservationFor
       const currentItems = await tx.reservationItem.findMany({ where: { reservationId: id } })
       const effStart = data.startDate ?? existingReservation.startDate
       const effEnd = data.endDate ?? existingReservation.endDate
-      const effRecurring = isOneTimeBilling ? false : (data.isRecurring ?? existingReservation.isRecurring)
+      const effRecurring = derivedRecurring
       subtotal = 0
       for (const item of currentItems) {
         const periods = item.isOneTime ? 1 : calculatePeriodsSync(effStart, effEnd, item.pricingType, effRecurring)
@@ -1129,7 +1064,8 @@ export async function updateReservation(id: string, data: Partial<ReservationFor
       startDate,
       billingCycleType,
       billingCycleDay,
-      billingCycleDays
+      billingCycleDays,
+      await getBillingAnchor()
     )
 
     // Tax rate: prefer explicit form value, fall back to existing or location lookup
@@ -1202,11 +1138,15 @@ export async function updateReservation(id: string, data: Partial<ReservationFor
     if (data.projectCode !== undefined) updateData.projectCode = data.projectCode || null
     if (data.notes !== undefined) updateData.notes = data.notes || null
     if (data.internalNotes !== undefined) updateData.internalNotes = data.internalNotes || null
-    if (data.quoteExpiresAt !== undefined) updateData.quoteExpiresAt = data.quoteExpiresAt || null
+    if (data.quoteExpiresAt !== undefined) updateData.quoteExpiresAt = data.quoteExpiresAt ? intendedDay(data.quoteExpiresAt) : null
     if (data.clientId !== undefined) updateData.clientId = data.clientId
     if (data.reservationType !== undefined) updateData.reservationType = data.reservationType
     if (data.startDate !== undefined) updateData.startDate = data.startDate
     if (data.endDate !== undefined) updateData.endDate = data.endDate
+    // A sale has no term: whatever was sent, its end date is its order date.
+    if ((data.reservationType ?? existingReservation.reservationType) === 'SALE') {
+      updateData.endDate = data.startDate ?? intendedDay(existingReservation.startDate)
+    }
     if (data.discountType !== undefined) updateData.discountType = data.discountType || null
     if (data.discountValue !== undefined) updateData.discountValue = data.discountValue ?? 0
     if (data.deliveryMethod !== undefined) updateData.deliveryMethod = data.deliveryMethod || null
@@ -1225,7 +1165,6 @@ export async function updateReservation(id: string, data: Partial<ReservationFor
     if ((data as any).deliveryTrackingNumber !== undefined) updateData.deliveryTrackingNumber = (data as any).deliveryTrackingNumber || null
     if ((data as any).returnTrackingProvider !== undefined) updateData.returnTrackingProvider = (data as any).returnTrackingProvider || null
     if ((data as any).returnTrackingNumber !== undefined) updateData.returnTrackingNumber = (data as any).returnTrackingNumber || null
-    if (data.isRecurring !== undefined) updateData.isRecurring = data.isRecurring
     if (data.notBilled !== undefined) updateData.notBilled = data.notBilled
     if (data.paymentTerms !== undefined) updateData.paymentTerms = data.paymentTerms ?? null
 
@@ -1268,6 +1207,13 @@ export async function updateReservation(id: string, data: Partial<ReservationFor
       updateData.rtoBuyoutPrice = null
     }
 
+    // Recurring follows the type and the cycle (lib/orders/recurring.ts) — set on
+    // every save, so an order can't sit on a monthly cycle without recurring.
+    updateData.isRecurring = recurringFor(
+      effectiveType,
+      (updateData.billingCycleType as string | undefined) ?? effectiveBillingCycle,
+    )
+
     // Recalculate nextBillingDate if billing type was overridden by type change
     if (updateData.billingCycleType && updateData.billingCycleType !== billingCycleType) {
       const overriddenDay = updateData.billingCycleType === 'MONTHLY' ? 1 : billingCycleDay
@@ -1275,7 +1221,8 @@ export async function updateReservation(id: string, data: Partial<ReservationFor
         startDate,
         updateData.billingCycleType as BillingCycleType,
         overriddenDay,
-        billingCycleDays
+        billingCycleDays,
+        await getBillingAnchor()
       )
     }
 
@@ -3988,11 +3935,15 @@ export async function checkoutReservationItem(
       await tx.reservation.update({
         where: { id: reservationId },
         data: {
+          // From the term start, not the checkout moment: the first invoice
+          // covers the start up to this date, so gear pulled late does not
+          // move the day the order bills on.
           nextBillingDate: calculateNextBillingDate(
-            new Date(),
+            reservation.startDate,
             reservation.billingCycleType as BillingCycleType,
             reservation.billingCycleDay,
-            reservation.billingCycleDays ?? undefined
+            reservation.billingCycleDays ?? undefined,
+            await getBillingAnchor()
           ),
         },
       })
@@ -4372,11 +4323,15 @@ export async function bulkCheckoutReservation(
       await tx.reservation.update({
         where: { id: reservationId },
         data: {
+          // From the term start, not the checkout moment: the first invoice
+          // covers the start up to this date, so gear pulled late does not
+          // move the day the order bills on.
           nextBillingDate: calculateNextBillingDate(
-            new Date(),
+            reservation.startDate,
             reservation.billingCycleType as BillingCycleType,
             reservation.billingCycleDay,
-            reservation.billingCycleDays ?? undefined
+            reservation.billingCycleDays ?? undefined,
+            await getBillingAnchor()
           ),
         },
       })
@@ -4749,19 +4704,8 @@ export async function quickCheckout(data: QuickCheckoutData) {
       unitsByAsset.push({ asset, unit })
     }
 
-    // Generate reservation number
-    const year = new Date().getFullYear()
-    const lastReservation = await tx.reservation.findFirst({
-      where: { reservationNumber: { startsWith: `RES-${year}-` } },
-      orderBy: { reservationNumber: 'desc' },
-      select: { reservationNumber: true },
-    })
-    let sequence = 1
-    if (lastReservation?.reservationNumber) {
-      const match = lastReservation.reservationNumber.match(/RES-\d{4}-(\d+)/)
-      if (match) sequence = parseInt(match[1], 10) + 1
-    }
-    const reservationNumber = `RES-${year}-${sequence.toString().padStart(5, '0')}`
+    // Generate reservation number (pattern: Settings → Business → Numbering)
+    const reservationNumber = await nextNumber('rental', tx)
 
     // Build items with default rates (term-based)
     const quickStart = new Date()
@@ -4786,8 +4730,8 @@ export async function quickCheckout(data: QuickCheckoutData) {
         reservationNumber,
         clientId: data.clientId,
         reservationType: 'RENTAL',
-        startDate: new Date(),
-        endDate: data.expectedReturn,
+        startDate: businessToday(),
+        endDate: intendedDay(data.expectedReturn),
         projectName: data.projectName || 'Quick Checkout',
         notes: data.notes,
         status: 'ACTIVE',
@@ -4920,8 +4864,8 @@ export async function duplicateReservation(
 
   // Shift dates: new start is today, end date offset by same duration
   const durationMs = new Date(source.endDate).getTime() - new Date(source.startDate).getTime()
-  const newStart = new Date()
-  const newEnd = new Date(newStart.getTime() + durationMs)
+  const newStart = businessToday()
+  const newEnd = intendedDay(new Date(newStart.getTime() + durationMs))
 
   // Recurring/billing semantics for the new order's type. Preserving `isRecurring`
   // is the crux of the fix: previously the copy silently defaulted to non-recurring,
@@ -4936,7 +4880,7 @@ export async function duplicateReservation(
 
   const nextBillingDate = isSaleTarget
     ? null
-    : calculateNextBillingDate(newStart, billingCycleType, source.billingCycleDay, source.billingCycleDays ?? undefined)
+    : calculateNextBillingDate(newStart, billingCycleType, source.billingCycleDay, source.billingCycleDays ?? undefined, await getBillingAnchor())
 
   // A SALE bills once (one-time) and an RTO bills as a single recurring installment
   // plan (periods = 1). When such a target line came from a source that spanned

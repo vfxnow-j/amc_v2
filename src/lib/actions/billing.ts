@@ -6,6 +6,9 @@ import { serialize } from '@/lib/utils'
 import { addDays } from 'date-fns'
 import { calculateNextBillingDate, generateInvoiceNumber, getBillingPeriod } from '@/lib/utils/billing'
 import type { BillingCycleType } from '@/lib/types'
+import { anchorAfter, billedPeriods, isAnchoredCycle } from '@/lib/billing/calendar'
+import { formatPeriodCount, roundMoney } from '@/lib/pricing/periods'
+import { getBillingAnchor } from '@/lib/settings/business'
 import { requireAdmin, requireAuth } from '@/lib/auth-utils'
 
 export type BillingRunResult = {
@@ -35,6 +38,8 @@ export async function runBillingCycle(): Promise<BillingRunResult> {
     },
   })
 
+  const anchor = await getBillingAnchor()
+
   for (const reservation of dueReservations) {
     // Skip if recurrence end date has passed
     if (reservation.recurrenceEndDate && new Date(reservation.recurrenceEndDate) < now) {
@@ -51,11 +56,20 @@ export async function runBillingCycle(): Promise<BillingRunResult> {
 
         // Calculate billing period boundaries (e.g. Apr 1 – Apr 30 for monthly)
         const billingDate = reservation.nextBillingDate || new Date()
+        const cycle = reservation.billingCycleType as BillingCycleType
         const { periodStart, periodEnd } = getBillingPeriod(
           billingDate,
-          reservation.billingCycleType as BillingCycleType,
-          reservation.billingCycleDays ?? undefined
+          cycle,
+          reservation.billingCycleDays ?? undefined,
+          anchor
         )
+        // Anchored cycles bill up to the next anchor. On the anchor that is one
+        // whole period; off it — an invoice date scheduled before the business
+        // moved its billing day — it is the stretch up to the new day, prorated.
+        const anchoredNext = isAnchoredCycle(cycle) ? anchorAfter(billingDate, cycle, anchor) : null
+        const share = isAnchoredCycle(cycle) && anchoredNext
+          ? billedPeriods(billingDate, anchoredNext, cycle, anchor)
+          : 1
 
         // For RTO, use the fixed monthly payment amount; otherwise calculate from items
         let subtotal = 0
@@ -80,10 +94,11 @@ export async function runBillingCycle(): Promise<BillingRunResult> {
           invoiceItems = reservation.items.map((item) => {
             const qty = Number(item.quantity) || 1
             const price = Number(item.rate)
-            const amount = qty * price
+            const amount = roundMoney(qty * price * share)
             subtotal += amount
+            const shareNote = Math.abs(share - 1) < 0.0005 ? '' : ` × ${formatPeriodCount(share)}`
             return {
-              description: `${item.asset?.name || item.description || 'Ad-hoc item'} (${item.pricingType} rate)`,
+              description: `${item.asset?.name || item.description || 'Ad-hoc item'} (${item.pricingType} rate${shareNote})`,
               quantity: qty,
               unitPrice: price,
               amount,
@@ -133,11 +148,15 @@ export async function runBillingCycle(): Promise<BillingRunResult> {
           },
         })
 
-        const nextBilling = calculateNextBillingDate(
+        // Anchored cycles step to the next anchor after the date just billed, so
+        // a run that is late bills every missed period in turn instead of
+        // skipping to the future. Legacy cycles keep counting from today.
+        const nextBilling = anchoredNext ?? calculateNextBillingDate(
           new Date(),
-          reservation.billingCycleType as BillingCycleType,
+          cycle,
           reservation.billingCycleDay,
-          reservation.billingCycleDays ?? undefined
+          reservation.billingCycleDays ?? undefined,
+          anchor
         )
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any

@@ -18,6 +18,7 @@ import { notifyPurchaseOrderSubmitted } from '@/lib/notifications/outbound'
 import { renderPurchaseOrderPdf } from '@/lib/actions/documents'
 import { poPurchaseMethodLabels, poOrderTypeLabels, type POOrderType } from '@/lib/types'
 import type { POStatus } from '@/lib/types'
+import { nextNumber } from '@/lib/numbering/next'
 
 export type POItemFormData = {
   id?: string
@@ -120,26 +121,7 @@ function calculatePOTotals(params: {
 
 // Generate unique PO number
 async function generatePONumber(): Promise<string> {
-  const year = new Date().getFullYear()
-  const lastPO = await prisma.purchaseOrder.findFirst({
-    where: {
-      poNumber: {
-        startsWith: `PO-${year}-`,
-      },
-    },
-    orderBy: { poNumber: 'desc' },
-    select: { poNumber: true },
-  })
-
-  let sequence = 1
-  if (lastPO?.poNumber) {
-    const match = lastPO.poNumber.match(/PO-\d{4}-(\d+)/)
-    if (match) {
-      sequence = parseInt(match[1], 10) + 1
-    }
-  }
-
-  return `PO-${year}-${sequence.toString().padStart(5, '0')}`
+  return nextNumber('purchaseOrder')
 }
 
 export async function getPurchaseOrders(filters: POFilters = {}) {

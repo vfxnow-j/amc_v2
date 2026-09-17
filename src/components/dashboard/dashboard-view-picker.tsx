@@ -95,7 +95,7 @@ export function CustomiseButton() {
       onClick={open}
       className="rounded-pill bg-sunken px-3 py-1 text-pill text-ink-muted transition-colors hover:bg-row-hover hover:text-ink"
     >
-      Customise
+      Customize
     </button>
   );
 }

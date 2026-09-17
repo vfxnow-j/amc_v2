@@ -15,6 +15,12 @@ import { SUBTOTAL_LABEL, estimateQuote } from "@/lib/quotes/estimate";
 import { formatTermLength, periodUnitAbbrev } from "@/lib/pricing/periods";
 import { Modal, ModalCancel } from "@/components/feedback/modal";
 import { Notice } from "@/components/feedback/notice";
+import {
+  addDays,
+  businessToday,
+  parseDateInput,
+  toDateInput,
+} from "@/lib/billing/calendar";
 
 const MONEY = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -22,7 +28,13 @@ const MONEY = new Intl.NumberFormat("en-US", {
   minimumFractionDigits: 2,
   maximumFractionDigits: 2,
 });
-const DAY = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" });
+// Read in UTC: these are calendar days (lib/billing/calendar), and formatting
+// `new Date("2026-09-25")` in a Pacific browser printed Sep 24.
+const DAY = new Intl.DateTimeFormat("en-US", {
+  month: "short",
+  day: "numeric",
+  timeZone: "UTC",
+});
 
 const FIELD =
   "h-9 w-full rounded-well border-0 bg-sunken px-3 text-body text-ink outline-none placeholder:text-ink-faint";
@@ -40,9 +52,6 @@ type Line = {
   free: number;
 };
 
-function iso(date: Date) {
-  return date.toISOString().slice(0, 10);
-}
 
 /**
  * A price against a client, in one dialog, in under a minute.
@@ -86,10 +95,11 @@ export function QuickQuote({
   onOpenChange: (open: boolean) => void;
 }) {
   const router = useRouter();
-  const today = new Date();
+  // Today in Pacific time — UTC's turned over at 5pm.
+  const today = businessToday();
 
-  const [start, setStart] = useState(iso(today));
-  const [end, setEnd] = useState(iso(new Date(today.getTime() + 7 * 86_400_000)));
+  const [start, setStart] = useState(toDateInput(today));
+  const [end, setEnd] = useState(toDateInput(addDays(today, 7)));
   const [projectName, setProjectName] = useState("");
 
   const [client, setClient] = useState<Client | null>(null);
@@ -133,9 +143,10 @@ export function QuickQuote({
   }, [assetQuery, start, end]);
 
   const estimate = estimateQuote(
-    // A quick quote is always a plain rental: non-recurring, priced across the
-    // whole window, which is exactly how `createReservation` will store it.
-    { startDate: start, endDate: end, isRecurring: false },
+    // A quick quote is always a rental on the default monthly cycle, which makes
+    // it recurring (lib/orders/recurring.ts): priced per month, exactly how
+    // `createReservation` will store it.
+    { startDate: start, endDate: end, isRecurring: true },
     lines,
   );
   const short = lines.filter((line) => line.quantity > line.free);
@@ -685,7 +696,7 @@ export function QuickQuote({
             <p className="mt-1 text-micro text-ink-muted">
               {lines.length === 0
                 ? "Nothing added yet."
-                : `${lines.length} ${lines.length === 1 ? "line" : "lines"} priced across ${formatTermLength(start, end)}, ${DAY.format(new Date(start))} – ${DAY.format(new Date(end))}. Tax follows the location of the units and is worked out when the order is saved.`}
+                : `${lines.length} ${lines.length === 1 ? "line" : "lines"} priced across ${formatTermLength(start, end)}, ${DAY.format(parseDateInput(start) ?? today)} – ${DAY.format(parseDateInput(end) ?? today)}. Tax follows the location of the units and is worked out when the order is saved.`}
             </p>
           </div>
 

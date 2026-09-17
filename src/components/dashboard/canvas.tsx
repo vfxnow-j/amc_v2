@@ -338,7 +338,7 @@ function Toolbar({
   return (
     <div className="flex flex-wrap items-center gap-2 rounded-card bg-tile px-4 py-3 shadow-sm">
       <div className="min-w-0">
-        <p className="text-micro uppercase text-ink-muted">Customising</p>
+        <p className="text-micro uppercase text-ink-muted">Customizing</p>
         <p className="text-card-title truncate">{viewLabel}</p>
       </div>
 

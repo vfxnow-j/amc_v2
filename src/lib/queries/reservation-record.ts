@@ -1,5 +1,6 @@
 import type {
   AssetStatus,
+  BillingCycleType,
   InvoiceStatus,
   ReservationStatus,
   ReservationType,
@@ -24,6 +25,7 @@ export type ReservationHeader = {
   start: Date;
   end: Date;
   isRecurring: boolean;
+  cycle: BillingCycleType;
   projectName: string | null;
   projectCode: string | null;
   notes: string | null;
@@ -57,6 +59,7 @@ export async function getReservationHeader(
       startDate: true,
       endDate: true,
       isRecurring: true,
+      billingCycleType: true,
       projectName: true,
       projectCode: true,
       notes: true,
@@ -94,6 +97,7 @@ export async function getReservationHeader(
     start: record.startDate,
     end: record.endDate,
     isRecurring: record.isRecurring,
+    cycle: record.billingCycleType,
     projectName: record.projectName,
     projectCode: record.projectCode,
     notes: record.notes,
@@ -131,6 +135,7 @@ export type RecordUnit = {
 export type RecordComponent = {
   id: string;
   label: string;
+  assetId: string | null;
   quantity: number;
   rate: number;
   pricingType: string;
@@ -215,6 +220,7 @@ export async function getReservationLines(id: string): Promise<RecordLine[]> {
           isOneTime: true,
           includedInParent: true,
           description: true,
+          assetId: true,
           asset: { select: { name: true } },
         },
       },
@@ -259,6 +265,7 @@ export async function getReservationLines(id: string): Promise<RecordLine[]> {
       components: item.components.map((part) => ({
         id: part.id,
         label: part.asset?.name ?? part.description ?? "Part",
+        assetId: part.assetId,
         quantity: part.quantity,
         rate: Number(part.rate),
         pricingType: part.pricingType,

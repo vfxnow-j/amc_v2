@@ -8,6 +8,8 @@ import { serialize } from '@/lib/utils'
 import { parseExcelBuffer, getCellString, getCellNumber, getCellDate, type ExcelRow } from '@/lib/excel'
 import { generateBarcode } from '@/lib/utils/barcode'
 import { addYears } from 'date-fns'
+import { intendedDay } from '@/lib/billing/calendar'
+import { nextNumber } from '@/lib/numbering/next'
 
 const MAX_UPLOAD_SIZE = 10 * 1024 * 1024 // 10MB
 
@@ -608,35 +610,22 @@ export async function executeImport(
       // 6. CREATE RESERVATIONS FROM CUSTODY
       // ============================================
       if (options.createReservationsFromCustody && unitsByCustody.size > 0) {
-        // Generate reservation numbers
-        const year = new Date().getFullYear()
-        const lastRes = await tx.reservation.findFirst({
-          where: { reservationNumber: { startsWith: `RES-${year}-` } },
-          orderBy: { reservationNumber: 'desc' },
-        })
-        let resSequence = 1
-        if (lastRes?.reservationNumber) {
-          const match = lastRes.reservationNumber.match(/RES-\d{4}-(\d+)/)
-          if (match) {
-            resSequence = parseInt(match[1], 10) + 1
-          }
-        }
-
         const now = new Date()
         const endDate = addYears(now, 1)
 
         for (const [clientName, unitEntries] of unitsByCustody) {
           const clientId = unitEntries[0].clientId
 
-          const reservationNumber = `RES-${year}-${String(resSequence++).padStart(5, '0')}`
+          // Inside the transaction, so each number counts the ones issued before it.
+          const reservationNumber = await nextNumber('rental', tx)
 
           // Create reservation
           const reservation = await tx.reservation.create({
             data: {
               reservationNumber,
               clientId,
-              startDate: now,
-              endDate,
+              startDate: intendedDay(now),
+              endDate: intendedDay(endDate),
               status: 'ACTIVE',
               confirmedAt: now,
               projectName: `Imported custody for ${clientName}`,

@@ -2,6 +2,16 @@ import Link from "next/link";
 import { Card, CardEmpty, Field, Unset } from "@/components/record/record-card";
 import { dayYear, moneyExact } from "@/lib/format";
 import {
+  addDays,
+  billedPeriods,
+  businessToday,
+  intendedDay,
+  isAnchoredCycle,
+  MONTHLY_ANCHOR_LABEL,
+  WEEKDAY_LABEL,
+} from "@/lib/billing/calendar";
+import { getBillingAnchor } from "@/lib/settings/business";
+import {
   EditBillingTerms,
   InvoiceButton,
 } from "@/components/orders/order-actions";
@@ -21,8 +31,6 @@ const CYCLE_LABEL: Record<BillingCycleType, string> = {
   MONTHLY: "Monthly",
   CUSTOM: "Custom",
 };
-
-const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
 const INVOICE_STATUS_LABEL: Record<InvoiceStatus, string> = {
   DRAFT: "draft",
@@ -82,11 +90,23 @@ export async function OrderBillingCard({
   const onCycle = recurring && !billing.notBilled;
   const outstanding = invoiced.billed - invoiced.paid;
 
+  // The day is the business's (Settings → Business), not the order's stored
+  // `billingCycleDay`, which the billing run no longer reads for these cycles.
+  const anchor = await getBillingAnchor();
+  // A recurring order whose next invoice date is already behind today was
+  // never rolled on — v1's billing run skips orders its flag calls
+  // non-recurring. Say how many periods that is rather than print a stale date.
+  const today = businessToday();
+  const behind =
+    onCycle && billing.nextBillingDate && isAnchoredCycle(billing.cycleType) &&
+    intendedDay(billing.nextBillingDate) <= today
+      ? Math.ceil(billedPeriods(billing.nextBillingDate, addDays(today, 1), billing.cycleType, anchor) - 0.0001)
+      : 0;
   const when =
     billing.cycleType === "MONTHLY"
-      ? `day ${billing.cycleDay} of the month`
+      ? `on ${MONTHLY_ANCHOR_LABEL[String(anchor.monthly)].replace(/^The /, "the ")}`
       : billing.cycleType === "WEEKLY"
-        ? `every ${WEEKDAYS[billing.cycleDay] ?? "week"}`
+        ? `every ${WEEKDAY_LABEL[anchor.weekly]}`
         : billing.cycleType === "CUSTOM"
           ? `every ${billing.cycleDays ?? "?"} days`
           : null;
@@ -132,7 +152,14 @@ export async function OrderBillingCard({
           ) : billing.cycleType === "ONE_TIME" ? (
             <Unset>Not on a cycle</Unset>
           ) : billing.nextBillingDate ? (
-            dayYear(billing.nextBillingDate)
+            <>
+              {dayYear(billing.nextBillingDate)}
+              {behind > 0 ? (
+                <span className="block text-micro font-bold text-destructive">
+                  {behind} {behind === 1 ? "period" : "periods"} not invoiced since
+                </span>
+              ) : null}
+            </>
           ) : (
             <Unset>Not scheduled</Unset>
           )}

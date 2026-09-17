@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { addDays } from "date-fns";
 import { prisma } from "@/lib/prisma";
+import { recurringFor } from "@/lib/orders/recurring";
 import { requireEditor } from "@/lib/auth-utils";
 import {
   activateReservation,
@@ -461,6 +462,34 @@ export async function saveBillingTerms(
   if (terms.billingCycleType === "CUSTOM" && !terms.billingCycleDays) {
     return { status: "error", message: "A custom cycle needs a length in days." };
   }
+  // The same rule the terms dialog offers (owner, 2026-09-16), enforced here so
+  // a stale form cannot put a sale on a cycle. An order already on a legacy
+  // cycle may keep it.
+  const current = await prisma.reservation.findUnique({
+    where: { id },
+    select: { reservationType: true, billingCycleType: true },
+  });
+  if (!current) return { status: "error", message: "Order not found." };
+  const allowed: Record<string, BillingCycleType[]> = {
+    SALE: ["ONE_TIME"],
+    RENT_TO_OWN: ["MONTHLY"],
+    RENTAL: ["ONE_TIME", "MONTHLY", "WEEKLY"],
+    CLOUD: ["ONE_TIME", "MONTHLY", "WEEKLY"],
+  };
+  if (
+    terms.billingCycleType !== current.billingCycleType &&
+    !allowed[current.reservationType]?.includes(terms.billingCycleType)
+  ) {
+    return {
+      status: "error",
+      message:
+        current.reservationType === "SALE"
+          ? "A sale has no term, so it bills once."
+          : current.reservationType === "RENT_TO_OWN"
+            ? "A rent-to-own is financed monthly."
+            : "Rentals and cloud orders bill once, monthly or weekly.",
+    };
+  }
   if (terms.taxRate < 0 || terms.taxRate > 100) {
     return { status: "error", message: "A tax rate is a percentage between 0 and 100." };
   }
@@ -474,7 +503,8 @@ export async function saveBillingTerms(
       billingCycleDay: terms.billingCycleDay,
       ...(terms.billingCycleDays ? { billingCycleDays: terms.billingCycleDays } : {}),
       // A one-time charge is never recurring, whatever the switch said.
-      isRecurring: terms.billingCycleType === "ONE_TIME" ? false : terms.isRecurring,
+      // Derived from the type and cycle in updateReservation; sent for the record.
+      isRecurring: recurringFor(current.reservationType, terms.billingCycleType),
       notBilled: terms.notBilled,
       taxRate: terms.taxRate,
       discountType: terms.discountType ?? undefined,

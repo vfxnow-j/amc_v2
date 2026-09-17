@@ -799,14 +799,32 @@ function CompleteDialog({ id, type, busy, run, onClose }: DialogProps) {
 
 const CYCLES: { value: BillingCycleType; label: string; detail: string }[] = [
   { value: "ONE_TIME", label: "One time", detail: "A single charge for the whole term" },
-  { value: "MONTHLY", label: "Monthly", detail: "On a chosen day of the month" },
-  { value: "WEEKLY", label: "Weekly", detail: "On a chosen day of the week" },
-  { value: "BI_WEEKLY", label: "Fortnightly", detail: "Every 14 days" },
-  { value: "DAILY", label: "Daily", detail: "Every day" },
-  { value: "CUSTOM", label: "Custom", detail: "Every N days" },
+  {
+    value: "MONTHLY",
+    label: "Monthly",
+    detail: "On the business billing day (Settings → Business); a start between billing days bills a prorated first stretch",
+  },
+  {
+    value: "WEEKLY",
+    label: "Weekly",
+    detail: "On the business billing weekday (Settings → Business); a start mid-week bills a prorated first stretch",
+  },
+  { value: "BI_WEEKLY", label: "Fortnightly (legacy)", detail: "Every 14 days — kept for orders already on it" },
+  { value: "DAILY", label: "Daily (legacy)", detail: "Every day — kept for orders already on it" },
+  { value: "CUSTOM", label: "Custom (legacy)", detail: "Every N days — kept for orders already on it" },
 ];
 
-const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+/**
+ * The cycles each type may bill on (owner, 2026-09-16). A sale has no term and
+ * bills once; a rent-to-own is financed monthly; rentals and cloud choose. The
+ * day is never chosen here — it is the business's, set in Settings → Business.
+ */
+const CYCLES_FOR: Record<ReservationType, BillingCycleType[]> = {
+  SALE: ["ONE_TIME"],
+  RENT_TO_OWN: ["MONTHLY"],
+  RENTAL: ["ONE_TIME", "MONTHLY", "WEEKLY"],
+  CLOUD: ["ONE_TIME", "MONTHLY", "WEEKLY"],
+};
 
 /**
  * What the order bills on: the cycle, what comes off, what goes on top.
@@ -832,6 +850,12 @@ export function BillingTermsFields({
   const set = (patch: Partial<BillingTerms>) => onChange({ ...value, ...patch });
   const recurring = value.billingCycleType !== "ONE_TIME";
   const cycle = CYCLES.find((option) => option.value === value.billingCycleType);
+  // An order already on a cycle its type no longer offers keeps it listed, so
+  // the control never claims a cycle the order is not on.
+  const offered = CYCLES.filter(
+    (option) =>
+      CYCLES_FOR[type].includes(option.value) || option.value === value.billingCycleType,
+  );
 
   return (
     <div className="flex flex-col gap-3">
@@ -850,7 +874,7 @@ export function BillingTermsFields({
           aria-label="Billing cycle"
           className="h-9 w-full rounded-well border-0 bg-sunken px-2 text-detail text-ink outline-none"
         >
-          {CYCLES.map((option) => (
+          {offered.map((option) => (
             <option key={option.value} value={option.value}>
               {option.label}
             </option>
@@ -863,35 +887,6 @@ export function BillingTermsFields({
             : ""}
         </p>
       </div>
-
-      {value.billingCycleType === "MONTHLY" ? (
-        <NumberField
-          label="Day of month"
-          value={value.billingCycleDay}
-          min={1}
-          max={28}
-          onChange={(next) => set({ billingCycleDay: next })}
-          hint="1–28, so every month has one"
-        />
-      ) : null}
-
-      {value.billingCycleType === "WEEKLY" ? (
-        <div>
-          <Label>Day of week</Label>
-          <select
-            value={value.billingCycleDay}
-            onChange={(event) => set({ billingCycleDay: Number(event.target.value) })}
-            aria-label="Day of week"
-            className="h-9 w-full rounded-well border-0 bg-sunken px-2 text-detail text-ink outline-none"
-          >
-            {WEEKDAYS.map((day, index) => (
-              <option key={day} value={index}>
-                {day}
-              </option>
-            ))}
-          </select>
-        </div>
-      ) : null}
 
       {value.billingCycleType === "CUSTOM" ? (
         <NumberField

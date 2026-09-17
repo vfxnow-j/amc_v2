@@ -244,6 +244,7 @@ if [[ "$RESUME" != true ]]; then
     say "  3. replace v2's public schema with that snapshot"
     say "  4. prisma db push, and copy v1's documents/ tree across"
     say "  5. restore the carried-across rows, and drop the assistant residue"
+    say "  6. normalize order dates to v2's convention (scripts/normalize-order-dates.ts)"
     exit 0
   fi
 
@@ -322,10 +323,13 @@ create table carry.po_state as
 -- Notification settings that are v2's own (docs/notifications.md): each user's
 -- preferences, report schedules v1 has no row for, and what each report last
 -- sent — without the last, a refresh on a report's day would send it again.
+-- Also the business billing day (Settings → Business), which v1 has no row for:
+-- losing it would quietly put every order back on the 1st.
 -- Rows restored with "on conflict do nothing", so a key v1 also has keeps v1's.
 create table carry.settings_state as
   select key, value from public.settings
-   where key like 'notification_prefs:%' or key like 'report_schedule:%' or key like 'report_sent:%';
+   where key like 'notification_prefs:%' or key like 'report_schedule:%' or key like 'report_sent:%'
+      or key = 'business_billing_anchor';
 
 -- The recipient list is v1's setting and comes back as v1's. What v1 doesn't
 -- have — a label and the coverage and depreciation ticks — is kept here by
@@ -588,6 +592,12 @@ delete from public.settings where key in ('llm_knowledge_snapshot', 'llm_knowled
 
 drop schema carry cascade;
 SQL
+
+# v1 still writes order dates its own way (Pacific midnight, raw timestamps), so
+# every refresh brings the mixed formats back. Put them on v2's convention — a
+# calendar day at noon UTC — before anything reads them. Idempotent.
+say "normalizing order dates (scripts/normalize-order-dates.ts)"
+( cd "$ROOT" && npx tsx scripts/normalize-order-dates.ts --apply | sed -n '/orders read/,$p' )
 
 rule
 say "v2 now: $(counts "$V2_DB")"

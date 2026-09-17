@@ -1,19 +1,37 @@
-import { addDays, addWeeks, startOfMonth, addMonths, endOfMonth, lastDayOfMonth } from 'date-fns'
-import { prisma } from '@/lib/prisma'
+import { addDays } from 'date-fns'
+import { nextNumber } from '@/lib/numbering/next'
 import type { BillingCycleType } from '@/lib/types'
+import {
+  DEFAULT_BILLING_ANCHOR,
+  nextAnchoredBillingDate,
+  periodFromAnchor,
+  type BillingAnchor,
+} from '@/lib/billing/calendar'
 
 /**
  * Calculate the next billing date based on the billing cycle configuration.
  * Shared utility used by reservations and recurring billing.
+ *
+ * MONTHLY and WEEKLY bill on the business anchor (Settings → Business), not on
+ * the order's own `billingCycleDay`: the first anchor after the term starts, or
+ * after today for a term already under way. The old MONTHLY branch read "past
+ * the 1st" off UTC hours, so a v1 start stored at Pacific midnight on the 1st
+ * (`07:00Z`) counted as late and skipped its first month. Pass the anchor from
+ * `getBillingAnchor()`; the default is the 1st and Monday.
  */
 export function calculateNextBillingDate(
   startDate: Date,
   billingCycleType: BillingCycleType,
   billingCycleDay: number,
-  billingCycleDays?: number
+  billingCycleDays?: number,
+  anchor: BillingAnchor = DEFAULT_BILLING_ANCHOR
 ): Date | null {
   const now = new Date()
   const start = new Date(startDate)
+
+  if (billingCycleType === 'MONTHLY' || billingCycleType === 'WEEKLY') {
+    return nextAnchoredBillingDate(start, billingCycleType, anchor)
+  }
 
   let result: Date | null = null
 
@@ -35,46 +53,6 @@ export function calculateNextBillingDate(
         nextBilling = addDays(nextBilling, 14)
       }
       result = nextBilling
-      break
-    }
-
-    case 'WEEKLY': {
-      // Find the next occurrence of the specified day of week
-      let nextBilling = new Date(start)
-      const targetDay = billingCycleDay // 0 = Sunday, 6 = Saturday
-      const currentDay = nextBilling.getDay()
-      const daysUntilTarget = (targetDay - currentDay + 7) % 7
-      nextBilling = addDays(nextBilling, daysUntilTarget || 7) // If same day, go to next week
-
-      // If the calculated date is in the past, move forward
-      while (nextBilling <= now) {
-        nextBilling = addWeeks(nextBilling, 1)
-      }
-      result = nextBilling
-      break
-    }
-
-    case 'MONTHLY': {
-      // Monthly billing always falls on the 1st of the month.
-      // Use UTC arithmetic directly to avoid local-timezone drift from date-fns.
-      const year = start.getUTCFullYear()
-      let month = start.getUTCMonth()
-
-      // Start from the 1st of start's month; if start is past the 1st, go to next month
-      if (start.getUTCDate() > 1 || start.getUTCHours() > 0) {
-        month++
-      }
-
-      // Advance until we're in the future
-       
-      while (true) {
-        const candidate = new Date(Date.UTC(year, month, 1, 12, 0, 0, 0))
-        if (candidate > now) {
-          result = candidate
-          break
-        }
-        month++
-      }
       break
     }
 
@@ -110,19 +88,8 @@ export function calculateNextBillingDate(
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function generateInvoiceNumber(tx?: any): Promise<string> {
-  const db = tx || prisma
-  const year = new Date().getFullYear()
-  const lastInvoice = await db.invoice.findFirst({
-    where: { invoiceNumber: { startsWith: `INV-${year}-` } },
-    orderBy: { invoiceNumber: 'desc' },
-    select: { invoiceNumber: true },
-  })
-  let sequence = 1
-  if (lastInvoice?.invoiceNumber) {
-    const match = lastInvoice.invoiceNumber.match(/INV-\d{4}-(\d+)/)
-    if (match) sequence = parseInt(match[1], 10) + 1
-  }
-  return `INV-${year}-${sequence.toString().padStart(5, '0')}`
+  // Pattern and next number: Settings → Business → Numbering.
+  return nextNumber('invoice', tx)
 }
 
 /**
@@ -136,20 +103,18 @@ export async function generateInvoiceNumber(tx?: any): Promise<string> {
 export function getBillingPeriod(
   billingDate: Date,
   billingCycleType: BillingCycleType,
-  billingCycleDays?: number
+  billingCycleDays?: number,
+  anchor: BillingAnchor = DEFAULT_BILLING_ANCHOR
 ): { periodStart: Date; periodEnd: Date } {
   const d = new Date(billingDate)
 
   switch (billingCycleType) {
-    case 'MONTHLY': {
-      // Period = 1st of the month being billed → last day of that month (UTC)
-      const year = d.getUTCFullYear()
-      const month = d.getUTCMonth()
-      const periodStart = new Date(Date.UTC(year, month, 1, 12, 0, 0, 0))
-      // Day 0 of next month = last day of current month
-      const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate()
-      const periodEnd = new Date(Date.UTC(year, month, lastDay, 12, 0, 0, 0))
-      return { periodStart, periodEnd }
+    case 'MONTHLY':
+    case 'WEEKLY': {
+      // The billing date up to the day before the next anchor — a whole month
+      // or week when the date is on the anchor, a stretch when it is not.
+      const { start, end } = periodFromAnchor(d, billingCycleType, anchor)
+      return { periodStart: start, periodEnd: end }
     }
     case 'DAILY': {
       const periodStart = new Date(d)
@@ -161,13 +126,6 @@ export function getBillingPeriod(
     case 'BI_WEEKLY': {
       const periodStart = new Date(d)
       const periodEnd = addDays(d, 13)
-      periodStart.setUTCHours(12, 0, 0, 0)
-      periodEnd.setUTCHours(12, 0, 0, 0)
-      return { periodStart, periodEnd }
-    }
-    case 'WEEKLY': {
-      const periodStart = new Date(d)
-      const periodEnd = addDays(d, 6)
       periodStart.setUTCHours(12, 0, 0, 0)
       periodEnd.setUTCHours(12, 0, 0, 0)
       return { periodStart, periodEnd }

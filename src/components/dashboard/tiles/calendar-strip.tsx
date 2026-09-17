@@ -1,8 +1,7 @@
-import Link from "next/link";
 import { Tile, TileHeader } from "@/components/dashboard/tile";
 import { Empty, Excludes } from "@/components/dashboard/tiles/parts";
 import { getCalendarMonth, type CalendarDay } from "@/lib/queries/operate";
-import { MoveArrow } from "@/components/move-arrow";
+import { CalendarEntry, dayEntries } from "@/components/calendar-entry";
 
 /**
  * This week, in and out — the Calendar's month grid at one week's zoom.
@@ -47,6 +46,7 @@ export async function CalendarStripTile() {
 
   const going = week.reduce((sum, day) => sum + day.going.length, 0);
   const coming = week.reduce((sum, day) => sum + day.coming.length, 0);
+  const expiring = week.reduce((sum, day) => sum + day.expiring.length, 0);
 
   const laterInMonth = days
     .slice(weekStart + 7)
@@ -61,15 +61,17 @@ export async function CalendarStripTile() {
       <TileHeader
         title="This week"
         meta={
-          going + coming === 0
+          going + coming + expiring === 0
             ? "nothing moves"
-            : `${going} out · ${coming} back`
+            : `${going} out · ${coming} back${
+                expiring > 0 ? ` · ${expiring} expiring` : ""
+              }`
         }
         href="/dashboard/calendar"
         hrefLabel="Calendar →"
       />
 
-      {going + coming === 0 ? (
+      {going + coming + expiring === 0 ? (
         <Empty>
           Nothing goes out or comes back this week. Orders appear here on the day
           they start and the day they are due back — the Calendar shows the
@@ -107,16 +109,12 @@ function isSameDay(a: Date, b: Date) {
 }
 
 /**
- * One day. Two orders per direction, then a count — a column that listed
+ * One day. Two orders per kind, then a count — a column that listed
  * fifteen stops being glanceable, and the day's real work is on the order.
  */
 function DayColumn({ day, now }: { day: CalendarDay; now: Date }) {
-  const movements = day.going.length + day.coming.length;
   const today = isSameDay(day.date, now);
-  const shown = [
-    ...day.going.slice(0, 2).map((order) => ({ order, direction: "out" as const })),
-    ...day.coming.slice(0, 2).map((order) => ({ order, direction: "back" as const })),
-  ];
+  const { shown, hidden } = dayEntries(day);
 
   return (
     <div
@@ -132,28 +130,12 @@ function DayColumn({ day, now }: { day: CalendarDay; now: Date }) {
         {WEEKDAY.format(day.date)} {day.date.getDate()}
       </span>
 
-      {shown.map(({ order, direction }) => (
-        <Link
-          key={`${direction}-${order.id}`}
-          href={`/dashboard/orders/${order.id}`}
-          title={`${direction === "out" ? "Out" : "Back"}: ${
-            order.reservationNumber
-          } · ${order.clientName}`}
-          className={`flex items-center gap-1 truncate rounded-[4px] px-1 text-micro hover:underline ${
-            direction === "out"
-              ? "bg-accent-tint text-accent-on-tint"
-              : "bg-sunken text-ink-muted"
-          }`}
-        >
-          <MoveArrow direction={direction === "out" ? "out" : "back"} />
-          <span className="truncate">{order.clientName}</span>
-        </Link>
+      {shown.map(({ order, kind }) => (
+        <CalendarEntry key={`${kind}-${order.id}`} order={order} kind={kind} />
       ))}
 
-      {movements > shown.length ? (
-        <span className="px-1 text-micro text-ink-faint">
-          +{movements - shown.length}
-        </span>
+      {hidden > 0 ? (
+        <span className="px-1 text-micro text-ink-faint">+{hidden}</span>
       ) : null}
     </div>
   );

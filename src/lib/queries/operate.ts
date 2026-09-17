@@ -1,7 +1,7 @@
 import type { MaintenanceStatus, Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { OPEN_CHECKOUT } from "@/lib/inventory/availability";
-import { ARCHIVE_STATUSES } from "@/lib/reservations/status";
+import { ARCHIVE_STATUSES, QUOTE_STATUSES } from "@/lib/reservations/status";
 
 /** Queries behind the Operate cluster and the Service center's maintenance log. */
 
@@ -75,11 +75,21 @@ export async function findUnitByCode(code: string) {
 
 /* ── Calendar ───────────────────────────────────────────────────────────── */
 
+export type CalendarOrder = {
+  id: string;
+  reservationNumber: string;
+  clientName: string;
+  /** Still at quote stage — the dates are proposed, not committed. */
+  prospect: boolean;
+};
+
 export type CalendarDay = {
   date: Date;
   inMonth: boolean;
-  going: { id: string; reservationNumber: string; clientName: string }[];
-  coming: { id: string; reservationNumber: string; clientName: string }[];
+  going: CalendarOrder[];
+  coming: CalendarOrder[];
+  /** Quotes whose pricing stops being honored on this day. */
+  expiring: CalendarOrder[];
 };
 
 /**
@@ -88,7 +98,17 @@ export type CalendarDay = {
  * Recurring orders are excluded from the "coming back" side: their `endDate` is
  * a billing-period boundary, not a return date, and counting them as returns
  * read 214 units overdue instead of 35 when the Overview made the same mistake.
- * They still appear on their start date, which is a real event.
+ * They still appear on their start date, which is a real event. The same goes
+ * for rent-to-own and cloud: only rentals have a return to show. A sale shows
+ * neither — it has no term, only an order date — and appears on the calendar
+ * solely as its quote expiry.
+ *
+ * Quote-stage orders still appear on their start and end dates, flagged
+ * `prospect`, because a proposed movement is worth seeing — but it must not
+ * read the same as a committed one. Their `quoteExpiresAt` is a third kind of
+ * event: not a movement at all, and it used to be indistinguishable from a
+ * return when the only thing a quote could show was its end date. Only
+ * quote-stage orders carry one; an approved order's old expiry is history.
  */
 export async function getCalendarMonth(year: number, month: number) {
   const monthStart = new Date(year, month, 1);
@@ -102,56 +122,71 @@ export async function getCalendarMonth(year: number, month: number) {
   gridEnd.setDate(gridEnd.getDate() + (6 - gridEnd.getDay()) + 1);
 
   const inGrid = { gte: gridStart, lt: gridEnd };
+  const select = {
+    id: true,
+    reservationNumber: true,
+    status: true,
+    startDate: true,
+    endDate: true,
+    quoteExpiresAt: true,
+    client: { select: { name: true } },
+  } as const;
 
-  const [starting, ending] = await Promise.all([
+  const [starting, ending, expiring] = await Promise.all([
     prisma.reservation.findMany({
-      where: { status: { notIn: ARCHIVE_STATUSES }, startDate: inGrid },
-      select: {
-        id: true,
-        reservationNumber: true,
-        startDate: true,
-        client: { select: { name: true } },
+      where: {
+        status: { notIn: ARCHIVE_STATUSES },
+        startDate: inGrid,
+        // A sale has no term, so no movement to show: only its quote expiry,
+        // which is the prompt to follow up (owner, 2026-09-16).
+        reservationType: { not: "SALE" },
       },
+      select,
     }),
     prisma.reservation.findMany({
       where: {
         status: { notIn: ARCHIVE_STATUSES },
         endDate: inGrid,
         isRecurring: false,
+        // Only a rental comes back. A sale's endDate is a v1 default of start
+        // plus 30 days, rent-to-own ends in ownership, and cloud ships nothing
+        // — showing any of them as a return put inbound arrows on draft sales.
+        reservationType: "RENTAL",
       },
-      select: {
-        id: true,
-        reservationNumber: true,
-        endDate: true,
-        client: { select: { name: true } },
-      },
+      select,
+    }),
+    prisma.reservation.findMany({
+      where: { status: { in: QUOTE_STATUSES }, quoteExpiresAt: inGrid },
+      select,
     }),
   ]);
 
   const key = (date: Date) =>
     `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
 
-  const goingByDay = new Map<string, CalendarDay["going"]>();
-  for (const order of starting) {
-    const list = goingByDay.get(key(order.startDate)) ?? [];
-    list.push({
-      id: order.id,
-      reservationNumber: order.reservationNumber,
-      clientName: order.client.name,
-    });
-    goingByDay.set(key(order.startDate), list);
+  function bucket(
+    orders: typeof starting,
+    dateOf: (order: (typeof starting)[number]) => Date | null,
+  ) {
+    const byDay = new Map<string, CalendarOrder[]>();
+    for (const order of orders) {
+      const date = dateOf(order);
+      if (!date) continue;
+      const list = byDay.get(key(date)) ?? [];
+      list.push({
+        id: order.id,
+        reservationNumber: order.reservationNumber,
+        clientName: order.client.name,
+        prospect: QUOTE_STATUSES.includes(order.status),
+      });
+      byDay.set(key(date), list);
+    }
+    return byDay;
   }
 
-  const comingByDay = new Map<string, CalendarDay["coming"]>();
-  for (const order of ending) {
-    const list = comingByDay.get(key(order.endDate)) ?? [];
-    list.push({
-      id: order.id,
-      reservationNumber: order.reservationNumber,
-      clientName: order.client.name,
-    });
-    comingByDay.set(key(order.endDate), list);
-  }
+  const goingByDay = bucket(starting, (order) => order.startDate);
+  const comingByDay = bucket(ending, (order) => order.endDate);
+  const expiringByDay = bucket(expiring, (order) => order.quoteExpiresAt);
 
   const days: CalendarDay[] = [];
   for (
@@ -165,6 +200,7 @@ export async function getCalendarMonth(year: number, month: number) {
       inMonth: date.getMonth() === month,
       going: goingByDay.get(key(date)) ?? [],
       coming: comingByDay.get(key(date)) ?? [],
+      expiring: expiringByDay.get(key(date)) ?? [],
     });
   }
 

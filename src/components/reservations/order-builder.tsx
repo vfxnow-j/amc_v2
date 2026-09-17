@@ -16,13 +16,32 @@ import { Notice } from "@/components/feedback/notice";
 import { createAccount } from "@/lib/actions/accounts";
 import { ORDER_TYPES } from "@/lib/orders/types";
 import { TYPE_LABEL } from "@/lib/reservations/status";
+import {
+  addDays,
+  businessToday,
+  intendedDay,
+  parseDateInput,
+  toDateInput,
+} from "@/lib/billing/calendar";
 
 const MONEY = new Intl.NumberFormat("en-US", {
   style: "currency",
   currency: "USD",
   maximumFractionDigits: 0,
 });
-const DAY = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" });
+// Read in UTC: the builder's dates are calendar days (lib/billing/calendar), and
+// formatting `new Date("2026-09-25")` in a Pacific browser printed Sep 24.
+const DAY = new Intl.DateTimeFormat("en-US", {
+  month: "short",
+  day: "numeric",
+  timeZone: "UTC",
+});
+
+/** A `YYYY-MM-DD` value as "Sep 25". */
+function dayLabel(value: string) {
+  const date = parseDateInput(value);
+  return date ? DAY.format(date) : value;
+}
 
 const FIELD =
   "h-9 w-full rounded-well border-0 bg-sunken px-3 text-body text-ink outline-none placeholder:text-ink-faint";
@@ -33,14 +52,19 @@ const LABEL = "mb-[6px] block text-micro uppercase text-ink-muted";
  *
  * They are the same two columns on every order — `startDate` and `endDate` —
  * but they do not mean the same thing, and the stored data says so plainly: the
- * median rental spans 22 days, a sale 7, a cloud order 29 (a billing month) and
- * a rent-to-own 731 — which is the agreement term, not a return date. Labelling
+ * median rental spans 22 days, a cloud order 29 (a billing month) and a
+ * rent-to-own 731 — which is the agreement term, not a return date. Labelling
  * all four "Starts / Ends" made three of them look like rentals that forgot to
  * come back.
+ *
+ * A sale has no term at all (owner, 2026-09-16) — only the date it was ordered.
+ * Its end date had been a "deliver by" that v1 defaulted to 30 days out, and the
+ * calendar read that as gear coming back. The column is required, so a sale
+ * stores its order date in both.
  */
-const DATE_LABELS: Record<ReservationType, { legend: string; start: string; end: string }> = {
+const DATE_LABELS: Record<ReservationType, { legend: string; start: string; end: string | null }> = {
   RENTAL: { legend: "Rental window", start: "Out", end: "Back" },
-  SALE: { legend: "Fulfilment", start: "Ordered", end: "Deliver by" },
+  SALE: { legend: "Order date", start: "Ordered", end: null },
   RENT_TO_OWN: { legend: "Agreement term", start: "Starts", end: "Ends" },
   CLOUD: { legend: "Billing period", start: "Starts", end: "Renews" },
 };
@@ -48,7 +72,7 @@ const DATE_LABELS: Record<ReservationType, { legend: string; start: string; end:
 /** What each type does once it is saved, said before it is saved. */
 const TYPE_NOTE: Record<ReservationType, string> = {
   RENTAL: "Billed per period across the window; units are expected back.",
-  SALE: "Billed once for the whole order. Nothing is expected back.",
+  SALE: "Billed once. No term — just the order date, and the quote's expiry once it is sent.",
   RENT_TO_OWN:
     "Recurring monthly. The payment and buyout are worked out from the term and the order total, so they can't disagree with what it costs.",
   CLOUD: "Recurring per billing period. No physical units unless you add some.",
@@ -65,8 +89,9 @@ type Line = DraftLine & {
   freeFrom: string | null;
 };
 
+/** A stored day, or a date from the server, as a date input value. */
 function iso(date: Date) {
-  return date.toISOString().slice(0, 10);
+  return toDateInput(intendedDay(date));
 }
 
 /**
@@ -95,14 +120,16 @@ export function OrderBuilder({
   initialClient?: Client | null;
 }) {
   const router = useRouter();
-  const today = new Date();
-  const [start, setStart] = useState(iso(today));
-  const [end, setEnd] = useState(
-    iso(new Date(today.getTime() + 7 * 86_400_000)),
-  );
+  // Today in Pacific time. UTC's today turned over at 5pm, so an order built in
+  // the evening defaulted to starting tomorrow.
+  const today = businessToday();
+  const [start, setStart] = useState(toDateInput(today));
+  const [rangeEnd, setEnd] = useState(toDateInput(addDays(today, 7)));
   const [projectName, setProjectName] = useState("");
   const [type, setType] = useState<ReservationType>("RENTAL");
   const [rtoTerm, setRtoTerm] = useState(24);
+  // A sale has no term, so its window is the one day it is ordered.
+  const end = type === "SALE" ? start : rangeEnd;
 
   const [client, setClient] = useState<Client | null>(initialClient);
   const [clientQuery, setClientQuery] = useState("");
@@ -204,8 +231,8 @@ export function OrderBuilder({
         <header className="flex items-center gap-2 px-4 pb-3">
           <h2 className="text-card-title">Equipment</h2>
           <span className="text-detail text-ink-muted">
-            Availability is checked across {DAY.format(new Date(start))} –{" "}
-            {DAY.format(new Date(end))}
+            Availability is checked across {dayLabel(start)}
+            {end === start ? "" : ` – ${dayLabel(end)}`}
           </span>
         </header>
 
@@ -307,7 +334,7 @@ export function OrderBuilder({
                         ? `No ${line.name} is free for the whole window`
                         : `Only ${line.free} of ${line.quantity} ${line.name} are free for the whole window`}
                       {line.freeFrom
-                        ? ` — the rest are out until ${DAY.format(new Date(line.freeFrom))}`
+                        ? ` — the rest are out until ${dayLabel(line.freeFrom)}`
                         : ""}
                       .
                     </p>
@@ -537,7 +564,11 @@ export function OrderBuilder({
           )}
 
           <span className={LABEL}>{DATE_LABELS[type].legend}</span>
-          <div className="mb-3 grid grid-cols-2 gap-2">
+          <div
+            className={`mb-3 grid gap-2 ${
+              DATE_LABELS[type].end ? "grid-cols-2" : "grid-cols-1"
+            }`}
+          >
             <div>
               <label
                 className="mb-[6px] block text-detail text-ink-muted"
@@ -553,21 +584,23 @@ export function OrderBuilder({
                 className={FIELD}
               />
             </div>
-            <div>
-              <label
-                className="mb-[6px] block text-detail text-ink-muted"
-                htmlFor="end"
-              >
-                {DATE_LABELS[type].end}
-              </label>
-              <input
-                id="end"
-                type="date"
-                value={end}
-                onChange={(event) => setEnd(event.target.value)}
-                className={FIELD}
-              />
-            </div>
+            {DATE_LABELS[type].end ? (
+              <div>
+                <label
+                  className="mb-[6px] block text-detail text-ink-muted"
+                  htmlFor="end"
+                >
+                  {DATE_LABELS[type].end}
+                </label>
+                <input
+                  id="end"
+                  type="date"
+                  value={rangeEnd}
+                  onChange={(event) => setEnd(event.target.value)}
+                  className={FIELD}
+                />
+              </div>
+            ) : null}
           </div>
 
           {/* The one field that only exists on one type. The payment and buyout

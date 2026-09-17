@@ -91,7 +91,18 @@ export async function LinesCard({
               className={`grid items-baseline gap-2 px-1 ${tracks}`}
             >
               <span className="min-w-0 break-words font-bold">
-                {line.label}
+                {/* The asset's own page: what it has earned, its units, its
+                    build. Ad-hoc and service lines have none to open. */}
+                {line.assetId ? (
+                  <Link
+                    href={`/dashboard/assets/${line.assetId}`}
+                    className="hover:text-accent-text hover:underline"
+                  >
+                    {line.label}
+                  </Link>
+                ) : (
+                  line.label
+                )}
                 {line.packageName && line.packageName !== "Default" ? (
                   <span className="font-normal text-ink-faint">
                     {" "}
@@ -149,7 +160,16 @@ export async function LinesCard({
                   >
                     <span className="min-w-0 break-words text-ink-muted">
                       <span className="text-ink-faint">↳ </span>
-                      {part.label}
+                      {part.assetId ? (
+                        <Link
+                          href={`/dashboard/assets/${part.assetId}`}
+                          className="hover:text-accent-text hover:underline"
+                        >
+                          {part.label}
+                        </Link>
+                      ) : (
+                        part.label
+                      )}
                     </span>
                     <span className="text-right tabular-nums text-ink-faint">
                       ×{part.quantity}
@@ -192,7 +212,13 @@ export async function LinesCard({
                       key={unit.id}
                       className="grid grid-cols-[104px_1fr_112px_84px] items-center gap-2 rounded-row px-2 py-[5px] text-detail hover:bg-row-hover"
                     >
-                      <span className="truncate font-bold">{unit.barcode}</span>
+                      <Link
+                        href={`/dashboard/units/${unit.assetUnitId}`}
+                        className="truncate font-bold hover:text-accent-text hover:underline"
+                        title="Open this unit: lifetime earnings, movements and service history"
+                      >
+                        {unit.barcode}
+                      </Link>
                       <span className="min-w-0 break-words text-ink-muted">
                         {unit.serialNumber ?? "No serial recorded"}
                       </span>

@@ -60,8 +60,12 @@ export function dayYear(value: Date): string {
   return DAY_YEAR.format(value);
 }
 
-/** "Aug 3 – Sep 12, 26" — the window a booking covers. */
-export function windowLabel(start: Date, end: Date): string {
+/**
+ * "Aug 3 – Sep 12, 26" — the window a booking covers. A sale has no term, so it
+ * is just its order date.
+ */
+export function windowLabel(start: Date, end: Date, type?: string): string {
+  if (type === "SALE") return dayYear(start);
   return `${day(start)} – ${dayYear(end)}`;
 }
 

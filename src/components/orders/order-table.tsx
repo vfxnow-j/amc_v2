@@ -112,7 +112,7 @@ export async function OrderTable({
       ),
       window: (
         <span className="truncate text-ink-muted">
-          {windowLabel(row.start, row.end)}
+          {windowLabel(row.start, row.end, row.type)}
           {row.isRecurring ? (
             // The end date is a billing boundary on these, not a return.
             <span className="text-ink-faint"> · recurring</span>

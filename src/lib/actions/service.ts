@@ -5,6 +5,7 @@ import type { QcResult, WorkOrderStatus } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireEditor } from "@/lib/auth-utils";
 import { OPEN_WORK_ORDER_STATUSES } from "@/lib/service/statuses";
+import { nextNumber as issueNumber } from "@/lib/numbering/next";
 
 /**
  * Service center write path.
@@ -24,15 +25,8 @@ export type ServiceResult =
   | { status: "ok"; workOrderId: string; number: string }
   | { status: "error"; message: string };
 
-async function nextNumber(): Promise<string> {
-  const year = new Date().getFullYear();
-  const last = await prisma.workOrder.findFirst({
-    where: { number: { startsWith: `WO-${year}-` } },
-    orderBy: { number: "desc" },
-    select: { number: true },
-  });
-  const sequence = last ? Number(last.number.split("-")[2]) + 1 : 1;
-  return `WO-${year}-${String(sequence).padStart(4, "0")}`;
+async function nextWorkOrderNumber(): Promise<string> {
+  return issueNumber("workOrder");
 }
 
 export async function openWorkOrder(input: {
@@ -82,7 +76,7 @@ export async function openWorkOrder(input: {
     };
   }
 
-  const number = await nextNumber();
+  const number = await nextWorkOrderNumber();
 
   const workOrder = await prisma.$transaction(async (tx) => {
     const created = await tx.workOrder.create({

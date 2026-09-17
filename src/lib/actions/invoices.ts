@@ -6,6 +6,10 @@ import { auth } from '@/lib/auth'
 import { requireAuth, requireEditor, requireAdmin } from '@/lib/auth-utils'
 import { serialize } from '@/lib/utils'
 import type { InvoiceStatus } from '@/lib/types'
+import { firstInvoiceStretch, stretchLabel } from '@/lib/billing/calendar'
+import { formatPeriodCount, roundMoney } from '@/lib/pricing/periods'
+import { getBillingAnchor } from '@/lib/settings/business'
+import { nextNumber } from '@/lib/numbering/next'
 
 export type InvoiceFormData = {
   clientId: string
@@ -15,10 +19,15 @@ export type InvoiceFormData = {
   taxRate?: number
   notes?: string
   terms?: string
+  /** The stretch of the term this invoice bills, when it bills one. */
+  periodStartDate?: Date
+  periodEndDate?: Date
   items: {
     description: string
     quantity: number
     unitPrice: number
+    /** Overrides quantity × unitPrice — a prorated first invoice bills a share of the rate. */
+    amount?: number
     assetId?: string
     checkoutId?: string
   }[]
@@ -40,28 +49,9 @@ export type PaymentData = {
   notes?: string
 }
 
-// Generate unique invoice number
+// Generate unique invoice number (pattern: Settings → Business → Numbering)
 async function generateInvoiceNumber(): Promise<string> {
-  const year = new Date().getFullYear()
-  const lastInvoice = await prisma.invoice.findFirst({
-    where: {
-      invoiceNumber: {
-        startsWith: `INV-${year}-`,
-      },
-    },
-    orderBy: { invoiceNumber: 'desc' },
-    select: { invoiceNumber: true },
-  })
-
-  let sequence = 1
-  if (lastInvoice?.invoiceNumber) {
-    const match = lastInvoice.invoiceNumber.match(/INV-\d{4}-(\d+)/)
-    if (match) {
-      sequence = parseInt(match[1], 10) + 1
-    }
-  }
-
-  return `INV-${year}-${sequence.toString().padStart(5, '0')}`
+  return nextNumber('invoice')
 }
 
 export async function getInvoices(filters: InvoiceFilters = {}) {
@@ -177,7 +167,7 @@ export async function createInvoice(data: InvoiceFormData) {
   // Calculate totals
   let subtotal = 0
   const itemsWithAmounts = data.items.map((item) => {
-    const amount = item.quantity * item.unitPrice
+    const amount = item.amount ?? item.quantity * item.unitPrice
     subtotal += amount
     return {
       ...item,
@@ -202,6 +192,8 @@ export async function createInvoice(data: InvoiceFormData) {
       total,
       notes: data.notes,
       terms: data.terms,
+      periodStartDate: data.periodStartDate,
+      periodEndDate: data.periodEndDate,
       status: 'DRAFT',
       items: {
         create: itemsWithAmounts.map((item) => ({
@@ -502,13 +494,30 @@ export async function createInvoiceFromReservation(reservationId: string, dueDat
     throw new Error('Reservation not found')
   }
 
+  // The first invoice of a recurring order bills from the term start up to the
+  // next billing date — a prorated stub when the start falls between anchors.
+  const priorInvoices = await prisma.invoice.count({
+    where: { reservationId, status: { notIn: ['VOID', 'CANCELLED'] } },
+  })
+  const stretch = priorInvoices === 0
+    ? firstInvoiceStretch(reservation, await getBillingAnchor())
+    : null
+  const stretchNote = stretch && Math.abs(stretch.periods - 1) >= 0.0005
+    ? ` × ${formatPeriodCount(stretch.periods)}, ${stretchLabel(stretch.start, stretch.end)}`
+    : ''
+
   // Build invoice items from reservation
-  const items = reservation.items.map((item) => ({
-    description: `${item.asset?.name || item.description || 'Ad-hoc item'} (${item.pricingType} rate)`,
-    quantity: Number(item.quantity) || 1,
-    unitPrice: Number(item.rate),
-    assetId: item.assetId || undefined,
-  }))
+  const items = reservation.items.map((item) => {
+    const quantity = Number(item.quantity) || 1
+    const unitPrice = Number(item.rate)
+    return {
+      description: `${item.asset?.name || item.description || 'Ad-hoc item'} (${item.pricingType} rate${stretchNote})`,
+      quantity,
+      unitPrice,
+      ...(stretch ? { amount: roundMoney(quantity * unitPrice * stretch.periods) } : {}),
+      assetId: item.assetId || undefined,
+    }
+  })
 
   // Inherit tax rate from reservation if not provided
   const effectiveTaxRate = taxRate ?? (Number(reservation.taxRate) || 0)
@@ -519,6 +528,7 @@ export async function createInvoiceFromReservation(reservationId: string, dueDat
     dueDate,
     taxRate: effectiveTaxRate,
     items,
+    ...(stretch ? { periodStartDate: stretch.start, periodEndDate: stretch.end } : {}),
     notes: reservation.projectName ? `Project: ${reservation.projectName}` : undefined,
   })
 }
