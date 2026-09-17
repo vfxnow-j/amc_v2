@@ -13,6 +13,10 @@ import { LeaseUnitsCard } from "@/components/accounting/contract-cards";
 import { dayYear, money } from "@/lib/format";
 import { getLease } from "@/lib/queries/contract-record";
 import { LEASE_STATUS_LABEL } from "@/lib/accounting/labels";
+import { LeaseDocuments } from "@/components/leases/lease-documents";
+import { LeaseLinks } from "@/components/leases/lease-links";
+import { prisma } from "@/lib/prisma";
+import { getLeaseLinks } from "@/lib/queries/lease-links";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -129,6 +133,17 @@ async function LeaseRecord({ id }: { id: string }) {
             )}
           </Card>
 
+          {/* The lease's own paperwork — agreement, statements, payoff letter. */}
+          <Suspense fallback={<CardSkeleton title="Documents" rows={3} />}>
+            <LeaseDocumentsCard id={id} />
+          </Suspense>
+
+          {/* What this lease financed: funding requests and purchase orders,
+              with their PDFs. */}
+          <Suspense fallback={<CardSkeleton title="Funding & purchase orders" rows={4} />}>
+            <LeaseLinksCard id={id} />
+          </Suspense>
+
           <Card title="Terms">
             <div className="grid grid-cols-2 gap-3 px-4 pb-4">
               <Field label="Lender">
@@ -200,5 +215,54 @@ function Figure({
         {value}
       </span>
     </span>
+  );
+}
+
+async function LeaseLinksCard({ id }: { id: string }) {
+  const { fundingRequests, purchaseOrders } = await getLeaseLinks(id);
+  const financed = purchaseOrders.reduce((sum, po) => sum + po.total, 0);
+  return (
+    <Card
+      title="Funding & purchase orders"
+      meta={
+        purchaseOrders.length
+          ? `${money(financed)} across ${purchaseOrders.length} ${purchaseOrders.length === 1 ? "PO" : "POs"}`
+          : undefined
+      }
+    >
+      <LeaseLinks
+        leaseId={id}
+        fundingRequests={fundingRequests.map((row) => ({ ...row, date: row.date.toISOString() }))}
+        purchaseOrders={purchaseOrders.map((row) => ({ ...row, date: row.date.toISOString() }))}
+      />
+    </Card>
+  );
+}
+
+async function LeaseDocumentsCard({ id }: { id: string }) {
+  const documents = await prisma.document.findMany({
+    where: { entityType: "LEASE", entityId: id, deletedAt: null },
+    orderBy: { createdAt: "desc" },
+    select: { id: true, filename: true, documentType: true, fileSize: true, createdAt: true, createdById: true },
+  });
+  const users = await prisma.user.findMany({
+    where: { id: { in: [...new Set(documents.map((doc) => doc.createdById))] } },
+    select: { id: true, name: true },
+  });
+  const nameOf = new Map(users.map((user) => [user.id, user.name]));
+  return (
+    <Card title="Documents" meta={documents.length ? `${documents.length} on file` : undefined}>
+      <LeaseDocuments
+        leaseId={id}
+        documents={documents.map((doc) => ({
+          id: doc.id,
+          filename: doc.filename,
+          documentType: doc.documentType,
+          fileSize: doc.fileSize,
+          createdAt: doc.createdAt.toISOString(),
+          uploadedBy: nameOf.get(doc.createdById) ?? null,
+        }))}
+      />
+    </Card>
   );
 }

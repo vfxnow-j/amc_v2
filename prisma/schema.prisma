@@ -402,11 +402,26 @@ model Asset {
   components AssetComponent[] @relation("AssetBuild")
   partOf     AssetComponent[] @relation("AssetPart")
 
+  // Predefined packages this asset is a line of. See PackageTemplate.
+  packageTemplateItems PackageTemplateItem[]
+
+  // Coverage every unit of this model comes with. See AssetCoverage.
+  coverages AssetCoverage[]
+
   @@index([familyId])
   @@map("assets")
 }
 
 /// How a component is charged when its parent SKU goes on an order.
+/// The part of a configurable machine an option fills. See AssetComponent.
+enum ConfigSlot {
+  GPU
+  MEMORY
+  STORAGE
+  ADDON
+  OTHER
+}
+
 enum ComponentPriceMode {
   /// Part of the base price. Listed on the quote so the client sees the spec,
   /// and contributes nothing to the total.
@@ -432,13 +447,20 @@ enum ComponentPriceMode {
 /// the existing data prices the same card at $300, $350 and $360 on different
 /// orders.
 model AssetComponent {
-  id               String @id @default(cuid())
+  id               String     @id @default(cuid())
   /// The configurable SKU — the workstation.
   assetId          String
-  asset            Asset  @relation("AssetBuild", fields: [assetId], references: [id], onDelete: Cascade)
-  /// The part that goes in it — the GPU, the drive, the capture card.
-  componentAssetId String
-  componentAsset   Asset  @relation("AssetPart", fields: [componentAssetId], references: [id], onDelete: Restrict)
+  asset            Asset      @relation("AssetBuild", fields: [assetId], references: [id], onDelete: Cascade)
+  /// The part that goes in it — the GPU, the capture card. Null for a spec
+  /// option that isn't stocked as an asset (RAM, most storage): those carry a
+  /// `label` and a price instead.
+  componentAssetId String?
+  componentAsset   Asset?     @relation("AssetPart", fields: [componentAssetId], references: [id], onDelete: Restrict)
+  /// What the option is, when it has no asset: "128GB DDR5".
+  label            String?
+  /// Which part of the machine it configures. Memory and storage are chosen
+  /// one per slot on an order; GPUs and add-ons can be several.
+  slot             ConfigSlot @default(OTHER)
 
   quantity     Int                @default(1)
   priceMode    ComponentPriceMode @default(ADDS)
@@ -449,8 +471,13 @@ model AssetComponent {
   /// and network cards are, storage is not yet. Recorded from the start so the
   /// catalogue is ready; check-out does not act on it yet.
   tracked      Boolean            @default(false)
-  /// Charged at this instead of the component asset's own rate, when set.
+  /// Charged at this instead of the component asset's own rate, when set —
+  /// per the parent line's period (the upgrade price on a rental). A spec
+  /// option has no asset rate, so this is its price.
   rateOverride Decimal?           @db.Decimal(12, 2)
+  /// The price when the machine is sold rather than rented. Falls back to the
+  /// component asset's sale price.
+  salePrice    Decimal?           @db.Decimal(12, 2)
   notes        String?
   sortOrder    Int                @default(0)
   createdAt    DateTime           @default(now())
@@ -952,6 +979,10 @@ model Reservation {
   isRecurring         Boolean       @default(false)
   recurrencePattern   String? // DAILY, WEEKLY, MONTHLY, or cron expression
   recurrenceEndDate   DateTime?
+  /// The committed term of a recurring rental or cloud deal, in months — "a
+  /// 14-month deal" billed monthly. v2-only; rent-to-own keeps rtoTermMonths.
+  /// Margin on a recurring order is read over this term, not one period.
+  termMonths          Int?
   parentReservationId String?
   parentReservation   Reservation?  @relation("RecurringReservations", fields: [parentReservationId], references: [id])
   childReservations   Reservation[] @relation("RecurringReservations")
@@ -1040,6 +1071,9 @@ model Package {
   sortOrder     Int         @default(0)
   deliveryCost  Decimal?    @db.Decimal(12, 2)
   returnCost    Decimal?    @db.Decimal(12, 2)
+  /// Rent-to-own only: this option's financing term, so one quote can offer
+  /// several terms. Added in v1; brought across by the v1 sync.
+  rtoTermMonths Int?
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
 
@@ -1475,6 +1509,11 @@ enum DocumentType {
   RENTAL_AGREEMENT
   // Raised against a funding request (docs/procurement.md).
   FUNDING_REQUEST
+  // Uploaded to a lease (owner, 2026-09-17): the paperwork a financing lives on.
+  LEASE_AGREEMENT
+  STATEMENT
+  PAYOFF_LETTER
+  OTHER
 }
 
 model Document {
@@ -1485,7 +1524,7 @@ model Document {
   fileSize     Int
 
   // Polymorphic reference
-  entityType String // "RESERVATION" | "PURCHASE_ORDER"
+  entityType String // "RESERVATION" | "PURCHASE_ORDER" | "ASSET" | "FUNDING_REQUEST" | "LEASE"
   entityId   String
 
   // Signature tracking
@@ -1935,7 +1974,8 @@ model Service {
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
 
-  items ReservationItem[]
+  items                ReservationItem[]
+  packageTemplateItems PackageTemplateItem[]
 
   @@map("services")
 }
@@ -2131,8 +2171,13 @@ enum WorkOrderStatus {
   IN_TEST
   AWAITING_PARTS
   RMA
+  /// Qualified and released back to available stock.
   CLOSED_PASS
+  /// Retired as damaged — leaves the fleet.
   CLOSED_SCRAP
+  /// Stripped for parts, then retired — the machine leaves the fleet, its
+  /// usable parts are recorded on the work order.
+  CLOSED_PARTED
 }
 
 enum QcResult {
@@ -2172,6 +2217,13 @@ model WorkOrder {
 
   /// Written when the work order closes, so the unit keeps its history.
   maintenanceRecordId String?
+
+  /// RMA, when the unit goes back to its maker or warrantor: flagged on the
+  /// work order, which moves it to RMA until it comes back for re-testing.
+  rmaProvider   String?
+  rmaNumber     String?
+  rmaSentAt     DateTime?
+  rmaReturnedAt DateTime?
 
   openedAt  DateTime  @default(now())
   closedAt  DateTime?
@@ -2724,4 +2776,72 @@ model UserApprovalScope {
 
   @@unique([userId, recordType])
   @@map("user_approval_scopes")
+}
+
+// ============================================
+// OUR PACKAGES (v2-only)
+// ============================================
+
+/// A predefined package: a set of lines built to spec once and dropped into any
+/// quote from Add line. Distinct from `Package`, which is one order's quote
+/// option — loading one of these adds its lines to that option. v1 has no
+/// equivalent, so the v1 sync never touches these tables.
+model PackageTemplate {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  isActive    Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  items PackageTemplateItem[]
+
+  @@map("package_templates")
+}
+
+/// One line of a predefined package. An asset line takes the asset's current
+/// rate for the order's pricing when loaded unless `rate` overrides it; a
+/// service or free-text line needs its own rate.
+model PackageTemplateItem {
+  id          String          @id @default(cuid())
+  templateId  String
+  template    PackageTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  assetId     String?
+  asset       Asset?          @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  serviceId   String?
+  service     Service?        @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  description String?
+  quantity    Int             @default(1)
+  /// Overrides the asset's current rate when set (e.g. a bundle price).
+  rate        Decimal?        @db.Decimal(12, 2)
+  pricingType PricingType?
+  isOneTime   Boolean         @default(false)
+  sortOrder   Int             @default(0)
+  createdAt   DateTime        @default(now())
+
+  @@index([templateId])
+  @@map("package_template_items")
+}
+
+/// Coverage that comes with every unit of a model — "3-year warranty",
+/// "AppleCare+ 3 years" (v2-only). Mostly for show: it is what the bench and
+/// the work order read to know whether a fault is somebody else's to fix.
+/// A unit's coverage runs `termMonths` from its purchase date; coverage
+/// specific to one unit stays on ServiceCoverage, with its own dates.
+model AssetCoverage {
+  id         String   @id @default(cuid())
+  assetId    String
+  asset      Asset    @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  name       String
+  provider   String?
+  termMonths Int
+  notes      String?
+  sortOrder  Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([assetId])
+  @@map("asset_coverages")
 }

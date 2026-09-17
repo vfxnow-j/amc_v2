@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Card, CardSkeleton } from "@/components/record/record-card";
 import { RemoveLine } from "@/components/orders/remove-line";
 import { AddLine } from "@/components/orders/add-line";
+import { ConfigureLine } from "@/components/orders/configure-line";
 import { LineEditor } from "@/components/orders/line-editor";
 import {
   getReservationActivity,
@@ -48,14 +49,18 @@ export async function LinesCard({
   id,
   editable = false,
   window,
+  option,
 }: {
   id: string;
+  /** Show and add to one quote option; its name heads the card when there are several. */
+  option?: { id: string; name: string; several: boolean };
   /** Whether lines can still be changed — false once the order is closed. */
   editable?: boolean;
   /** The order's dates, so added lines are checked against the right window. */
   window?: { start: string; end: string };
 }) {
-  const lines = await getReservationLines(id);
+  const lines = await getReservationLines(id, option?.id);
+  const title = option?.several ? `Lines · ${option.name}` : "Lines";
   // One set of tracks for the line, its components and the configured total,
   // so the figures stay in columns. The rate column is sized for what it holds:
   // an editable rate is an input plus a basis select ("2700.00 /project"), and at
@@ -67,13 +72,19 @@ export async function LinesCard({
 
   if (lines.length === 0) {
     return (
-      <Card title="Lines">
+      <Card title={title}>
         <p className="px-4 pb-3 text-body text-ink-muted">
           Nothing has been added to this order yet — add a line to price it, or
           scan a unit to add one as you pull it.
         </p>
         {editable && window ? (
-          <AddLine reservationId={id} start={window.start} end={window.end} />
+          <AddLine
+            reservationId={id}
+            start={window.start}
+            end={window.end}
+            packageId={option?.id}
+            optionName={option?.several ? option.name : undefined}
+          />
         ) : null}
       </Card>
     );
@@ -81,7 +92,7 @@ export async function LinesCard({
 
   return (
     <Card
-      title="Lines"
+      title={title}
       meta={`${lines.length} ${lines.length === 1 ? "line" : "lines"} · ${unitCount} ${unitCount === 1 ? "unit" : "units"} attached`}
     >
       <ul className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-2 pb-3">
@@ -103,7 +114,14 @@ export async function LinesCard({
                 ) : (
                   line.label
                 )}
-                {line.packageName && line.packageName !== "Default" ? (
+                {/* A configurable machine (Settings → Configurable items). */}
+                {editable && line.configurable ? (
+                  <span className="ml-2 inline-flex align-middle font-normal">
+                    <ConfigureLine reservationId={id} itemId={line.id} />
+                  </span>
+                ) : null}
+                {/* The option is in the card title when one is being viewed. */}
+                {!option && line.packageName && line.packageName !== "Default" ? (
                   <span className="font-normal text-ink-faint">
                     {" "}
                     · {line.packageName}
@@ -160,6 +178,11 @@ export async function LinesCard({
                   >
                     <span className="min-w-0 break-words text-ink-muted">
                       <span className="text-ink-faint">↳ </span>
+                      {part.unitBarcodes.length > 0 ? (
+                        <span className="mr-1 rounded-pill bg-accent-tint px-[6px] text-micro text-accent-on-tint">
+                          out: {part.unitBarcodes.join(", ")}
+                        </span>
+                      ) : null}
                       {part.assetId ? (
                         <Link
                           href={`/dashboard/assets/${part.assetId}`}
@@ -255,7 +278,13 @@ export async function LinesCard({
         ))}
       </ul>
       {editable && window ? (
-        <AddLine reservationId={id} start={window.start} end={window.end} />
+        <AddLine
+            reservationId={id}
+            start={window.start}
+            end={window.end}
+            packageId={option?.id}
+            optionName={option?.several ? option.name : undefined}
+          />
       ) : null}
     </Card>
   );

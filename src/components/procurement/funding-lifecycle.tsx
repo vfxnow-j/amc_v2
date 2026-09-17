@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { FundingRequestStatus } from "@/generated/prisma/client";
 import { Notice } from "@/components/feedback/notice";
+import { PlaceholderLeasePrompt } from "@/components/procurement/placeholder-lease-prompt";
 import {
   approveFunding,
   cancelFunding,
@@ -35,6 +36,11 @@ import {
  * approver — v1's three typed sign-off names are gone — and a decision is not
  * reversed from here: a declined request is pulled back to draft and asked
  * again, an approved one is canceled if it should not go ahead.
+ *
+ * Approving then asks whether to create a placeholder lease for the request
+ * (`PlaceholderLeasePrompt`), unless one is already linked. The prompt is held
+ * in this component's state and rendered ahead of the steps, so it survives the
+ * refresh that follows approval even when the approver has no further steps.
  */
 
 export type Step = "submit" | "revise" | "approve" | "decline" | "fund" | "fulfil" | "cancel";
@@ -78,20 +84,36 @@ export function FundingLifecycle({
 
   const [reason, setReason] = useState("");
   const [leaseId, setLeaseId] = useState(currentLeaseId ?? "");
+  const [leasePrompt, setLeasePrompt] = useState(false);
 
-  function run(action: () => Promise<FundingOutcome>) {
+  function run(action: () => Promise<FundingOutcome>, afterOk?: () => void) {
     setOutcome(null);
     startTransition(async () => {
       const result = await action();
       setOutcome(result);
       if (result.status === "ok") {
         setOpen(null);
+        afterOk?.();
         router.refresh();
       }
     });
   }
 
+  const prompt = leasePrompt ? (
+    <PlaceholderLeasePrompt fundingRequestId={id} onDone={() => setLeasePrompt(false)} />
+  ) : null;
+
   if (steps.length === 0) {
+    if (prompt) {
+      return (
+        <div className="flex flex-col gap-3 px-4 pb-4">
+          {outcome?.status === "ok" && outcome.message ? (
+            <Notice tone="ok">{outcome.message}</Notice>
+          ) : null}
+          {prompt}
+        </div>
+      );
+    }
     return (
       <p className="px-4 pb-4 text-body text-ink-muted">
         {status === "FULFILLED"
@@ -120,6 +142,8 @@ export function FundingLifecycle({
           {outcome.status === "error" ? outcome.message : outcome.message ?? "Saved."}
         </Notice>
       ) : null}
+
+      {prompt}
 
       <div className="flex flex-wrap gap-2">
         {steps.map((step) => (
@@ -171,7 +195,13 @@ export function FundingLifecycle({
           note="Records you as the approver, today, at the amount requested. The requester is told. A decision is not changed afterwards."
           confirm="Approve"
           busy={busy}
-          onConfirm={() => run(() => approveFunding(id))}
+          onConfirm={() =>
+            run(
+              () => approveFunding(id),
+              // Only worth asking when nothing is linked yet.
+              currentLeaseId ? undefined : () => setLeasePrompt(true),
+            )
+          }
         />
       ) : null}
 

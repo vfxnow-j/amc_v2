@@ -1,5 +1,6 @@
 'use server'
 
+import { dealFor } from '@/lib/orders/deal'
 import { prisma } from '@/lib/prisma'
 import { requireAuth } from '@/lib/auth-utils'
 import { isConfirmedPrice } from '@/lib/market-price'
@@ -245,8 +246,17 @@ async function generateInsights(
         },
         select: {
           id: true,
+          reservationNumber: true,
+          reservationType: true,
+          billingCycleType: true,
+          isRecurring: true,
           totalMargin: true,
+          totalCost: true,
           subtotal: true,
+          discountAmount: true,
+          termMonths: true,
+          rtoTermMonths: true,
+          client: { select: { name: true } },
         },
       }),
 
@@ -706,42 +716,102 @@ async function generateInsights(
       }
     }
 
-    // --- 11. Negative-Margin Orders ---
+    // --- 11 & 12. Negative- and low-margin orders ---
+    // Read over the deal, not one invoice: a recurring order prices its lines
+    // per period, so a 14-month rental's stored margin is one month less the
+    // whole cost (lib/orders/deal.ts). A recurring order with no committed term
+    // has no deal total, so it is asked for rather than called a loss. The row
+    // opens the worst order; the description names the rest.
     {
-      const negativeMarginOrders = marginReservationData.filter(
-        (r) => Number(r.totalMargin) < 0
-      )
+      const money = (n: number) => `${n < 0 ? '-' : ''}$${Math.round(Math.abs(n)).toLocaleString('en-US')}`
+      const named = (numbers: string[]) =>
+        numbers.length > 3 ? `${numbers.slice(0, 3).join(', ')} and ${numbers.length - 3} more` : numbers.join(', ')
 
-      if (negativeMarginOrders.length > 0) {
+      const deals = marginReservationData.map((r) => ({
+        order: r,
+        deal: dealFor({
+          type: r.reservationType,
+          cycleType: r.billingCycleType,
+          isRecurring: r.isRecurring,
+          subtotal: Number(r.subtotal),
+          discountAmount: Number(r.discountAmount),
+          totalCost: r.totalCost === null ? null : Number(r.totalCost),
+          termMonths: r.termMonths,
+          rtoTermMonths: r.rtoTermMonths,
+        }),
+      }))
+
+      const negative = deals
+        .filter(({ deal }) => deal.margin !== null && deal.margin < 0)
+        .sort((a, b) => a.deal.margin! - b.deal.margin!)
+
+      if (negative.length > 0) {
+        const { order: worst, deal } = negative[0]
+        const over = deal.months ? ` over its ${deal.months}-month term` : ''
         insights.push({
           id: 'margin-negative',
           type: 'pricing',
           category: 'business',
           priority: 'high',
-          title: `${negativeMarginOrders.length} order${negativeMarginOrders.length !== 1 ? 's' : ''} ha${negativeMarginOrders.length !== 1 ? 've' : 's'} negative margins`,
-          description: `${negativeMarginOrders.length} active order${negativeMarginOrders.length !== 1 ? 's are' : ' is'} losing money. Review pricing and internal costs.`,
-          link: '/dashboard/orders',
+          title:
+            negative.length === 1
+              ? `${worst.reservationNumber} has a negative margin`
+              : `${negative.length} orders have negative margins`,
+          description:
+            negative.length === 1
+              ? `${worst.client?.name ?? 'This order'}: margin ${money(deal.margin!)}${over} — ${money(deal.dealRevenue!)} against ${money(deal.cost!)} cost. Review its pricing and internal costs.`
+              : `${named(negative.map((n) => n.order.reservationNumber))} are losing money — worst is ${worst.reservationNumber} at ${money(deal.margin!)}${over}. Review pricing and internal costs.`,
+          link: `/dashboard/orders/${worst.id}`,
         })
       }
-    }
 
-    // --- 12. Low-Margin Orders (below 10%) ---
-    {
-      const lowMarginOrders = marginReservationData.filter((r) => {
-        const margin = Number(r.totalMargin)
-        const subtotal = Number(r.subtotal)
-        return margin > 0 && subtotal > 0 && margin / subtotal < 0.1
-      })
+      const low = deals
+        .filter(({ deal }) => deal.margin !== null && deal.margin > 0 && deal.dealRevenue! > 0 && deal.margin / deal.dealRevenue! < 0.1)
+        .sort((a, b) => a.deal.margin! / a.deal.dealRevenue! - b.deal.margin! / b.deal.dealRevenue!)
 
-      if (lowMarginOrders.length > 0) {
+      if (low.length > 0) {
+        const { order: thinnest, deal } = low[0]
+        const pct = `${Math.round((deal.margin! / deal.dealRevenue!) * 100)}%`
         insights.push({
           id: 'margin-low',
           type: 'pricing',
           category: 'business',
           priority: 'medium',
-          title: `${lowMarginOrders.length} order${lowMarginOrders.length !== 1 ? 's' : ''} ha${lowMarginOrders.length !== 1 ? 've' : 's'} margins below 10%`,
-          description: `${lowMarginOrders.length} active order${lowMarginOrders.length !== 1 ? 's have' : ' has'} thin profit margins under 10%. Consider adjusting rates.`,
-          link: '/dashboard/orders',
+          title:
+            low.length === 1
+              ? `${thinnest.reservationNumber} has a margin below 10%`
+              : `${low.length} orders have margins below 10%`,
+          description:
+            low.length === 1
+              ? `${thinnest.client?.name ?? 'This order'}: ${pct} margin on ${money(deal.dealRevenue!)}. Consider adjusting rates.`
+              : `${named(low.map((l) => l.order.reservationNumber))} run under 10% — thinnest is ${thinnest.reservationNumber} at ${pct}. Consider adjusting rates.`,
+          link: `/dashboard/orders/${thinnest.id}`,
+        })
+      }
+
+      // Recurring, costed, and one period doesn't cover the cost: whether it is
+      // a loss depends on how long the deal runs, which nobody has recorded.
+      const unmeasured = deals
+        .filter(({ deal }) => deal.recurring && deal.months === null && deal.cost !== null && deal.cost > (deal.perMonth ?? 0))
+        .sort((a, b) => (b.deal.paybackMonths ?? 0) - (a.deal.paybackMonths ?? 0))
+
+      if (unmeasured.length > 0) {
+        const { order: first, deal } = unmeasured[0]
+        const payback = Math.ceil(deal.paybackMonths ?? 0)
+        insights.push({
+          id: 'margin-no-term',
+          type: 'pricing',
+          category: 'business',
+          priority: 'medium',
+          title:
+            unmeasured.length === 1
+              ? `${first.reservationNumber} needs its term to read its margin`
+              : `${unmeasured.length} recurring orders need a term to read their margin`,
+          description:
+            unmeasured.length === 1
+              ? `${first.client?.name ?? 'This order'} recurs at ${money(deal.perMonth ?? 0)}/mo against ${money(deal.cost!)} cost — it covers that in ${payback} ${payback === 1 ? 'month' : 'months'}. Record the committed term under Billing → Edit terms.`
+              : `${named(unmeasured.map((u) => u.order.reservationNumber))} recur without a committed term, so their margin can't be read. Record each term under Billing → Edit terms.`,
+          link: `/dashboard/orders/${first.id}`,
         })
       }
     }

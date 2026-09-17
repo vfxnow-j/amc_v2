@@ -7,6 +7,12 @@ import {
 } from "@/components/list/list-table";
 import { PageHeader } from "@/components/shell/page-header";
 import {
+  NewAuditButton,
+  NewScanListButton,
+} from "@/components/inventory/audit-create";
+import { canEdit } from "@/lib/auth";
+import { getSessionUser } from "@/lib/roles";
+import {
   AUDIT_TABS,
   AUDIT_TAB_LABEL,
   isAuditTab,
@@ -170,6 +176,10 @@ async function ScanLists() {
  * They're one screen because they answer the same question at different levels
  * of rigour — an audit checks reality against an expected set, a scan list just
  * gathers barcodes. Two tabs rather than two rail slots.
+ *
+ * Staff can start either from the header, whichever tab is showing — see
+ * `components/inventory/audit-create.tsx`. Both go straight to the new record,
+ * which is where counting and scanning happen.
  */
 export default async function AuditsPage({
   searchParams,
@@ -178,6 +188,8 @@ export default async function AuditsPage({
 }) {
   const params = await searchParams;
   const tab: AuditTab = isAuditTab(params.tab) ? params.tab : "audits";
+  const user = await getSessionUser();
+  const editor = user ? canEdit(user.role) : false;
 
   return (
     <>
@@ -185,6 +197,14 @@ export default async function AuditsPage({
         eyebrow="Inventory"
         title="Audits & scan lists"
         blurb="Counting what's actually on the shelf"
+        actions={
+          editor ? (
+            <>
+              <NewScanListButton />
+              <NewAuditButton />
+            </>
+          ) : undefined
+        }
       />
 
       <div className="flex items-center gap-3">

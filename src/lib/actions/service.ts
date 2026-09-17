@@ -12,9 +12,11 @@ import { nextNumber as issueNumber } from "@/lib/numbering/next";
  *
  * This module owns the one rule that makes the feature worth having: a unit
  * with an open work order is not bookable. Opening one moves the unit to
- * MAINTENANCE, and closing decides where it goes — CLOSED_PASS returns it to
- * AVAILABLE, CLOSED_SCRAP retires it. Nothing else in the app should be moving
- * a unit's status for service reasons.
+ * MAINTENANCE, and closing decides where it goes — CLOSED_PASS releases it to
+ * AVAILABLE (only once a test has passed: released means qualified),
+ * CLOSED_PARTED retires it as stripped for parts, CLOSED_SCRAP retires it as
+ * damaged. Nothing else in the app should be moving a unit's status for
+ * service reasons.
  *
  * Deliberately refuses to open against a unit that is currently out with a
  * client: the fault is real, but the unit is not in the building, and marking
@@ -137,7 +139,18 @@ export async function setWorkOrderStatus(
     };
   }
 
-  const closing = status === "CLOSED_PASS" || status === "CLOSED_SCRAP";
+  const closing = status === "CLOSED_PASS" || status === "CLOSED_SCRAP" || status === "CLOSED_PARTED";
+
+  // Released means qualified: something on the bench has to have passed.
+  if (status === "CLOSED_PASS") {
+    const passed = await prisma.qcTestRun.count({ where: { workOrderId, result: "PASS" } });
+    if (passed === 0) {
+      return {
+        status: "error",
+        message: `File a passing test on ${existing.number} before releasing it — a unit goes back into stock qualified.`,
+      };
+    }
+  }
 
   await prisma.$transaction(async (tx) => {
     await tx.workOrder.update({
@@ -158,7 +171,9 @@ export async function setWorkOrderStatus(
         assetUnitId: existing.assetUnitId,
         type: "CORRECTIVE",
         status: "COMPLETED",
-        description: `${existing.number}: ${existing.fault}`,
+        description: `${existing.number}: ${existing.fault}${
+          status === "CLOSED_PASS" ? " — released" : status === "CLOSED_PARTED" ? " — parted out" : " — retired"
+        }`,
         startDate: existing.openedAt,
         completionDate: new Date(),
         notes: closingNote,
@@ -175,7 +190,14 @@ export async function setWorkOrderStatus(
       data:
         status === "CLOSED_PASS"
           ? { status: "AVAILABLE" }
-          : { status: "RETIRED", retiredAt: new Date(), retirementReason: "DAMAGED" },
+          : status === "CLOSED_PARTED"
+            ? {
+                status: "RETIRED",
+                retiredAt: new Date(),
+                retirementReason: "OTHER",
+                retiredTo: `Parted out — ${existing.number}`,
+              }
+            : { status: "RETIRED", retiredAt: new Date(), retirementReason: "DAMAGED" },
     });
   });
 
@@ -217,4 +239,95 @@ export async function recordTestRun(input: {
   revalidatePath(`/dashboard/service/work-orders/${input.workOrderId}`);
   revalidatePath("/dashboard/service/qc-runs");
   return { status: "ok" };
+}
+
+type Plain = { status: "ok"; message: string } | { status: "error"; message: string };
+
+/** The tech's evaluation: what they found, what they did, what it needs. */
+export async function saveWorkOrderNotes(workOrderId: string, notes: string): Promise<Plain> {
+  const auth = await requireEditor();
+  if (!auth.authorized) return { status: "error", message: auth.error ?? "Unauthorized" };
+  await prisma.workOrder.update({ where: { id: workOrderId }, data: { notes: notes.trim() || null } });
+  revalidatePath(`/dashboard/service/work-orders/${workOrderId}`);
+  return { status: "ok", message: "Notes saved." };
+}
+
+/**
+ * Send the unit through RMA: it goes to its maker or warrantor, and the work
+ * order waits in RMA until it comes back. The provider usually comes from the
+ * unit's coverage.
+ */
+export async function flagRma(
+  workOrderId: string,
+  input: { provider: string; rmaNumber?: string },
+): Promise<Plain> {
+  const auth = await requireEditor();
+  if (!auth.authorized) return { status: "error", message: auth.error ?? "Unauthorized" };
+  if (!input.provider.trim()) return { status: "error", message: "Who is it going to? Name the provider." };
+  const workOrder = await prisma.workOrder.findUnique({ where: { id: workOrderId }, select: { status: true, number: true } });
+  if (!workOrder) return { status: "error", message: "That work order doesn't exist." };
+  if (!OPEN_WORK_ORDER_STATUSES.includes(workOrder.status)) {
+    return { status: "error", message: `${workOrder.number} is closed.` };
+  }
+  await prisma.workOrder.update({
+    where: { id: workOrderId },
+    data: {
+      status: "RMA",
+      rmaProvider: input.provider.trim(),
+      rmaNumber: input.rmaNumber?.trim() || null,
+      rmaSentAt: new Date(),
+      rmaReturnedAt: null,
+    },
+  });
+  revalidatePath(`/dashboard/service/work-orders/${workOrderId}`);
+  revalidatePath("/dashboard/service/work-orders");
+  revalidatePath("/dashboard/service/coverage");
+  return { status: "ok", message: `${workOrder.number} is out for RMA with ${input.provider.trim()}.` };
+}
+
+/** Back from RMA: onto the bench to be tested again before it's released. */
+export async function rmaReturned(workOrderId: string): Promise<Plain> {
+  const auth = await requireEditor();
+  if (!auth.authorized) return { status: "error", message: auth.error ?? "Unauthorized" };
+  const workOrder = await prisma.workOrder.findUnique({ where: { id: workOrderId }, select: { status: true, number: true } });
+  if (!workOrder || workOrder.status !== "RMA") return { status: "error", message: "That work order isn't out for RMA." };
+  await prisma.workOrder.update({
+    where: { id: workOrderId },
+    data: { status: "IN_TEST", rmaReturnedAt: new Date() },
+  });
+  revalidatePath(`/dashboard/service/work-orders/${workOrderId}`);
+  revalidatePath("/dashboard/service/coverage");
+  return { status: "ok", message: `${workOrder.number} is back from RMA and on the bench for re-testing.` };
+}
+
+/** Coverage every unit of a model comes with — "3-year warranty". */
+export async function addAssetCoverage(
+  assetId: string,
+  input: { name: string; provider?: string; termMonths: number; notes?: string },
+): Promise<Plain> {
+  const auth = await requireEditor();
+  if (!auth.authorized) return { status: "error", message: auth.error ?? "Unauthorized" };
+  if (!input.name.trim()) return { status: "error", message: "Name the coverage, e.g. AppleCare+." };
+  if (!Number.isInteger(input.termMonths) || input.termMonths < 1 || input.termMonths > 240) {
+    return { status: "error", message: "A term is a whole number of months, 1 to 240." };
+  }
+  await prisma.assetCoverage.create({
+    data: {
+      assetId,
+      name: input.name.trim(),
+      provider: input.provider?.trim() || null,
+      termMonths: input.termMonths,
+      notes: input.notes?.trim() || null,
+    },
+  });
+  revalidatePath(`/dashboard/assets/${assetId}`);
+  return { status: "ok", message: "Coverage added." };
+}
+
+export async function removeAssetCoverage(id: string): Promise<Plain> {
+  const auth = await requireEditor();
+  if (!auth.authorized) return { status: "error", message: auth.error ?? "Unauthorized" };
+  const row = await prisma.assetCoverage.delete({ where: { id }, select: { assetId: true } });
+  revalidatePath(`/dashboard/assets/${row.assetId}`);
+  return { status: "ok", message: "Coverage removed." };
 }

@@ -7,6 +7,12 @@ import {
   type Column,
 } from "@/components/list/list-table";
 import { PageHeader } from "@/components/shell/page-header";
+import {
+  BulkEditToggle,
+  BulkRatesProvider,
+  BulkSelectCheck,
+  BulkSelectionBar,
+} from "@/components/pricing/bulk-rates";
 import { PricingFeedback } from "@/components/pricing/pricing-feedback";
 import { PricingTabs } from "@/components/pricing/pricing-tabs";
 import { RateCell } from "@/components/pricing/rate-cell";
@@ -47,7 +53,13 @@ async function HeaderBlurb() {
   );
 }
 
-async function CatalogueTable({ search, page }: { search: string; page: number }) {
+async function CatalogueTable({
+  search,
+  page,
+}: {
+  search: string;
+  page: number;
+}) {
   const { rows, total, pageSize } = await getPricingList({ search, page });
   const pages = Math.max(1, Math.ceil(total / pageSize));
 
@@ -59,64 +71,83 @@ async function CatalogueTable({ search, page }: { search: string; page: number }
     return query ? `/dashboard/pricing?${query}` : "/dashboard/pricing";
   }
 
+  // What bulk edit needs of each row: enough to list it in the dialog and
+  // preview a change from, without the rendered cells.
+  const bulkRows = rows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    rates: row.rates,
+  }));
+
   return (
-    <ListTable
-      columns={COLUMNS}
-      total={total}
-      page={page}
-      pageSize={pageSize}
-      pagination={{ page, pages, hrefFor }}
-      empty={
-        search ? (
-          <>
-            No active model matches &ldquo;{search}&rdquo; — by name,
-            manufacturer, or category.
-          </>
-        ) : (
-          <>There are no models to price yet.</>
-        )
-      }
-      rows={rows.map((row) => ({
-        id: row.id,
-        // No row href: every cell to the right of Category is an input, and a
-        // row that navigates on click cannot hold one.
-        cells: {
-          name: (
-            <span className="truncate">
-              <Link
-                href={`/dashboard/assets/${row.id}`}
-                className="font-bold hover:text-accent-text"
-              >
-                {row.name}
-              </Link>
-              {row.maker ? (
-                <span className="text-ink-faint"> · {row.maker}</span>
-              ) : null}
-            </span>
-          ),
-          category: (
-            <span className="truncate text-ink-muted">{row.categoryName}</span>
-          ),
-          fleet: (
-            <span className="text-ink-muted">
-              {row.fleet || <span className="text-ink-faint">—</span>}
-            </span>
-          ),
-          ...Object.fromEntries(
-            RATE_TIERS.map((tier) => [
-              tier,
-              <RateCell
-                key={tier}
-                assetId={row.id}
-                tier={tier}
-                value={row.rates[tier]}
-                label={`${RATE_TIER_LABEL[tier]} rate, ${row.name}`}
-              />,
-            ]),
-          ),
-        },
-      }))}
-    />
+    <>
+      <BulkSelectionBar rows={bulkRows} />
+      <ListTable
+        columns={COLUMNS}
+        total={total}
+        page={page}
+        pageSize={pageSize}
+        pagination={{ page, pages, hrefFor }}
+        empty={
+          search ? (
+            <>
+              No active model matches &ldquo;{search}&rdquo; — by name,
+              manufacturer, or category.
+            </>
+          ) : (
+            <>There are no models to price yet.</>
+          )
+        }
+        rows={rows.map((row, index) => ({
+          id: row.id,
+          // No row href: every cell to the right of Category is an input, and a
+          // row that navigates on click cannot hold one.
+          cells: {
+            name: (
+              <span className="flex min-w-0 items-center gap-2">
+                <BulkSelectCheck row={bulkRows[index]} />
+                <span className="truncate">
+                  <Link
+                    href={`/dashboard/assets/${row.id}`}
+                    className="font-bold hover:text-accent-text"
+                  >
+                    {row.name}
+                  </Link>
+                  {row.maker ? (
+                    <span className="text-ink-faint"> · {row.maker}</span>
+                  ) : null}
+                </span>
+              </span>
+            ),
+            category: (
+              <span className="truncate text-ink-muted">
+                {row.categoryName}
+              </span>
+            ),
+            fleet: (
+              <span className="text-ink-muted">
+                {row.fleet || <span className="text-ink-faint">—</span>}
+              </span>
+            ),
+            ...Object.fromEntries(
+              RATE_TIERS.map((tier) => [
+                tier,
+                <RateCell
+                  // Keyed on the figure as well: the cell seeds its draft from
+                  // `value` once, so a rate changed elsewhere — a bulk edit —
+                  // would otherwise refresh underneath a stale input.
+                  key={`${tier}:${row.rates[tier]}`}
+                  assetId={row.id}
+                  tier={tier}
+                  value={row.rates[tier]}
+                  label={`${RATE_TIER_LABEL[tier]} rate, ${row.name}`}
+                />,
+              ]),
+            ),
+          },
+        }))}
+      />
+    </>
   );
 }
 
@@ -151,6 +182,10 @@ async function CatalogueTable({ search, page }: { search: string; page: number }
  * Empty is not zero. A blank tier means the order builder's `pickRate` falls
  * through to the next one down; a zero means the model genuinely quotes at
  * nothing. Clearing a field writes null and the placeholder shows a dash.
+ *
+ * **Bulk edit** sets or adjusts rates across a selection in one go — see
+ * `components/pricing/bulk-rates.tsx`. It is the one place here that asks
+ * before saving, because its result lands on rows that may not be on screen.
  */
 export default async function PricingPage({
   searchParams,
@@ -162,7 +197,9 @@ export default async function PricingPage({
   const page = Math.max(1, Number(params.page) || 1);
 
   return (
-    <>
+    <BulkRatesProvider
+      tiers={RATE_TIERS.map((tier) => ({ tier, label: RATE_TIER_LABEL[tier] }))}
+    >
       <PageHeader
         eyebrow="Operate"
         title="Pricing"
@@ -171,7 +208,12 @@ export default async function PricingPage({
             <HeaderBlurb />
           </Suspense>
         }
-        actions={<ListSearch placeholder="Search models, makers, categories" />}
+        actions={
+          <>
+            <BulkEditToggle />
+            <ListSearch placeholder="Search models, makers, categories" />
+          </>
+        }
       />
 
       <PricingTabs current="catalogue" />
@@ -181,6 +223,6 @@ export default async function PricingPage({
           <CatalogueTable search={search} page={page} />
         </Suspense>
       </PricingFeedback>
-    </>
+    </BulkRatesProvider>
   );
 }

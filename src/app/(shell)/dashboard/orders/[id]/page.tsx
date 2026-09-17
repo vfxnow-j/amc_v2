@@ -12,6 +12,9 @@ import {
 } from "@/components/reservations/record-cards";
 import { CheckoutPanel } from "@/components/reservations/checkout-panel";
 import { CheckinSession } from "@/components/orders/checkin-session";
+import { OrderOptions } from "@/components/orders/order-options";
+import { getOrderOptions } from "@/lib/queries/packages";
+import { PACKAGE_EDITABLE_STATUSES } from "@/lib/types";
 import { ExtendOrder } from "@/components/orders/extend-order";
 import { extensionLines } from "@/lib/queries/extension";
 import { unitsOutOn } from "@/lib/queries/checkin";
@@ -145,10 +148,23 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
  * A card per Suspense boundary: the activity log and the margin figures never
  * hold up the lines.
  */
-export default async function OrderRecordPage({ params }: Params) {
+export default async function OrderRecordPage({
+  params,
+  searchParams,
+}: Params & { searchParams: Promise<{ option?: string }> }) {
   const { id } = await params;
+  const { option: optionParam } = await searchParams;
   const header = await getReservationHeader(id);
   if (!header) notFound();
+
+  // Quote options (the order's packages). The one viewed is the URL's, else the
+  // one the order goes ahead with.
+  const options = await getOrderOptions(id);
+  const viewedOption =
+    options.find((option) => option.id === optionParam) ??
+    options.find((option) => option.isActive) ??
+    options[0];
+  const optionsEditable = PACKAGE_EDITABLE_STATUSES.includes(header.status);
 
   const { progress } = header;
   // The counters are cumulative — check-in never decrements checkedOutCount —
@@ -256,6 +272,18 @@ export default async function OrderRecordPage({ params }: Params) {
         </Suspense>
       ) : null}
 
+      {/* The options the client chooses between on the online quote. Shown
+          while options can still change, and afterwards only when there was
+          more than one to choose from. */}
+      {viewedOption && (optionsEditable || options.length > 1) ? (
+        <OrderOptions
+          reservationId={id}
+          options={options}
+          selectedId={viewedOption.id}
+          editable={optionsEditable}
+        />
+      ) : null}
+
       <div className="grid flex-1 gap-3 lg:grid-cols-[1.6fr_1fr]">
         {/* Lines can be taken off while the order is still live. The ported
             action refuses on a closed order, so the control is not offered on
@@ -269,6 +297,11 @@ export default async function OrderRecordPage({ params }: Params) {
               start: header.start.toISOString(),
               end: header.end.toISOString(),
             }}
+            option={
+              viewedOption
+                ? { id: viewedOption.id, name: viewedOption.name, several: options.length > 1 }
+                : undefined
+            }
           />
         </Suspense>
 

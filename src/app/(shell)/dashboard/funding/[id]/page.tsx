@@ -13,6 +13,7 @@ import {
 } from "@/components/procurement/funding-cards";
 import { FundingEvidence } from "@/components/procurement/funding-evidence";
 import { FundingLifecycle, type Step } from "@/components/procurement/funding-lifecycle";
+import { CreatePlaceholderLeaseButton } from "@/components/procurement/placeholder-lease-prompt";
 import { ApprovalCard } from "@/components/approvals/approval-card";
 import { historyFor, isApprover } from "@/lib/approvals/core";
 import { canRaise, isProcurementAdmin, mayEditFunding, mayMoveOwnFunding } from "@/lib/procurement/access";
@@ -72,6 +73,14 @@ export default async function FundingRequestRecordPage({ params }: Params) {
   const locked = FUNDING_LOCKED.includes(record.status);
   const canEdit = !!user && mayEditFunding(user, record);
   const canRaisePO = !!user && canRaise(user.role) && FUNDING_CAN_RAISE_PO.includes(record.status);
+  // Approved or funded with no loan named: an approver or admin can set up a
+  // placeholder lease from the request. The approve step offers the same thing
+  // as it happens; this covers approvals that asked nobody, and second thoughts.
+  const offerPlaceholderLease =
+    !!user &&
+    !record.lease &&
+    (record.status === "APPROVED" || record.status === "FUNDED") &&
+    (admin || (await isApprover(user, "FUNDING_REQUEST")));
 
   const metrics = computeFundingMetrics({
     totalEquipmentCost: record.totalEquipmentCost,
@@ -385,9 +394,19 @@ export default async function FundingRequestRecordPage({ params }: Params) {
                 <span className="block text-ink-faint">{record.lease.lender}</span>
               </Link>
             ) : (
-              <CardEmpty>
-                No loan is linked. It is named when the request is marked funded.
-              </CardEmpty>
+              <>
+                <CardEmpty>
+                  No loan is linked. It is named when the request is marked funded
+                  {offerPlaceholderLease
+                    ? ", or start a placeholder lease from this request now and complete it from the lender's agreement."
+                    : "."}
+                </CardEmpty>
+                {offerPlaceholderLease ? (
+                  <div className="px-4 pb-4">
+                    <CreatePlaceholderLeaseButton fundingRequestId={record.id} />
+                  </div>
+                ) : null}
+              </>
             )}
           </Card>
 

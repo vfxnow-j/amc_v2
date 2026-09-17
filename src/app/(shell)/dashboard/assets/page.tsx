@@ -228,34 +228,19 @@ export default async function AssetsPage({
             {/* Adding hardware starts in Procurement: a model and its units are
                 created when a purchase order is received, which is what gives
                 each unit its trail back to the PO, the funding request and the
-                loan. So receiving is the button. Hardware that never had a PO
-                goes in through the asset import, the one other way v2 creates
-                units — single-unit hand registration is not built yet
-                (createAsset / createAssetUnit are ported and wired to nothing;
-                build-plan queue, Inventory). */}
+                loan. Raising and receiving live on Purchase orders, not here.
+                Hardware that never had a PO goes in through the asset import,
+                the one other way v2 creates units — single-unit hand
+                registration is not built yet (createAsset / createAssetUnit
+                are ported and wired to nothing; build-plan queue, Inventory). */}
             {procurement ? (
-              <>
-                <Link
-                  href="/dashboard/settings/import/assets"
-                  title="For hardware that did not come through a purchase order"
-                  className="h-9 flex-none px-2 text-pill leading-9 text-ink-muted hover:text-ink"
-                >
-                  Import
-                </Link>
-                <Link
-                  href="/dashboard/purchase-orders"
-                  title="Purchase orders on order — receive one to add its units"
-                  className="h-9 flex-none rounded-pill bg-sunken px-3 text-pill leading-9 text-ink hover:bg-row-hover"
-                >
-                  Receive a PO
-                </Link>
-                <Link
-                  href="/dashboard/purchase-orders/new"
-                  className="h-9 flex-none rounded-pill bg-accent-solid px-4 text-pill leading-9 text-accent-on-solid transition-colors hover:bg-accent-800"
-                >
-                  Raise a PO
-                </Link>
-              </>
+              <Link
+                href="/dashboard/settings/import/assets"
+                title="For hardware that did not come through a purchase order"
+                className="h-9 flex-none px-2 text-pill leading-9 text-ink-muted hover:text-ink"
+              >
+                Import
+              </Link>
             ) : null}
           </>
         }

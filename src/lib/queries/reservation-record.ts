@@ -72,7 +72,13 @@ export async function getReservationHeader(
         select: { id: true, name: true, companyName: true, email: true },
       },
       items: {
-        where: { assetId: { not: null }, parentId: null },
+        // The option the order goes ahead with: an alternative the client may
+        // never choose has nothing to pull, send or bring back.
+        where: {
+          assetId: { not: null },
+          parentId: null,
+          OR: [{ packageId: null }, { package: { isActive: true } }],
+        },
         select: {
           quantity: true,
           assignedCount: true,
@@ -143,6 +149,8 @@ export type RecordComponent = {
   isOneTime: boolean;
   /** Part of the base price: shown as spec, charged nothing. */
   includedInParent: boolean;
+  /** Units scanned out against this part — a GPU married to its machine. */
+  unitBarcodes: string[];
 };
 
 export type RecordLine = {
@@ -152,6 +160,8 @@ export type RecordLine = {
   /** Asset name, or the free-text description for an ad-hoc line. */
   label: string;
   assetId: string | null;
+  /** The asset has options to configure it with. */
+  configurable: boolean;
   category: string | null;
   quantity: number;
   rate: number;
@@ -185,9 +195,13 @@ export type RecordLine = {
  * Component sub-items are folded into their parent's label rather than listed:
  * they are pricing rows, not things anyone pulls off a shelf.
  */
-export async function getReservationLines(id: string): Promise<RecordLine[]> {
+export async function getReservationLines(
+  id: string,
+  /** One quote option's lines. Omitted, every line on the order. */
+  packageId?: string,
+): Promise<RecordLine[]> {
   const items = await prisma.reservationItem.findMany({
-    where: { reservationId: id, parentId: null },
+    where: { reservationId: id, parentId: null, ...(packageId ? { packageId } : {}) },
     orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
     select: {
       id: true,
@@ -201,7 +215,14 @@ export async function getReservationLines(id: string): Promise<RecordLine[]> {
       subtotal: true,
       isOneTime: true,
       assetId: true,
-      asset: { select: { name: true, category: { select: { name: true } } } },
+      asset: {
+        select: {
+          name: true,
+          category: { select: { name: true } },
+          // Configurable when it has options (Settings → Configurable items).
+          _count: { select: { components: true } },
+        },
+      },
       service: { select: { name: true } },
       cloudProduct: { select: { name: true } },
       package: { select: { name: true } },
@@ -222,6 +243,10 @@ export async function getReservationLines(id: string): Promise<RecordLine[]> {
           description: true,
           assetId: true,
           asset: { select: { name: true } },
+          units: {
+            where: { checkedOutAt: { not: null }, checkedInAt: null },
+            select: { assetUnit: { select: { barcode: true } } },
+          },
         },
       },
       units: {
@@ -272,6 +297,7 @@ export async function getReservationLines(id: string): Promise<RecordLine[]> {
         subtotal: Number(part.subtotal),
         isOneTime: part.isOneTime,
         includedInParent: part.includedInParent,
+        unitBarcodes: part.units.map((unit) => unit.assetUnit.barcode),
       })),
       label:
         item.asset?.name ??
@@ -280,6 +306,7 @@ export async function getReservationLines(id: string): Promise<RecordLine[]> {
         item.description ??
         "Untitled line",
       assetId: item.assetId,
+      configurable: (item.asset?._count.components ?? 0) > 0,
       category: item.asset?.category?.name ?? item.category,
       quantity: item.quantity,
       rate: Number(item.rate),

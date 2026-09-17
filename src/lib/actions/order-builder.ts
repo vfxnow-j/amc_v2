@@ -6,7 +6,7 @@ import { requireEditor } from "@/lib/auth-utils";
 import { createReservation } from "@/lib/actions/reservations";
 import type { ReservationType } from "@/generated/prisma/client";
 import type { PricingType } from "@/lib/types";
-import { parseDateInput } from "@/lib/billing/calendar";
+import { intendedDay, parseDateInput } from "@/lib/billing/calendar";
 import {
   findSubstitutes,
   searchAssetsForWindow,
@@ -19,6 +19,19 @@ import {
  * actions so the client component can call them as the person types, rather
  * than the page shipping the whole catalog to the browser.
  */
+
+/**
+ * A window date as a calendar day. The builder sends a date input's
+ * `YYYY-MM-DD`; the order record's Add line sends the order's stored dates as
+ * ISO timestamps. Both must work — accepting only the first made Add line on an
+ * existing order find no assets at all.
+ */
+function windowDay(value: string): Date | null {
+  const day = parseDateInput(value);
+  if (day) return day;
+  const instant = new Date(value);
+  return Number.isNaN(instant.getTime()) ? null : intendedDay(instant);
+}
 
 export async function lookupClients(query: string) {
   const auth = await requireEditor();
@@ -33,8 +46,8 @@ export async function lookupAssets(
 ): Promise<AssetAvailability[]> {
   const auth = await requireEditor();
   if (!auth.authorized) return [];
-  const from = parseDateInput(start);
-  const to = parseDateInput(end);
+  const from = windowDay(start);
+  const to = windowDay(end);
   if (!from || !to) return [];
   return searchAssetsForWindow(query, from, to);
 }
@@ -47,8 +60,8 @@ export async function lookupSubstitutes(
 ): Promise<AssetAvailability[]> {
   const auth = await requireEditor();
   if (!auth.authorized) return [];
-  const from = parseDateInput(start);
-  const to = parseDateInput(end);
+  const from = windowDay(start);
+  const to = windowDay(end);
   if (!from || !to) return [];
   return findSubstitutes(assetId, quantity, from, to);
 }

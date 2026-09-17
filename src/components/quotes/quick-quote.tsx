@@ -21,6 +21,7 @@ import {
   parseDateInput,
   toDateInput,
 } from "@/lib/billing/calendar";
+import { PackagePicks, usePackageSearch } from "@/components/packages/package-picks";
 
 const MONEY = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -107,6 +108,8 @@ export function QuickQuote({
   const [clientHits, setClientHits] = useState<Client[]>([]);
 
   const [assetQuery, setAssetQuery] = useState("");
+  const packageHits = usePackageSearch(assetQuery);
+  const [packageNote, setPackageNote] = useState<string | null>(null);
   const [assetHits, setAssetHits] = useState<AssetAvailability[]>([]);
   const [lines, setLines] = useState<Line[]>([]);
 
@@ -407,37 +410,65 @@ export function QuickQuote({
           </div>
 
           {prospect ? (
-            <div className="flex flex-col gap-2 rounded-well bg-sunken p-3">
-              <input
-                type="email"
-                value={prospect.email}
-                autoFocus
-                onChange={(event) =>
-                  setProspect({ ...prospect, email: event.target.value })
-                }
-                placeholder="them@studio.com"
-                aria-label="Their email"
-                className={`${FIELD} bg-panel`}
-              />
-              <div className="grid gap-2 sm:grid-cols-2">
+            <div className="flex flex-col gap-3 rounded-well border border-hairline p-3">
+              {/* Real fields: a label above each, a visible edge, and the email
+                  marked required and checked as it is typed. They used to be
+                  bare placeholders on a panel one shade off the sunken well,
+                  and read as part of the background. */}
+              <div>
+                <label className={LABEL} htmlFor="qq-prospect-email">
+                  Email <span className="text-destructive">*</span>
+                </label>
                 <input
-                  value={prospect.name}
+                  id="qq-prospect-email"
+                  type="email"
+                  value={prospect.email}
+                  autoFocus
+                  required
                   onChange={(event) =>
-                    setProspect({ ...prospect, name: event.target.value })
+                    setProspect({ ...prospect, email: event.target.value })
                   }
-                  placeholder="Name (optional)"
-                  aria-label="Their name"
-                  className={`${FIELD} bg-panel`}
+                  placeholder="them@studio.com"
+                  aria-invalid={Boolean(prospect.email.trim()) && !named}
+                  className={`${FIELD} border border-hairline focus-visible:ring-2 focus-visible:ring-ring ${
+                    prospect.email.trim() && !named ? "border-destructive" : ""
+                  }`}
                 />
-                <input
-                  value={prospect.companyName}
-                  onChange={(event) =>
-                    setProspect({ ...prospect, companyName: event.target.value })
-                  }
-                  placeholder="Company (optional)"
-                  aria-label="Their company"
-                  className={`${FIELD} bg-panel`}
-                />
+                {prospect.email.trim() && !named ? (
+                  <p className="pt-1 text-micro text-destructive">
+                    That doesn&rsquo;t look like an email address yet.
+                  </p>
+                ) : null}
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div>
+                  <label className={LABEL} htmlFor="qq-prospect-name">
+                    Name
+                  </label>
+                  <input
+                    id="qq-prospect-name"
+                    value={prospect.name}
+                    onChange={(event) =>
+                      setProspect({ ...prospect, name: event.target.value })
+                    }
+                    placeholder="Optional"
+                    className={`${FIELD} border border-hairline focus-visible:ring-2 focus-visible:ring-ring`}
+                  />
+                </div>
+                <div>
+                  <label className={LABEL} htmlFor="qq-prospect-company">
+                    Company
+                  </label>
+                  <input
+                    id="qq-prospect-company"
+                    value={prospect.companyName}
+                    onChange={(event) =>
+                      setProspect({ ...prospect, companyName: event.target.value })
+                    }
+                    placeholder="Optional"
+                    className={`${FIELD} border border-hairline focus-visible:ring-2 focus-visible:ring-ring`}
+                  />
+                </div>
               </div>
               <p className="text-micro text-ink-faint">
                 They get the onboarding form at this address. They do not get
@@ -575,14 +606,39 @@ export function QuickQuote({
                   typed.current = true;
                   setAssetQuery(event.target.value);
                 }}
-                placeholder="Search assets to add"
-                aria-label="Search assets"
+                placeholder="Search assets and our packages"
+                aria-label="Search assets and packages"
                 className="w-full border-0 bg-transparent text-body outline-none placeholder:text-ink-faint"
               />
             </label>
 
-            {assetHits.length > 0 ? (
+            {packageNote ? (
+              <p className="mt-1 text-detail text-ink-muted">{packageNote}</p>
+            ) : null}
+            {assetHits.length > 0 || packageHits.length > 0 ? (
               <ul className="mt-1 flex flex-col gap-px rounded-well bg-sunken p-1">
+                <PackagePicks
+                  hits={packageHits}
+                  start={start}
+                  end={end}
+                  onLines={(added, note) => {
+                    setPackageNote(note);
+                    if (added.length === 0) return;
+                    setAssetQuery("");
+                    setAssetHits([]);
+                    setLines((current) => [
+                      ...current,
+                      ...added.map((line) => ({
+                        assetId: line.assetId,
+                        name: line.name,
+                        quantity: line.quantity,
+                        rate: line.rate,
+                        pricingType: line.pricingType,
+                        free: line.free,
+                      })),
+                    ]);
+                  }}
+                />
                 {assetHits.map((asset) => (
                   <li key={asset.assetId}>
                     <button

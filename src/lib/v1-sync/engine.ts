@@ -100,6 +100,11 @@ const TABLE_RULES: Record<string, TableRule> = {
       periodEndDate: calendarDay("periodEndDate"),
     },
   },
+  // Which lease financed a purchase order or a funding request is linked in v2
+  // (the lease record's "Funding & purchase orders"). v1 has the columns but
+  // never sets them, so v1-wins would erase every link on the next sync.
+  purchase_orders: { v2OwnedOnUpdate: ["leaseId"] },
+  funding_requests: { v2OwnedOnUpdate: ["leaseId"] },
   users: {
     // v2's sign-in is its own: the dev password differs from v1's by design,
     // and v2 keeps its own MFA enrolment. New v1 staff arrive with v1's.

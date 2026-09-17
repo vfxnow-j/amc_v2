@@ -98,12 +98,6 @@ export const NAV_CLUSTERS: NavCluster[] = [
         ],
       },
       {
-        // Promoted out of reservations; the Package model already exists.
-        id: "packages",
-        label: "Packages",
-        href: "/dashboard/packages",
-      },
-      {
         // New in v2. Until this screen there was nowhere in the app to change
         // what a model charges: the rates live on `Asset`, the asset record
         // shows them read-only, and `setLineRate` only ever fixed one line of
@@ -141,6 +135,15 @@ export const NAV_CLUSTERS: NavCluster[] = [
         ],
       },
       {
+        // Moved from Operate on the owner's call (2026-09-17): a package is
+        // what we stock and sell as a set, so it sits beside the assets it is
+        // built from. Two views — our predefined packages, and the options that
+        // went ahead with clients.
+        id: "packages",
+        label: "Packages",
+        href: "/dashboard/packages",
+      },
+      {
         // Serialized units are only reachable through an asset in v1
         // (/dashboard/assets/[id]/units); v2 promotes them to a list.
         id: "units",
@@ -168,7 +171,6 @@ export const NAV_CLUSTERS: NavCluster[] = [
     id: "service",
     code: "SC",
     label: "Service center",
-    isNew: true,
     roles: [...ALL_ADMIN, "STAFF"],
     pages: [
       {
@@ -204,7 +206,6 @@ export const NAV_CLUSTERS: NavCluster[] = [
     id: "procurement",
     code: "PR",
     label: "Procurement",
-    isNew: true,
     // STAFF since Phase 6: they raise purchase orders and funding requests,
     // which wait for approval. VIEWER still has no rail entry here.
     roles: [...ALL_ADMIN, "STAFF"],
@@ -287,6 +288,14 @@ export const NAV_CLUSTERS: NavCluster[] = [
         label: "Leases",
         href: "/dashboard/leases",
         from: ["/dashboard/leases"],
+      },
+      {
+        // The fixed asset register (owner, 2026-09-17): every unit's cost,
+        // ownership, depreciation and book value on one screen, with PDF and
+        // CSV — what accounting needs without opening each unit record.
+        id: "fixed-assets",
+        label: "Fixed assets",
+        href: "/dashboard/fixed-assets",
       },
     ],
   },

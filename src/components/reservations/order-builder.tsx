@@ -23,6 +23,7 @@ import {
   parseDateInput,
   toDateInput,
 } from "@/lib/billing/calendar";
+import { PackagePicks, usePackageSearch } from "@/components/packages/package-picks";
 
 const MONEY = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -138,6 +139,8 @@ export function OrderBuilder({
   const [newClientError, setNewClientError] = useState("");
 
   const [assetQuery, setAssetQuery] = useState("");
+  const packageHits = usePackageSearch(assetQuery);
+  const [packageNote, setPackageNote] = useState<string | null>(null);
   const [assetHits, setAssetHits] = useState<AssetAvailability[]>([]);
 
   const [lines, setLines] = useState<Line[]>([]);
@@ -245,14 +248,40 @@ export function OrderBuilder({
                 typed.current = true;
                 setAssetQuery(event.target.value);
               }}
-              placeholder="Search assets to add"
-              aria-label="Search assets"
+              placeholder="Search assets and our packages"
+              aria-label="Search assets and packages"
               className="w-full border-0 bg-transparent text-body outline-none placeholder:text-ink-faint"
             />
           </label>
 
-          {assetHits.length > 0 ? (
+          {packageNote ? (
+            <p className="mt-2 text-detail text-ink-muted">{packageNote}</p>
+          ) : null}
+          {assetHits.length > 0 || packageHits.length > 0 ? (
             <ul className="mt-2 flex flex-col gap-px rounded-well bg-sunken p-1">
+              <PackagePicks
+                hits={packageHits}
+                start={start}
+                end={end}
+                onLines={(added, note) => {
+                  setPackageNote(note);
+                  if (added.length === 0) return;
+                  setAssetQuery("");
+                  setAssetHits([]);
+                  setLines((current) => [
+                    ...current,
+                    ...added.map((line) => ({
+                      assetId: line.assetId,
+                      name: line.name,
+                      quantity: line.quantity,
+                      rate: line.rate,
+                      pricingType: line.pricingType,
+                      free: line.free,
+                      freeFrom: line.freeFrom ? iso(new Date(line.freeFrom)) : null,
+                    })),
+                  ]);
+                }}
+              />
               {assetHits.map((asset) => (
                 <li key={asset.assetId}>
                   <button

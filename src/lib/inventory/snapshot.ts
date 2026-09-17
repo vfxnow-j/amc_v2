@@ -170,6 +170,9 @@ export async function getInventorySnapshot(
     prisma.reservationItem.findMany({
       where: {
         assetId: { not: null },
+        // Only the quote option each order goes ahead with; alternatives hold
+        // nothing. See lib/queries/order-builder availabilityFor.
+        OR: [{ packageId: null }, { package: { isActive: true } }],
         reservation: {
           status: { in: [...COMMITTED_STATUSES] },
           startDate: { lt: horizonEnd },
@@ -187,6 +190,7 @@ export async function getInventorySnapshot(
     prisma.reservationItem.findMany({
       where: {
         assetId: { not: null },
+        OR: [{ packageId: null }, { package: { isActive: true } }],
         reservation: {
           status: { in: [...PIPELINE_STATUSES] },
           startDate: { lt: horizonEnd },

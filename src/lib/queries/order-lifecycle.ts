@@ -52,6 +52,10 @@ export type OrderLifecycle = {
     /** The order's own terms, or null when it inherits the client's. */
     paymentTerms: number | null;
     total: number;
+    subtotal: number;
+    totalCost: number | null;
+    termMonths: number | null;
+    rtoTermMonths: number | null;
   };
   /**
    * Everything raised against the order, and the totals over it.
@@ -165,6 +169,10 @@ export async function getOrderLifecycle(
         discountAmount: true,
         paymentTerms: true,
         total: true,
+        subtotal: true,
+        totalCost: true,
+        termMonths: true,
+        rtoTermMonths: true,
       },
     }),
     prisma.invoice.findMany({
@@ -246,6 +254,10 @@ export async function getOrderLifecycle(
       discountAmount: Number(order.discountAmount),
       paymentTerms: order.paymentTerms,
       total: Number(order.total),
+      subtotal: Number(order.subtotal),
+      totalCost: order.totalCost === null ? null : Number(order.totalCost),
+      termMonths: order.termMonths,
+      rtoTermMonths: order.rtoTermMonths,
     },
     invoiced: {
       // Void and canceled invoices carry a total nobody is waiting for, so they

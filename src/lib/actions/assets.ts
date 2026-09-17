@@ -487,6 +487,11 @@ export async function updateAssetUnit(id: string, data: Partial<AssetUnitFormDat
   revalidatePath('/dashboard/assets')
   revalidatePath(`/dashboard/assets/${unit.assetId}`)
 
+  // Set to MAINTENANCE by hand: it still gets a work order.
+  if (data.status === 'MAINTENANCE') {
+    const { ensureWorkOrders } = await import('@/lib/service/ensure-work-orders')
+    await ensureWorkOrders()
+  }
   return serialize(unit)
 }
 

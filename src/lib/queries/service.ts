@@ -9,8 +9,9 @@ export const WORK_ORDER_LABEL: Record<WorkOrderStatus, string> = {
   IN_TEST: "In test",
   AWAITING_PARTS: "Awaiting parts",
   RMA: "RMA",
-  CLOSED_PASS: "Closed — pass",
-  CLOSED_SCRAP: "Closed — scrapped",
+  CLOSED_PASS: "Released to inventory",
+  CLOSED_SCRAP: "Retired",
+  CLOSED_PARTED: "Parted out",
 };
 
 export const QC_LABEL: Record<QcResult, string> = {
@@ -75,6 +76,10 @@ export async function getWorkOrder(id: string) {
       notes: true,
       openedAt: true,
       closedAt: true,
+      rmaProvider: true,
+      rmaNumber: true,
+      rmaSentAt: true,
+      rmaReturnedAt: true,
       assetUnit: {
         select: {
           id: true,
@@ -210,4 +215,49 @@ export async function getCoverage(now = new Date()) {
     }),
   ]);
   return { expiring, rma, now };
+}
+
+export type UnitCoverage = {
+  name: string;
+  provider: string | null;
+  /** Where it's defined: every unit of the model, or this unit alone. */
+  source: "model" | "unit" | "warranty";
+  endDate: Date | null;
+  active: boolean;
+};
+
+/**
+ * What covers one unit: the model's coverage (running its term from the unit's
+ * purchase date), coverage recorded on the unit itself, and the unit's
+ * warranty date. Active when its end date hasn't passed; a model coverage on a
+ * unit with no purchase date can't be dated and shows undated.
+ */
+export async function getUnitCoverage(unitId: string): Promise<UnitCoverage[]> {
+  const unit = await prisma.assetUnit.findUnique({
+    where: { id: unitId },
+    select: {
+      purchaseDate: true,
+      warrantyExpiry: true,
+      serviceCoverages: { select: { name: true, provider: true, endDate: true } },
+      asset: { select: { coverages: { orderBy: { sortOrder: "asc" }, select: { name: true, provider: true, termMonths: true } } } },
+    },
+  });
+  if (!unit) return [];
+  const now = new Date();
+  const rows: UnitCoverage[] = [];
+  for (const coverage of unit.asset.coverages) {
+    let endDate: Date | null = null;
+    if (unit.purchaseDate) {
+      endDate = new Date(unit.purchaseDate);
+      endDate.setUTCMonth(endDate.getUTCMonth() + coverage.termMonths);
+    }
+    rows.push({ name: coverage.name, provider: coverage.provider, source: "model", endDate, active: endDate ? endDate > now : true });
+  }
+  for (const coverage of unit.serviceCoverages) {
+    rows.push({ name: coverage.name, provider: coverage.provider, source: "unit", endDate: coverage.endDate, active: coverage.endDate > now });
+  }
+  if (unit.warrantyExpiry) {
+    rows.push({ name: "Warranty", provider: null, source: "warranty", endDate: unit.warrantyExpiry, active: unit.warrantyExpiry > now });
+  }
+  return rows;
 }

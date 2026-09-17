@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { PageHeader } from "@/components/shell/page-header";
 import { ApprovalDecision } from "@/components/approvals/approval-decision";
+import { PlaceholderLeaseHost } from "@/components/procurement/placeholder-lease-prompt";
 import { queueFor, type QueueItem } from "@/lib/approvals/core";
 import { APPROVAL_TYPE_LABEL, APPROVAL_TYPE_NOUN } from "@/lib/approvals/labels";
 import { dayYear, moneyExact } from "@/lib/format";
@@ -64,6 +65,9 @@ export default async function ApprovalsPage() {
         }
       />
 
+      {/* Approving a funding request offers a placeholder lease; the host keeps
+          that question on screen after the approved row leaves the list. */}
+      <PlaceholderLeaseHost>
       {items.length === 0 ? (
         <section className="flex flex-1 items-center justify-center rounded-card bg-panel p-[14px] shadow-sm">
           <p className="max-w-md text-center text-body text-balance text-ink-muted">
@@ -81,6 +85,7 @@ export default async function ApprovalsPage() {
           ))}
         </ul>
       )}
+      </PlaceholderLeaseHost>
     </>
   );
 }
@@ -129,6 +134,7 @@ function Row({ item }: { item: QueueItem }) {
           amount={moneyExact(item.currentAmount)}
           requestedBy={item.requestedByName}
           compact
+          placeholderLeaseFor={item.recordType === "FUNDING_REQUEST" ? item.recordId : undefined}
         />
       </div>
     </li>

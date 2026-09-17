@@ -938,6 +938,27 @@ export function BillingTermsFields({
         />
       </div>
 
+      {recurring && type !== "RENT_TO_OWN" ? (
+        <div>
+          <Label>Committed term, months</Label>
+          <input
+            type="number"
+            min={1}
+            max={120}
+            value={value.termMonths ?? ""}
+            placeholder="Open-ended"
+            onChange={(event) =>
+              set({ termMonths: event.target.value === "" ? null : Math.max(0, Math.round(Number(event.target.value))) || null })
+            }
+            aria-label="Committed term, months"
+            className="h-9 w-full rounded-well border-0 bg-sunken px-3 text-detail tabular-nums text-ink outline-none"
+          />
+          <p className="mt-1 text-micro text-ink-faint">
+            The length of the deal — a 14-month rental billed monthly. Margin is read over it. Billing is unchanged.
+          </p>
+        </div>
+      ) : null}
+
       <NumberField
         label="Payment terms, days"
         value={value.paymentTerms ?? clientPaymentTerms}
@@ -971,7 +992,9 @@ export function BillingTermsFields({
         {value.notBilled
           ? "Nothing will be billed against this order."
           : recurring
-            ? `Recurring — ${MONEY.format(total)} is the order's value; each cycle raises its own invoice.`
+            ? value.termMonths && type !== "RENT_TO_OWN"
+              ? `Recurring — ${MONEY.format(total)} each cycle over a ${value.termMonths}-month deal; each cycle raises its own invoice.`
+              : `Recurring — ${MONEY.format(total)} is the order's value; each cycle raises its own invoice.`
             : `One charge of ${MONEY.format(total)} for the whole term.`}
       </p>
     </div>

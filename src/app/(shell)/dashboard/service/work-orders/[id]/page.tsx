@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/shell/page-header";
 import { Card } from "@/components/reservations/record-cards";
 import { WorkOrderActions } from "@/components/service/work-order-actions";
-import { getWorkOrder, QC_LABEL, WORK_ORDER_LABEL } from "@/lib/queries/service";
+import { getUnitCoverage, getWorkOrder, QC_LABEL, WORK_ORDER_LABEL } from "@/lib/queries/service";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -34,6 +34,7 @@ export default async function WorkOrderPage({ params }: Params) {
   if (!workOrder) notFound();
 
   const unit = workOrder.assetUnit;
+  const coverage = await getUnitCoverage(unit.id);
 
   return (
     <>
@@ -127,6 +128,15 @@ export default async function WorkOrderPage({ params }: Params) {
             <WorkOrderActions
               workOrderId={workOrder.id}
               status={workOrder.status}
+              notes={workOrder.notes}
+              passedTests={workOrder.testRuns.filter((run) => run.result === "PASS").length}
+              rma={{
+                provider: workOrder.rmaProvider,
+                number: workOrder.rmaNumber,
+                sentAt: workOrder.rmaSentAt?.toISOString() ?? null,
+                returnedAt: workOrder.rmaReturnedAt?.toISOString() ?? null,
+              }}
+              suggestedProvider={coverage.find((row) => row.active && row.provider)?.provider ?? null}
             />
           </Card>
 
@@ -138,12 +148,41 @@ export default async function WorkOrderPage({ params }: Params) {
                 {unit.serialNumber ?? "No serial recorded"} ·{" "}
                 {unit.status.toLowerCase().replace("_", " ")}
               </p>
-              {workOrder.notes ? (
-                <p className="mt-2 whitespace-pre-line rounded-well bg-sunken p-2 text-ink-muted">
-                  {workOrder.notes}
-                </p>
-              ) : null}
             </div>
+          </Card>
+
+          {/* Whether someone else is on the hook: the model's coverage (run from
+              the unit's purchase date), the unit's own, and its warranty. */}
+          <Card title="Coverage" meta={coverage.some((row) => row.active) ? "covered" : coverage.length ? "lapsed" : "none recorded"}>
+            {coverage.length === 0 ? (
+              <p className="px-4 pb-4 text-detail text-ink-muted">
+                Nothing recorded. Add coverage on the{" "}
+                <Link href={`/dashboard/assets/${unit.asset.id}`} className="text-accent-text hover:underline">
+                  asset record
+                </Link>{" "}
+                — e.g. a 3-year warranty — and every unit shows it.
+              </p>
+            ) : (
+              <ul className="flex flex-col gap-px px-2 pb-3">
+                {coverage.map((row, index) => (
+                  <li
+                    key={`${row.source}-${index}`}
+                    className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-2 rounded-row px-2 py-[5px] text-detail odd:bg-row-alt"
+                  >
+                    <span className="min-w-0 truncate">
+                      <span className="font-bold">{row.name}</span>
+                      {row.provider ? <span className="text-ink-muted"> · {row.provider}</span> : null}
+                      <span className="text-ink-faint"> · {row.source === "model" ? "every unit of this model" : row.source === "unit" ? "this unit" : "unit warranty"}</span>
+                    </span>
+                    <span className={row.active ? "text-ink" : "text-destructive"}>
+                      {row.endDate
+                        ? `${row.active ? "until" : "ended"} ${row.endDate.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`
+                        : "no purchase date"}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
           </Card>
         </div>
       </div>

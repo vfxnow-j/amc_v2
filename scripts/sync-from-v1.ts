@@ -14,6 +14,7 @@ import "dotenv/config";
 import { cpSync, existsSync } from "node:fs";
 import path from "node:path";
 import { SyncRestrictError, syncFromV1, type SyncReport } from "@/lib/v1-sync/engine";
+import { ensureWorkOrders } from "@/lib/service/ensure-work-orders";
 
 const APPLY = process.argv.includes("--apply");
 const onlyArg = process.argv.find((arg, i) => process.argv[i - 1] === "--only");
@@ -55,9 +56,16 @@ function copyDocuments() {
 }
 
 syncFromV1({ apply: APPLY, only })
-  .then((report) => {
+  .then(async (report) => {
     print(report);
-    if (APPLY) copyDocuments();
+    if (APPLY) {
+      copyDocuments();
+      // v1 is still where units get sent to service: give each one a work order.
+      const { created } = await ensureWorkOrders();
+      if (created.length) {
+        console.log(`\nwork orders raised for units in service: ${created.map((w) => `${w.number} (${w.barcode})`).join(", ")}`);
+      }
+    }
     process.exit(0);
   })
   .catch((error) => {

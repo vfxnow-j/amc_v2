@@ -61,6 +61,8 @@ function getEntityFolder(entityType: string): string {
   switch (entityType) {
     case 'RESERVATION': return 'reservations'
     case 'ASSET': return 'assets'
+    case 'LEASE': return 'leases'
+    case 'FUNDING_REQUEST': return 'funding-requests'
     default: return 'purchase-orders'
   }
 }
@@ -1026,6 +1028,8 @@ export async function deleteDocument(id: string, reason?: string) {
     ? `/dashboard/orders/${document.entityId}`
     : document.entityType === 'ASSET'
     ? `/dashboard/assets/${document.entityId}`
+    : document.entityType === 'LEASE'
+    ? `/dashboard/leases/${document.entityId}`
     : `/dashboard/purchase-orders/${document.entityId}`
   revalidatePath(entityPath)
   revalidatePath('/dashboard/settings/documents')
@@ -1100,6 +1104,8 @@ export async function restoreDocument(id: string) {
     ? `/dashboard/orders/${document.entityId}`
     : document.entityType === 'ASSET'
     ? `/dashboard/assets/${document.entityId}`
+    : document.entityType === 'LEASE'
+    ? `/dashboard/leases/${document.entityId}`
     : `/dashboard/purchase-orders/${document.entityId}`
   revalidatePath(entityPath)
   revalidatePath('/dashboard/settings/documents')

@@ -88,6 +88,17 @@ export const SETTINGS_PAGES: SettingsPage[] = [
     group: "The workspace",
   },
   {
+    // The owner's call (2026-09-17): configuration lives in Settings, kept
+    // simple — pick the items that can be configured, then what each can be
+    // configured with. Replaces editing builds from the asset record.
+    id: "configurable-items",
+    label: "Configurable items",
+    href: "/dashboard/settings/configurable-items",
+    blurb: "Which machines can be configured, and with what — GPUs, memory, storage, add-ons.",
+    access: "admin",
+    group: "The catalog",
+  },
+  {
     id: "categories",
     label: "Categories",
     href: "/dashboard/settings/categories",

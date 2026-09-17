@@ -444,6 +444,8 @@ export type BillingTerms = {
   discountType: "PERCENTAGE" | "FIXED" | null;
   discountValue: number;
   paymentTerms: number | null;
+  /** Committed months on a recurring rental or cloud deal; null when open-ended. */
+  termMonths: number | null;
 };
 
 /**
@@ -496,6 +498,9 @@ export async function saveBillingTerms(
   if (terms.discountType === "PERCENTAGE" && terms.discountValue > 100) {
     return { status: "error", message: "A percentage discount cannot exceed 100." };
   }
+  if (terms.termMonths != null && (!Number.isInteger(terms.termMonths) || terms.termMonths < 1 || terms.termMonths > 120)) {
+    return { status: "error", message: "A committed term is a whole number of months, 1 to 120." };
+  }
 
   try {
     await updateReservation(id, {
@@ -510,6 +515,17 @@ export async function saveBillingTerms(
       discountType: terms.discountType ?? undefined,
       discountValue: terms.discountValue,
       ...(terms.paymentTerms != null ? { paymentTerms: terms.paymentTerms } : {}),
+    });
+    // v2-only and not a pricing input, so written directly. A one-time or
+    // sale order has no committed term.
+    await prisma.reservation.update({
+      where: { id },
+      data: {
+        termMonths:
+          recurringFor(current.reservationType, terms.billingCycleType) && current.reservationType !== "RENT_TO_OWN"
+            ? terms.termMonths
+            : null,
+      },
     });
     touch(id);
     return { status: "ok", message: "Billing terms saved. The order total was repriced against them." };
@@ -754,6 +770,8 @@ export async function addOrderLine(
     quantity: number;
     isOneTime?: boolean;
   },
+  /** Which quote option the line joins. Omitted, it joins the active one. */
+  packageId?: string,
 ): Promise<StageOutcome> {
   if (!line.assetId && !line.description?.trim()) {
     return { status: "error", message: "A line needs an asset or a description." };
@@ -775,6 +793,7 @@ export async function addOrderLine(
       line.description?.trim() || undefined,
       undefined,
       line.isOneTime,
+      packageId,
     );
 
     // If the asset is a SKU with a build, its default parts come with it. That
@@ -810,6 +829,14 @@ export async function addOrderLine(
  * carry a real rate and a zero subtotal, so summing subtotals is what respects
  * them; summing rate × quantity would charge for the base spec.
  */
+/** `repriceOrder` for other action modules — a line's configuration changing. */
+export async function repriceOrderAfterEdit(reservationId: string): Promise<void> {
+  const auth = await requireEditor();
+  if (!auth.authorized) return;
+  await repriceOrder(reservationId);
+  touch(reservationId);
+}
+
 async function repriceOrder(reservationId: string): Promise<void> {
   const order = await prisma.reservation.findUnique({
     where: { id: reservationId },

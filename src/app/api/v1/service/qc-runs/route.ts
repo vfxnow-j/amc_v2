@@ -3,6 +3,7 @@ import type { QcResult } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { validateApiKey } from "@/lib/api-auth";
 import { checkRateLimit } from "@/lib/utils/rate-limit";
+import { OPEN_WORK_ORDER_STATUSES } from "@/lib/service/statuses";
 
 /**
  * POST /api/v1/service/qc-runs — a bench rig files a test result.
@@ -76,7 +77,7 @@ export async function POST(request: NextRequest) {
       { status: 404 },
     );
   }
-  if (workOrder.status === "CLOSED_PASS" || workOrder.status === "CLOSED_SCRAP") {
+  if (!OPEN_WORK_ORDER_STATUSES.includes(workOrder.status)) {
     return NextResponse.json(
       { error: `${workOrderNumber} is closed; reopen it or raise a new one` },
       { status: 409 },

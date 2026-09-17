@@ -4546,20 +4546,42 @@ export async function checkoutByBarcode(
     if (!reservation) return { success: false, error: 'Reservation not found' }
 
     // Find existing reservation item for this asset type, or create one ad hoc.
-    // Skip component sub-items — those are pricing lines, not physical units.
+    // A machine's lines come first; a configured part (below) only when no
+    // line for the asset has room.
     // The asset may sit on several lines (same asset billed at different rates),
     // so scan into the first line that still has room; only when every line is
     // full does the first one stretch to absorb the extra unit.
+    // Only the quote option the order goes ahead with: an alternative the
+    // client didn't choose has nothing to send out.
+    const inChosenOption = { OR: [{ packageId: null }, { package: { isActive: true } }] }
     const candidateItems = await prisma.reservationItem.findMany({
       where: {
         reservationId,
         assetId: assetUnit.assetId,
         parentId: null,
+        ...inChosenOption,
+      },
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+    })
+    // A part configured into a machine on this order — a GPU under its
+    // workstation (Settings → Configurable items). Scanning that GPU marries
+    // the unit to the part row under its machine instead of opening a separate
+    // GPU line beside it, which is what the order would otherwise grow.
+    const partItems = await prisma.reservationItem.findMany({
+      where: {
+        reservationId,
+        assetId: assetUnit.assetId,
+        parentId: { not: null },
+        ...inChosenOption,
       },
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
     })
     let reservationItem =
-      candidateItems.find((i) => i.checkedOutCount < i.quantity) ?? candidateItems[0] ?? null
+      candidateItems.find((i) => i.checkedOutCount < i.quantity) ??
+      partItems.find((i) => i.checkedOutCount < i.quantity) ??
+      candidateItems[0] ??
+      partItems[0] ??
+      null
 
     if (!reservationItem) {
       // Ad hoc add: create a new reservation item for this asset type.

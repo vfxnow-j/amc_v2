@@ -5,6 +5,7 @@ import { prisma } from '@/lib/prisma'
 import { serialize } from '@/lib/utils'
 import { requireAuth, requireEditor } from '@/lib/auth-utils'
 import type { MaintenanceStatus, MaintenanceType } from '@/lib/types'
+import { ensureWorkOrders } from '@/lib/service/ensure-work-orders'
 
 export type MaintenanceFormData = {
   assetUnitId: string
@@ -178,6 +179,9 @@ export async function createMaintenanceRecord(data: MaintenanceFormData) {
     return maintenance
   })
 
+  // A unit in service always has a work order (lib/service/ensure-work-orders).
+  await ensureWorkOrders()
+  revalidatePath('/dashboard/service/work-orders')
   revalidatePath('/dashboard/maintenance')
   revalidatePath('/dashboard/assets')
   revalidatePath('/dashboard')

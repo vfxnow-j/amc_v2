@@ -5,6 +5,9 @@ import {
   type Column,
 } from "@/components/list/list-table";
 import { PageHeader } from "@/components/shell/page-header";
+import { NewLeaseButton } from "@/components/accounting/new-lease";
+import { canEdit } from "@/lib/auth";
+import { getSessionUser } from "@/lib/roles";
 import { dayYear, money } from "@/lib/format";
 import { LEASE_STATUS_LABEL } from "@/lib/accounting/labels";
 import { getLeases } from "@/lib/queries/accounting";
@@ -91,14 +94,22 @@ async function Leases() {
  * "Left to pay" is derived from elapsed term × monthly payment, because `Lease`
  * holds no running balance. It is labeled scheduled rather than reconciled:
  * the true figure lives on the lender's statements, which v2 does not have.
+ *
+ * Staff can add one from the header (`createLease` is `requireEditor`). A lease
+ * is also started, as a placeholder, when a funding request is approved and the
+ * approver accepts the offer — see `lib/actions/lease-create.ts`.
  */
 export default async function LeasesPage() {
+  const user = await getSessionUser();
+  const editor = user ? canEdit(user.role) : false;
+
   return (
     <>
       <PageHeader
         eyebrow="Accounting"
         title="Leases"
         blurb="The financing behind the fleet — what the business borrowed to buy hardware, and how far through paying it is"
+        actions={editor ? <NewLeaseButton /> : undefined}
       />
 
       <Suspense fallback={<ListTableSkeleton />}>

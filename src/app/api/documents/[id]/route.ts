@@ -69,7 +69,17 @@ export async function GET(
       ? "image/jpeg"
       : /\.png$/i.test(name)
         ? "image/png"
-        : "application/octet-stream";
+        : /\.webp$/i.test(name)
+          ? "image/webp"
+          : /\.heic$/i.test(name)
+            ? "image/heic"
+            : /\.(txt|csv)$/i.test(name)
+              ? "text/plain; charset=utf-8"
+              : /\.docx$/i.test(name)
+                ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                : /\.xlsx$/i.test(name)
+                  ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                  : "application/octet-stream";
 
   return new NextResponse(new Uint8Array(file), {
     headers: {

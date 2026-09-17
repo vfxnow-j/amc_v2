@@ -11,6 +11,7 @@ import {
   WEEKDAY_LABEL,
 } from "@/lib/billing/calendar";
 import { getBillingAnchor } from "@/lib/settings/business";
+import { dealFor } from "@/lib/orders/deal";
 import {
   EditBillingTerms,
   InvoiceButton,
@@ -84,7 +85,18 @@ export async function OrderBillingCard({
     discountType: billing.discountType,
     discountValue: billing.discountValue,
     paymentTerms: billing.paymentTerms,
+    termMonths: billing.termMonths,
   };
+  const deal = dealFor({
+    type,
+    cycleType: billing.cycleType,
+    isRecurring: billing.isRecurring,
+    subtotal: billing.subtotal,
+    discountAmount: billing.discountAmount,
+    totalCost: billing.totalCost,
+    termMonths: billing.termMonths,
+    rtoTermMonths: billing.rtoTermMonths,
+  });
 
   const recurring = billing.cycleType !== "ONE_TIME" && billing.isRecurring;
   const onCycle = recurring && !billing.notBilled;
@@ -193,7 +205,33 @@ export async function OrderBillingCard({
             </>
           )}
         </Field>
-        <Field label="Order value">{moneyExact(billing.total)}</Field>
+        <Field label={deal.recurring ? "Per cycle" : "Order value"}>{moneyExact(billing.total)}</Field>
+        {deal.recurring ? (
+          <Field label="Deal">
+            {deal.dealRevenue !== null ? (
+              <>
+                {deal.months}-month deal · {moneyExact(deal.dealRevenue)}
+                <span className="block text-micro text-ink-faint">
+                  {moneyExact(deal.perMonth ?? 0)}/mo after discount, before tax
+                  {deal.margin !== null
+                    ? ` · margin ${moneyExact(deal.margin)} after ${moneyExact(deal.cost ?? 0)} cost`
+                    : ""}
+                </span>
+              </>
+            ) : (
+              <>
+                <Unset>No term recorded</Unset>
+                <span className="block text-micro text-ink-faint">
+                  {moneyExact(deal.perMonth ?? 0)}/mo
+                  {deal.paybackMonths !== null
+                    ? ` · covers its ${moneyExact(deal.cost ?? 0)} cost in ${Math.ceil(deal.paybackMonths)} ${Math.ceil(deal.paybackMonths) === 1 ? "month" : "months"}`
+                    : ""}
+                  . Set the term in Edit terms.
+                </span>
+              </>
+            )}
+          </Field>
+        ) : null}
       </div>
 
       {/* What the terms have produced. */}

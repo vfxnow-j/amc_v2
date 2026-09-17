@@ -44,7 +44,7 @@ export async function findUnitByCode(code: string) {
         },
       },
       workOrders: {
-        where: { status: { notIn: ["CLOSED_PASS", "CLOSED_SCRAP"] } },
+        where: { status: { notIn: ["CLOSED_PASS", "CLOSED_SCRAP", "CLOSED_PARTED"] } },
         orderBy: { openedAt: "desc" },
         take: 1,
         select: { id: true, number: true, status: true, fault: true },
@@ -205,64 +205,6 @@ export async function getCalendarMonth(year: number, month: number) {
   }
 
   return { days, monthStart };
-}
-
-/* ── Packages ───────────────────────────────────────────────────────────── */
-
-/**
- * Packages are per-order shipping groups, not reusable kit templates.
- *
- * Worth stating because the rail label invites the other reading: `Package`
- * hangs off a single `Reservation` and groups that order's lines for delivery,
- * with its own delivery and return cost. There is no bundle catalog in the
- * schema, and this screen does not imply one.
- */
-export async function getPackages({ page = 1 }: { page?: number } = {}) {
-  const [records, total] = await Promise.all([
-    prisma.package.findMany({
-      orderBy: [{ createdAt: "desc" }],
-      skip: (page - 1) * PAGE_SIZE,
-      take: PAGE_SIZE,
-      select: {
-        id: true,
-        name: true,
-        description: true,
-        isActive: true,
-        deliveryCost: true,
-        returnCost: true,
-        reservation: {
-          select: {
-            id: true,
-            reservationNumber: true,
-            status: true,
-            client: { select: { name: true } },
-          },
-        },
-        _count: { select: { items: true } },
-      },
-    }),
-    prisma.package.count(),
-  ]);
-
-  return {
-    total,
-    page,
-    pageSize: PAGE_SIZE,
-    rows: records.map((record) => ({
-      id: record.id,
-      name: record.name,
-      description: record.description,
-      isActive: record.isActive,
-      deliveryCost:
-        record.deliveryCost === null ? null : Number(record.deliveryCost),
-      returnCost: record.returnCost === null ? null : Number(record.returnCost),
-      orderId: record.reservation.id,
-      orderNumber: record.reservation.reservationNumber,
-      orderStatus: record.reservation.status,
-      clientName: record.reservation.client.name,
-      items: record._count.items,
-    })),
-  };
 }
 
 /* ── Services ───────────────────────────────────────────────────────────── */

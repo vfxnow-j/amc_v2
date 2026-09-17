@@ -67,6 +67,7 @@ export async function OrderActionBar({
             discountType: billing.discountType,
             discountValue: billing.discountValue,
             paymentTerms: billing.paymentTerms,
+            termMonths: billing.termMonths,
           }}
         />
       </div>

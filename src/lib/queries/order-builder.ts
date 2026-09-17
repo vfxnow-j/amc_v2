@@ -35,7 +35,7 @@ export type AssetAvailability = {
   freeFrom: Date | null;
 };
 
-function pickRate(asset: {
+export function pickRate(asset: {
   monthlyRate: Prisma.Decimal | null;
   weeklyRate: Prisma.Decimal | null;
   dailyRate: Prisma.Decimal | null;
@@ -65,8 +65,8 @@ export async function searchAssetsForWindow(
   const trimmed = query.trim();
   if (!trimmed) return [];
 
-  const assets = await prisma.asset.findMany({
-    where: {
+  return availabilityFor(
+    {
       OR: [
         { name: { contains: trimmed, mode: "insensitive" } },
         { assetNumber: { contains: trimmed, mode: "insensitive" } },
@@ -74,6 +74,34 @@ export async function searchAssetsForWindow(
       ],
       units: { some: { status: { notIn: OUT_OF_FLEET } } },
     },
+    start,
+    end,
+    take,
+  );
+}
+
+/**
+ * Specific assets across the window — the lines of one of our packages, when it
+ * is dropped into a quote being built. No fleet filter: a package line for an
+ * asset with nothing on the shelf still comes through, as nothing free.
+ */
+export async function availabilityForAssets(
+  assetIds: string[],
+  start: Date,
+  end: Date,
+): Promise<AssetAvailability[]> {
+  if (assetIds.length === 0) return [];
+  return availabilityFor({ id: { in: assetIds } }, start, end, assetIds.length);
+}
+
+async function availabilityFor(
+  where: Prisma.AssetWhereInput,
+  start: Date,
+  end: Date,
+  take: number,
+): Promise<AssetAvailability[]> {
+  const assets = await prisma.asset.findMany({
+    where,
     take,
     orderBy: { name: "asc" },
     select: {
@@ -87,6 +115,10 @@ export async function searchAssetsForWindow(
       reservationItems: {
         where: {
           parentId: null,
+          // Only the option an order goes ahead with holds stock. A quote
+          // offering three builds would otherwise count all three against the
+          // shelf, and an alternative nobody chose would block the next order.
+          OR: [{ packageId: null }, { package: { isActive: true } }],
           reservation: {
             ...HOLDS_STOCK,
             startDate: { lte: end },
@@ -170,6 +202,8 @@ export async function findSubstitutes(
       reservationItems: {
         where: {
           parentId: null,
+          // The chosen option only — see availabilityFor.
+          OR: [{ packageId: null }, { package: { isActive: true } }],
           reservation: {
             ...HOLDS_STOCK,
             startDate: { lte: end },

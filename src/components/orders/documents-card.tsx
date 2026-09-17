@@ -33,6 +33,10 @@ const TYPE_LABEL: Record<DocumentType, string> = {
   // missing key here is a blank label rather than a compile error at the point
   // the type is added.
   FUNDING_REQUEST: "Funding request",
+  LEASE_AGREEMENT: "Lease agreement",
+  STATEMENT: "Statement",
+  PAYOFF_LETTER: "Payoff letter",
+  OTHER: "Document",
 };
 
 function size(bytes: number): string {

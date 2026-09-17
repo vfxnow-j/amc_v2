@@ -7,6 +7,14 @@ import {
 } from "@/components/list/list-table";
 import { PageHeader } from "@/components/shell/page-header";
 import {
+  AddLocationButton,
+  LocationFeedback,
+  LocationNotice,
+  RemoveLocationButton,
+} from "@/components/inventory/location-actions";
+import { canEdit, isAdmin } from "@/lib/auth";
+import { getSessionUser } from "@/lib/roles";
+import {
   getLocations,
   getRecentTransfers,
   getUnlocatedUnitCount,
@@ -30,6 +38,9 @@ const LOCATION_COLUMNS: Column[] = [
   { key: "service", label: "Service", width: "72px", align: "right" },
 ];
 
+/** Admins also get a Remove column — deleting a location is `requireAdmin`. */
+const REMOVE_COLUMN: Column = { key: "remove", label: "", width: "72px", align: "right" };
+
 const TRANSFER_COLUMNS: Column[] = [
   { key: "date", label: "Moved", width: "96px" },
   { key: "unit", label: "Unit", width: "120px" },
@@ -38,7 +49,7 @@ const TRANSFER_COLUMNS: Column[] = [
   { key: "to", label: "To", width: "minmax(0,1fr)" },
 ];
 
-async function Locations() {
+async function Locations({ admin }: { admin: boolean }) {
   const [locations, unlocated] = await Promise.all([
     getLocations(),
     getUnlocatedUnitCount(),
@@ -56,7 +67,7 @@ async function Locations() {
     <ListTable
       title="Locations"
       grow={false}
-      columns={LOCATION_COLUMNS}
+      columns={admin ? [...LOCATION_COLUMNS, REMOVE_COLUMN] : LOCATION_COLUMNS}
       total={locations.length}
       empty={
         <>
@@ -114,6 +125,9 @@ async function Locations() {
           service: (
             <span className="text-ink-muted">{location.service || "—"}</span>
           ),
+          remove: admin ? (
+            <RemoveLocationButton id={location.id} name={location.name} />
+          ) : null,
         },
       }))}
     />
@@ -184,23 +198,34 @@ async function Transfers() {
  * column, so a row is a move that already happened. The build plan called it an
  * "in-flight queue"; the schema can't support that reading, and labelling it one
  * would promise an approval step that doesn't exist.
+ *
+ * Staff can add a location (`createLocation` is `requireEditor`); only admins
+ * see Remove, which moves any units filed there to another location before it
+ * deletes — see `components/inventory/location-actions.tsx`.
  */
 export default async function LocationsPage() {
+  const user = await getSessionUser();
+  const editor = user ? canEdit(user.role) : false;
+  const admin = user ? isAdmin(user.role) : false;
+
   return (
-    <>
+    <LocationFeedback>
       <PageHeader
         eyebrow="Inventory"
         title="Locations & transfers"
         blurb="Where the fleet physically sits, and what has moved lately"
+        actions={editor ? <AddLocationButton /> : undefined}
       />
 
+      <LocationNotice />
+
       <Suspense fallback={<ListTableSkeleton rows={5} />}>
-        <Locations />
+        <Locations admin={admin} />
       </Suspense>
 
       <Suspense fallback={<ListTableSkeleton rows={8} />}>
         <Transfers />
       </Suspense>
-    </>
+    </LocationFeedback>
   );
 }

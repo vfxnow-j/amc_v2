@@ -1,12 +1,14 @@
 import { Suspense } from "react";
-import { BuildCard } from "@/components/inventory/build-card";
 import { getAssetBuild } from "@/lib/actions/asset-build";
 import type { Metadata } from "next";
 import Link from "next/link";
+import { prisma } from "@/lib/prisma";
+import { AssetCoverage } from "@/components/service/asset-coverage";
 import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/shell/page-header";
 import {
   Card,
+  CardEmpty,
   CardSkeleton,
   Field,
   Unset,
@@ -144,6 +146,9 @@ export default async function AssetRecordPage({ params }: Params) {
           {/* Where the units came from: PO → funding request → loan. */}
           <Suspense fallback={<CardSkeleton title="Bought on" rows={3} />}>
             <AssetTrailCard id={id} />
+          </Suspense>
+          <Suspense fallback={<CardSkeleton title="Coverage" rows={2} />}>
+            <CoverageCard id={id} />
           </Suspense>
           <MarketPrice asset={asset} />
           <Suspense fallback={<CardSkeleton title="Depreciation" rows={4} />}>
@@ -345,7 +350,69 @@ function Details({ asset }: { asset: Asset }) {
 }
 
 /** The SKU's build, read on the server and edited on the client. */
+/**
+ * What this item is configured with, read-only. Configuration is edited in one
+ * place — Settings → Configurable items — so this summarises and links there.
+ */
 async function AssetBuild({ id, assetName }: { id: string; assetName: string }) {
   const rows = await getAssetBuild(id);
-  return <BuildCard assetId={id} assetName={assetName} rows={rows} />;
+  const href = `/dashboard/settings/configurable-items/${id}`;
+  if (rows.length === 0) {
+    return (
+      <Card title="Configuration">
+        <CardEmpty>
+          {assetName} isn&rsquo;t configurable.{" "}
+          <Link href={href} className="text-accent-text hover:underline">
+            Make it configurable
+          </Link>{" "}
+          to give it base parts and upgrade options for orders.
+        </CardEmpty>
+      </Card>
+    );
+  }
+  const base = rows.filter((row) => row.isDefault);
+  const upgrades = rows.filter((row) => !row.isDefault);
+  return (
+    <Card
+      title="Configuration"
+      meta={`${base.length} base · ${upgrades.length} ${upgrades.length === 1 ? "option" : "options"}`}
+      action={
+        <Link href={href} className="text-detail text-accent-text hover:underline">
+          Edit in Settings →
+        </Link>
+      }
+    >
+      <ul className="flex flex-col gap-px px-2 pb-3">
+        {[...base, ...upgrades].map((row) => (
+          <li
+            key={row.id}
+            className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-2 rounded-row px-2 py-[5px] text-detail odd:bg-row-alt"
+          >
+            <span className="min-w-0 truncate">
+              <span className="text-ink-faint">{row.slot === "OTHER" ? "" : `${row.slot.charAt(0)}${row.slot.slice(1).toLowerCase()} · `}</span>
+              {row.quantity > 1 ? `${row.quantity}× ` : ""}
+              {row.name}
+            </span>
+            <span className="tabular-nums text-ink-muted">
+              {row.isDefault ? "base" : row.rate > 0 ? `+${money(row.rate)}/mo` : "option"}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
+}
+
+/** Coverage every unit of this model comes with; shown on its work orders. */
+async function CoverageCard({ id }: { id: string }) {
+  const rows = await prisma.assetCoverage.findMany({
+    where: { assetId: id },
+    orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+    select: { id: true, name: true, provider: true, termMonths: true },
+  });
+  return (
+    <Card title="Coverage" meta={rows.length ? `${rows.length} for every unit` : undefined}>
+      <AssetCoverage assetId={id} rows={rows} />
+    </Card>
+  );
 }

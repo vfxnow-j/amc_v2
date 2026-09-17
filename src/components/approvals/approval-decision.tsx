@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Notice } from "@/components/feedback/notice";
+import { usePlaceholderLeaseOffer } from "@/components/procurement/placeholder-lease-prompt";
 import { decideApproval } from "@/lib/approvals/actions";
 import type { DecisionOutcome } from "@/lib/approvals/core";
 
@@ -15,6 +16,12 @@ import type { DecisionOutcome } from "@/lib/approvals/core";
  *
  * Deny opens a reason box rather than firing, because the reason is the whole
  * of what the requester gets back — "denied" alone tells them nothing to fix.
+ *
+ * Approving a funding request also asks whether to create a placeholder lease
+ * for it, when the caller passes `placeholderLeaseFor` and a
+ * `PlaceholderLeaseHost` is mounted above. The question is handed to the host
+ * rather than asked here, because the decision re-renders the queue and this
+ * row leaves it (see the host).
  */
 export function ApprovalDecision({
   requestId,
@@ -22,6 +29,7 @@ export function ApprovalDecision({
   amount,
   requestedBy,
   compact = false,
+  placeholderLeaseFor,
 }: {
   requestId: string;
   label: string;
@@ -29,18 +37,24 @@ export function ApprovalDecision({
   amount: string;
   requestedBy: string;
   compact?: boolean;
+  /** A funding request's id, with no lease linked: offer a placeholder lease on approve. */
+  placeholderLeaseFor?: string;
 }) {
   const router = useRouter();
   const [denying, setDenying] = useState(false);
   const [reason, setReason] = useState("");
   const [outcome, setOutcome] = useState<DecisionOutcome | null>(null);
   const [busy, startTransition] = useTransition();
+  const offerLease = usePlaceholderLeaseOffer();
 
   function run(approve: boolean) {
     setOutcome(null);
     startTransition(async () => {
       const result = await decideApproval(requestId, approve, approve ? undefined : reason);
       setOutcome(result);
+      if (approve && result.status === "ok" && placeholderLeaseFor) {
+        offerLease?.({ fundingRequestId: placeholderLeaseFor, label });
+      }
       router.refresh();
     });
   }

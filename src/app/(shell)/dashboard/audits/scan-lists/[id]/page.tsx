@@ -4,6 +4,9 @@ import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/shell/page-header";
 import { Card, Unset } from "@/components/record/record-card";
 import { StatusText } from "@/components/inventory/record-cards";
+import { ScanListPanel } from "@/components/inventory/scan-list-panel";
+import { canEdit } from "@/lib/auth";
+import { getSessionUser } from "@/lib/roles";
 import { dayYear } from "@/lib/format";
 import { getScanListRecord } from "@/lib/queries/audit-record";
 
@@ -24,14 +27,19 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
  * nothing to be wrong against — only what was scanned and what each code turned
  * out to be.
  *
- * Read-only. Adding to a list is `addToListByBarcode`, and the place to do it is
- * a phone in the warehouse rather than a desktop record; wiring a second scan
- * well here would give two surfaces for one gather.
+ * Staff can scan into it from here. This was read-only while the scan desk's
+ * list mode was the only way a list got made, on the reasoning that a second
+ * scan well would give two surfaces for one gather. Once lists could be created
+ * from Audits & scan lists, a new list landed on a page that could not take a
+ * scan — so the well is here now, on the same primitives and the same ported
+ * `addToListByBarcode` as list mode. The bulk change stays on the scan desk.
  */
 export default async function ScanListRecordPage({ params }: Params) {
   const { id } = await params;
   const list = await getScanListRecord(id);
   if (!list) notFound();
+  const user = await getSessionUser();
+  const scanning = user ? canEdit(user.role) : false;
 
   const unresolved = list.items.filter((item) => item.unitId === null).length;
   const columns =
@@ -60,6 +68,8 @@ export default async function ScanListRecordPage({ params }: Params) {
           </Link>
         }
       />
+
+      {scanning ? <ScanListPanel listId={list.id} /> : null}
 
       {list.description ? (
         <section className="rounded-card bg-panel px-4 py-3 shadow-sm">
