@@ -6,6 +6,7 @@ import type {
 } from "@/generated/prisma/client";
 import { APP_URL, isEmailConfigured } from "@/lib/email/client";
 import { sendBatch } from "@/lib/email/send";
+import { getAllNotificationPreferences } from "@/lib/notifications/preferences";
 import {
   approvalDecidedEmail,
   approvalRequestedEmail,
@@ -341,14 +342,31 @@ export function describeReport(report: NotifyReport): string {
     return "Nobody can decide it yet — there is no other approver for this. A super admin tags approvers in Settings → Users.";
   }
   const named = listNames(report.names);
-  if (report.emailed) return `${named} ${report.names.length === 1 ? "was" : "were"} told in the app and by email.`;
+  if (report.emailed) return `${named} ${report.names.length === 1 ? "was" : "were"} told in the app and by email (except anyone who has approval email switched off).`;
+  if (isEmailConfigured() && !report.emailError) {
+    return `${named} ${report.names.length === 1 ? "was" : "were"} told in the app. Nobody was emailed: approval email is switched off in ${report.names.length === 1 ? "their" : "each of their"} notification preferences.`;
+  }
   return `${named} ${report.names.length === 1 ? "was" : "were"} told in the app. Email is ${
     isEmailConfigured() ? `failing here (${report.emailError ?? "unknown error"})` : "switched off on this instance"
   }, so nobody was emailed — this is who would have been.`;
 }
 
+/**
+ * The people who haven't switched off email for approvals.
+ *
+ * An approval ask is emailed straight away rather than waiting for the digest,
+ * so it doesn't depend on the digest opt-in — but a person who has unticked
+ * "Approvals waiting on you" under Email in their preferences has said they
+ * don't want it by mail, and that holds here. They are still told in the app,
+ * and Procurement → Approvals still lists what waits on them.
+ */
+async function wantsApprovalEmail(userIds: string[]): Promise<Set<string>> {
+  const preferences = await getAllNotificationPreferences();
+  return new Set(userIds.filter((id) => preferences.get(id)?.types.APPROVAL_REQUEST.email !== false));
+}
+
 async function sendAll(
-  messages: { to: string; subject: string; html: string }[],
+  messages: { to: string; subject: string; html: string; text?: string }[],
 ): Promise<Pick<NotifyReport, "emailed" | "emailError">> {
   if (messages.length === 0) return { emailed: false };
   const result = await sendBatch(messages);
@@ -377,8 +395,9 @@ export async function notifyApprovers(
     })),
   });
 
+  const emailable = await wantsApprovalEmail(approvers.map((user) => user.id));
   const sent = await sendAll(
-    approvers.map((user) => {
+    approvers.filter((user) => emailable.has(user.id)).map((user) => {
       const template = approvalRequestedEmail({
         recipientName: user.name,
         noun,
@@ -393,7 +412,7 @@ export async function notifyApprovers(
         releases: APPROVAL_TYPE_RELEASES[request.recordType],
         url: `${APP_URL}${brief.href}`,
       });
-      return { to: user.email, subject: template.subject, html: template.html };
+      return { to: user.email, subject: template.subject, html: template.html, text: template.text };
     }),
   );
 
@@ -452,7 +471,9 @@ async function notifyRequester(request: ApprovalRequest, brief: RecordBrief): Pr
     next,
     url: `${APP_URL}${brief.href}`,
   });
-  const sent = await sendAll([{ to: requester.email, subject: template.subject, html: template.html }]);
+  const sent = (await wantsApprovalEmail([requester.id])).has(requester.id)
+    ? await sendAll([{ to: requester.email, subject: template.subject, html: template.html, text: template.text }])
+    : { emailed: false };
   return { names: [requester.name], ...sent };
 }
 

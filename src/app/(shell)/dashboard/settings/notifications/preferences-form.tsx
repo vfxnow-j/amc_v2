@@ -49,7 +49,7 @@ export function PreferencesForm({
       >
         <span>Type</span>
         <span className="text-center">In app</span>
-        <span className="text-center">In digest</span>
+        <span className="text-center">Email</span>
       </div>
 
       <ul className="flex flex-col gap-[2px] px-2">
@@ -78,11 +78,11 @@ export function PreferencesForm({
             <Switch
               name={`email:${type}`}
               defaultChecked={initial.types[type].email}
-              label={`${NOTIFICATION_LABEL[type]} in the digest email`}
+              label={`${NOTIFICATION_LABEL[type]} by email`}
               // Off-looking rather than disabled: the value still posts, so a
               // user can set up what they want now and have it work the day the
               // digest is switched on for them.
-              dimmed={!digest}
+              dimmed={!digest && type !== "APPROVAL_REQUEST"}
             />
           </li>
         ))}

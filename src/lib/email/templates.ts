@@ -641,23 +641,6 @@ function snapshotFacts(s: InsightsDigestData['summary']): string {
   ])
 }
 
-export function insightsDigestEmail(data: InsightsDigestData) {
-  const count = data.insights.length
-  return email(`AMC insights — ${count} to act on`, {
-    audience: 'staff',
-    preheader: count > 0 ? `${count} insight${count !== 1 ? 's' : ''} flagged from today's data.` : 'Nothing flagged today.',
-    eyebrow: 'Insights',
-    title: 'What the data flagged',
-    body: [
-      section('Snapshot'),
-      snapshotFacts(data.summary),
-      count > 0 ? section('To act on', String(count)) + insightBlocks(data.insights) : callout('All clear — nothing to act on right now.', { tone: 'success' }),
-      paragraph('Every figure is read straight off the database by the rules in Insights; nothing here is estimated.', { muted: true, small: true }),
-    ].join(''),
-    cta: { label: 'Open the dashboard', url: '/dashboard' },
-  })
-}
-
 export function systemAlertEmail(title: string, message: string) {
   return email(`[VFXNow alert] ${title}`, {
     audience: 'staff',

@@ -4,7 +4,6 @@ import {
   newLeadEmail,
   reservationConfirmedStaffEmail,
   purchaseOrderSubmittedEmail,
-  insightsDigestEmail,
   weeklyReportEmail,
   dailyDigestEmail,
   dailyTrafficReportEmail,
@@ -13,7 +12,6 @@ import {
   type NewLeadEmailData,
   type ReservationConfirmedEmailData,
   type PurchaseOrderSubmittedEmailData,
-  type InsightsDigestData,
   type WeeklyReportData,
   type DailyDigestData,
   type DailyOrderRow,
@@ -160,109 +158,6 @@ export async function notifyPurchaseOrderSubmitted(
     }
   } catch (error) {
     console.error('Failed to send purchase order submitted notifications:', error)
-  }
-}
-
-// ============================================
-// INSIGHTS DIGEST EMAIL
-// ============================================
-
-/**
- * Generate and send the insights digest email.
- * Sends only to configured 'insights' recipients.
- * No auth check — this is called from cron or internal triggers.
- */
-export async function notifyInsights(): Promise<SendOutcome & { insights: number }> {
-  try {
-    const emails = await recipientsFor('insights')
-    if (emails.length === 0) return { sent: 0, recipients: 0, insights: 0 }
-
-    // Gather business summary data
-    const [
-      assetData,
-      reservationCount,
-      checkoutCounts,
-      invoiceData,
-      leadCount,
-    ] = await Promise.all([
-      prisma.asset.findMany({
-        where: { totalQuantity: { gt: 0 } },
-        select: {
-          totalQuantity: true,
-          units: {
-            where: { status: { not: 'RETIRED' } },
-            select: { status: true },
-          },
-        },
-      }),
-      prisma.reservation.count({
-        where: { status: { in: ['APPROVED', 'PREPARING', 'SHIPPED', 'ACTIVE'] } },
-      }),
-      Promise.all([
-        prisma.checkout.count({ where: { status: 'ACTIVE' } }),
-        prisma.checkout.count({ where: { status: 'OVERDUE' } }),
-      ]),
-      prisma.invoice.findMany({
-        select: { status: true, total: true, amountPaid: true },
-      }),
-      prisma.lead.count({
-        where: { status: { in: ['NEW', 'CONTACTED', 'QUALIFIED', 'PROSPECT'] } },
-      }),
-    ])
-
-    const totalAssets = assetData.length
-    const totalUnits = assetData.reduce((s, a) => s + a.units.length, 0)
-    const availableUnits = assetData.reduce((s, a) => s + a.units.filter(u => u.status === 'AVAILABLE').length, 0)
-    const [activeCheckouts, overdueCheckouts] = checkoutCounts
-    const totalRevenue = invoiceData
-      .filter(i => i.status === 'PAID')
-      .reduce((s, i) => s + Number(i.total), 0)
-    const totalOutstanding = invoiceData
-      .filter(i => ['SENT', 'OVERDUE', 'PARTIAL'].includes(i.status))
-      .reduce((s, i) => s + Number(i.total) - Number(i.amountPaid), 0)
-
-    const $ = (n: number) => n ? `$${n.toLocaleString()}` : '$0'
-
-    // Get insights (bypass auth for cron context)
-    const { getInsightsInternal } = await import('@/lib/analytics/insights')
-    const insights = await getInsightsInternal()
-
-    const digestData: InsightsDigestData = {
-      insights: insights.map(i => ({
-        title: i.title,
-        priority: i.priority,
-        description: i.description,
-        link: i.link,
-        type: i.type,
-      })),
-      summary: {
-        totalAssets,
-        availableUnits,
-        totalUnits,
-        activeReservations: reservationCount,
-        activeCheckouts,
-        overdueCheckouts,
-        revenue: $(totalRevenue),
-        outstanding: $(totalOutstanding),
-        leadsInPipeline: leadCount,
-      },
-    }
-
-    const template = insightsDigestEmail(digestData)
-
-    const batch = await sendBatch(
-      emails.map((email) => ({ to: email, subject: template.subject, html: template.html, text: template.text }))
-    )
-    const error = batch.error
-
-    if (error) {
-      console.error('Batch send error (insights digest):', error)
-    }
-
-    return { sent: batch.success ? emails.length : 0, recipients: emails.length, insights: insights.length, error }
-  } catch (error) {
-    console.error('Failed to send insights digest:', error)
-    return { sent: 0, recipients: 0, insights: 0, error: error instanceof Error ? error.message : 'Unknown error' }
   }
 }
 

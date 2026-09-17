@@ -119,7 +119,7 @@ async function YourPreferences({ userId }: { userId: string }) {
   return (
     <Card
       title="What reaches you"
-      meta="in app, and in the daily digest"
+      meta="in app, and by email"
       className="pb-1"
     >
       <PreferencesForm

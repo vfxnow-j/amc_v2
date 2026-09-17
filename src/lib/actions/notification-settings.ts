@@ -12,6 +12,7 @@ import { RECIPIENT_CATEGORIES } from "@/lib/notifications/recipients-schema";
 import { REPORTS, isReportKey } from "@/lib/notifications/reports/registry";
 import { runReportNow, saveSchedule, type ReportSchedule } from "@/lib/notifications/reports/run";
 import { describeSchedule } from "@/lib/notifications/reports/schedule";
+import { sampleFor } from "@/lib/email/samples";
 
 /**
  * What Settings → Notifications writes on the company's behalf: the test send,
@@ -194,4 +195,32 @@ export async function sendReportNowAction(
     ok: true,
     message: `Sent to ${result.sent} of ${result.recipients}${partial}.${redirect ? ` All redirected to ${redirect}.` : ""}`,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Template gallery
+// ---------------------------------------------------------------------------
+
+/**
+ * Send one template's sample to the signed-in admin. Always to themselves —
+ * there is no address field, because a sample is for looking at — and through
+ * `sendEmail`, so the test redirect applies. The subject says it is a sample.
+ */
+export async function sendTemplateSampleAction(
+  _previous: ActionOutcome,
+  form: FormData,
+): Promise<ActionOutcome> {
+  const auth = await requireAdmin();
+  if (!auth.authorized) return { ok: false, message: auth.error };
+
+  const sample = sampleFor(String(form.get("template") ?? ""));
+  if (!sample) return { ok: false, message: "Unknown template." };
+  const me = await prisma.user.findUnique({ where: { id: auth.userId }, select: { email: true } });
+  if (!me?.email) return { ok: false, message: "Your account has no email address." };
+
+  const message = sample.render();
+  const result = await sendEmail({ to: me.email, ...message, subject: `[Sample] ${message.subject}` });
+  if (!result.success) return { ok: false, message: `Not sent: ${result.error ?? "unknown error"}` };
+  const redirect = describeRedirect();
+  return { ok: true, message: redirect ? `Sent — redirected to ${redirect}.` : `Sent to ${me.email}.` };
 }
