@@ -18,9 +18,15 @@
  * - **A light page.** Dark-mode clients invert a light email tolerably; they
  *   mangle a dark one. The brand's darkest surface is used only for the header
  *   band, where an inversion does no harm.
- * - **No images.** The logo lives at `/brand/...` on an instance whose APP_URL
- *   is localhost, and Gmail blocks data: URIs, so any `<img>` would render as a
- *   broken box. The wordmark is type.
+ * - **One image, the logo, as an inline CID attachment.** A linked `<img>`
+ *   can't work: the logo lives at `/brand/...` on an instance whose APP_URL is
+ *   localhost, and Gmail blocks data: URIs. So the header references
+ *   `cid:vfxnow-logo`, and `send.ts` attaches `public/brand/email-logo-white.png`
+ *   (the all-white logo at 192×128, 2× its 96×64 display size, ~8KB) with that
+ *   content id to any message whose HTML references it — Gmail, Outlook and
+ *   Apple Mail render it with no public URL. PNG, not SVG, which Gmail won't
+ *   draw. The `alt` is the wordmark in white, so a client that blocks images
+ *   still shows the name. The in-app preview swaps the cid for the `/brand` URL.
  * - **A preheader.** The hidden first line is what the inbox shows beside the
  *   subject; without one it shows whatever text comes first, which was the
  *   header's "VFXNow AMC" on every message.
@@ -60,6 +66,14 @@ export const BRAND = {
   font: "'Helvetica Neue', Helvetica, Arial, sans-serif",
   mono: "'SFMono-Regular', Menlo, Consolas, 'Courier New', monospace",
 } as const
+
+/** The inline logo's content id; `send.ts` attaches the file when HTML references it. */
+export const LOGO_CID = 'vfxnow-logo'
+
+/** Swap the cid for a URL a browser can load — for previews, never for mail. */
+export function previewable(html: string, logoUrl = '/brand/email-logo-white.png'): string {
+  return html.split(`cid:${LOGO_CID}`).join(logoUrl)
+}
 
 export type Tone = 'neutral' | 'accent' | 'success' | 'danger' | 'warning'
 
@@ -342,9 +356,9 @@ export function frame(options: EmailFrame): string {
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${BRAND.page}" style="background:${BRAND.page};border-collapse:collapse;">
 <tr><td align="center" style="padding:28px 12px;">
 <table role="presentation" width="${width}" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:${width}px;border-collapse:collapse;">
-<!--chrome--><tr><td bgcolor="${BRAND.band}" style="background:${BRAND.band};border-radius:10px 10px 0 0;padding:18px 28px;">
+<!--chrome--><tr><td bgcolor="${BRAND.band}" style="background:${BRAND.band};border-radius:10px 10px 0 0;padding:14px 28px;">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;"><tr>
-<td style="font-family:${BRAND.font};font-size:19px;font-weight:800;letter-spacing:-0.02em;color:#ffffff;">VFX<span style="color:${BRAND.accentBright};">now</span></td>
+<td style="font-family:${BRAND.font};font-size:19px;font-weight:800;letter-spacing:-0.02em;color:#ffffff;line-height:1;"><img src="cid:${LOGO_CID}" width="96" height="64" alt="VFXnow" style="display:block;width:96px;height:64px;border:0;outline:none;text-decoration:none;color:#ffffff;font-family:${BRAND.font};font-size:19px;font-weight:800;"></td>
 <td align="right" style="font-family:${BRAND.font};font-size:11px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:#b3bcc4;">${options.audience === 'staff' ? 'Asset management' : 'Equipment &amp; infrastructure'}</td>
 </tr></table>
 </td></tr>

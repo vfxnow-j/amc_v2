@@ -1,5 +1,7 @@
 import { getResend, isEmailConfigured, EMAIL_FROM } from './client'
-import { htmlToText } from './layout'
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
+import { htmlToText, LOGO_CID } from './layout'
 
 /**
  * Where every outbound email goes instead of its real recipient.
@@ -84,6 +86,32 @@ export type EmailAttachment = {
   filename: string
   content: Buffer | string
   contentType?: string
+  /** Makes it inline: referenced from the HTML as `cid:<contentId>`. */
+  contentId?: string
+}
+
+let logo: Buffer | null | undefined
+
+/**
+ * The header logo, read once and kept. The layout references it by content id
+ * (see `layout.ts`); a message whose HTML does gets it attached inline. Resolved
+ * from the project root the same way `actions/documents` finds it under the
+ * standalone server. If the file can't be read the message goes without it and
+ * the `alt` wordmark shows instead — a missing logo is not a reason to lose mail.
+ */
+function logoAttachment(html: string): EmailAttachment[] {
+  if (!html.includes(`cid:${LOGO_CID}`)) return []
+  if (logo === undefined) {
+    const cwd = process.cwd()
+    const root = cwd.endsWith(path.join('.next', 'standalone')) ? path.resolve(cwd, '..', '..') : cwd
+    try {
+      logo = readFileSync(path.join(root, 'public', 'brand', 'email-logo-white.png'))
+    } catch (error) {
+      console.error('Email logo unreadable; sending without it:', error)
+      logo = null
+    }
+  }
+  return logo ? [{ filename: 'vfxnow-logo.png', content: logo, contentType: 'image/png', contentId: LOGO_CID }] : []
 }
 
 export type SendEmailParams = {
@@ -118,10 +146,11 @@ export async function sendEmail(params: SendEmailParams): Promise<{ success: boo
       html: routed.html,
       text: routed.text,
       replyTo: params.replyTo,
-      attachments: params.attachments?.map((a) => ({
+      attachments: [...logoAttachment(params.html), ...(params.attachments ?? [])].map((a) => ({
         filename: a.filename,
         content: a.content as any,
         contentType: a.contentType,
+        ...(a.contentId ? { contentId: a.contentId } : {}),
       })),
     })
 
@@ -166,6 +195,23 @@ export async function sendBatch(
       `Batch not sent (no RESEND_API_KEY): ${messages.length} × "${messages[0].subject}"`,
     )
     return { success: false, error: 'Outbound email is switched off in this instance.' }
+  }
+
+  // Resend's batch endpoint takes no attachments, and the inline logo is one.
+  // So a batch of layout mail goes one message at a time through `sendEmail`,
+  // which attaches it and applies the redirect. The batch sizes here are a
+  // recipient list — a handful — so the extra calls cost nothing that matters.
+  if (messages.some((message) => message.html.includes(`cid:${LOGO_CID}`))) {
+    let failed = 0
+    let firstError: string | undefined
+    for (const message of messages) {
+      const result = await sendEmail({ to: message.to, subject: message.subject, html: message.html, text: message.text })
+      if (!result.success) {
+        failed += 1
+        firstError ??= result.error
+      }
+    }
+    return failed === 0 ? { success: true } : { success: false, error: `${failed} of ${messages.length} failed: ${firstError}` }
   }
 
   // Redirected messages all land at the same address, so a batch of six
