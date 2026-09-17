@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { CheckoutMode } from "@/components/scan/checkout-mode";
 import { ListMode } from "@/components/scan/list-mode";
+import { ReceiveMode } from "@/components/scan/receive-mode";
 import { ReturnMode } from "@/components/scan/return-mode";
 import { ScanField } from "@/components/scan/scan-field";
 import { ScanLog, type ScanEntry } from "@/components/scan/scan-log";
@@ -19,12 +20,14 @@ import type { AssetStatus } from "@/generated/prisma/client";
  * navigation part-way through would remount the surface and throw away the
  * receipt — and, once writes land, whatever is still in the queue.
  *
- * Three modes so far. **Check asset** identifies a unit and writes nothing — the
+ * Five modes. **Check asset** identifies a unit and writes nothing — the
  * behaviour the retired Mobile scan screen had, rebuilt on the queueing field.
  * **Check out** scans units onto one order, picked and confirmed first.
  * **Return** goes the other way and needs no order at all: the first item
  * scanned says which job it belongs to. **Scan list** builds a saved list of
- * units and can run one change across every model on it.
+ * units and can run one change across every model on it. **Receive** scans a
+ * delivery's serials against a purchase order and hands them to the PO's receive
+ * screen — the same one-scan-per-unit flow that screen has, from the gun.
  *
  * Switching mode is client state, not a link. `FilterTabs` navigates, and a
  * navigation part-way through a session would remount the surface and throw
@@ -232,6 +235,7 @@ const MODES = [
   { id: "out", label: "Check out", blurb: "Scan units onto an order" },
   { id: "in", label: "Return", blurb: "Scan kit back — the first item finds the order" },
   { id: "list", label: "Scan list", blurb: "Build a saved list, then act on all of it" },
+  { id: "receive", label: "Receive", blurb: "Scan a delivery's serials against a purchase order" },
 ] as const;
 
 type Mode = (typeof MODES)[number]["id"];
@@ -277,6 +281,8 @@ export function ScanSession({ initialCode }: { initialCode?: string }) {
         <CheckoutMode />
       ) : mode === "in" ? (
         <ReturnMode />
+      ) : mode === "receive" ? (
+        <ReceiveMode />
       ) : (
         <ListMode />
       )}

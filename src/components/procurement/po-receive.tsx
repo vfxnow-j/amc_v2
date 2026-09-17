@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Notice } from "@/components/feedback/notice";
@@ -14,6 +14,7 @@ import {
 } from "@/lib/procurement/po-receive";
 import { RECEIVE_CONDITIONS } from "@/lib/procurement/po-labels";
 import { parseBarcodeWithPrefix } from "@/lib/utils/barcode";
+import { takeReceiveHandoff } from "@/lib/scan/receive-handoff";
 
 /**
  * Booking hardware in against a purchase order.
@@ -117,6 +118,52 @@ export function POReceive({
     ),
   );
   const [outcome, setOutcome] = useState<ReceiveOutcome | null>(null);
+  const [carried, setCarried] = useState<{ serials: number; skipped: number } | null>(null);
+
+  // Serials scanned in the Scan screen's Receive mode arrive here once. Each
+  // line is counted to what was scanned and its units take the serials in scan
+  // order — a resale line keeps them as its serial list. Anything scanned onto a
+  // line that is no longer outstanding (received elsewhere since) is dropped and
+  // counted, not silently lost. Read after mount because session storage does
+  // not exist during the server render, and applied from a timer so no state is
+  // set straight out of the effect body.
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const handoff = takeReceiveHandoff(purchaseOrderId);
+      if (!handoff) return;
+      const filled: Record<string, { kept: string[]; mode: ReceiveLine["mode"] }> = {};
+      let skipped = 0;
+      for (const [lineId, list] of Object.entries(handoff.lines)) {
+        const line = lines.find((l) => l.id === lineId);
+        if (!line) {
+          skipped += list.length;
+          continue;
+        }
+        const kept = list.slice(0, line.remaining);
+        skipped += list.length - kept.length;
+        filled[lineId] = { kept, mode: line.mode };
+      }
+      setState((current) => {
+        const next = { ...current };
+        for (const [lineId, { kept, mode }] of Object.entries(filled)) {
+          next[lineId] =
+            mode === "serials"
+              ? { ...current[lineId], quantity: String(kept.length), serials: kept.join("\n") }
+              : {
+                  ...current[lineId],
+                  quantity: String(kept.length),
+                  units: kept.map((serial) => ({ ...blankUnit(defaultLocationId), serial })),
+                };
+        }
+        return next;
+      });
+      setCarried({
+        serials: Object.values(filled).reduce((sum, line) => sum + line.kept.length, 0),
+        skipped,
+      });
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [purchaseOrderId, lines, defaultLocationId]);
   const [busy, startTransition] = useTransition();
   const formRef = useRef<HTMLFormElement>(null);
 
@@ -286,6 +333,16 @@ export function POReceive({
       }}
       className="flex flex-col gap-3"
     >
+      {carried ? (
+        <Notice tone={carried.skipped > 0 ? "error" : "ok"}>
+          {carried.serials} {carried.serials === 1 ? "serial" : "serials"} carried from Scan
+          {carried.skipped > 0
+            ? `; ${carried.skipped} dropped because their line no longer has that many outstanding`
+            : ""}
+          . Set the model, location and barcodes, then Receive.
+        </Notice>
+      ) : null}
+
       <section className="grid gap-3 rounded-card bg-panel p-4 shadow-sm sm:grid-cols-3">
         <Field label="Arrived on" hint="Units date their receipt, and depreciation, from this.">
           <input
