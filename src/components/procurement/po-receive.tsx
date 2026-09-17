@@ -31,9 +31,11 @@ import { parseBarcodeWithPrefix } from "@/lib/utils/barcode";
  *
  * Quantities start at zero, so the receiver counts what is on the pallet rather
  * than confirming a number the screen guessed. Bulk entry is for the pallet of
- * forty: a starting barcode numbers every unit on the screen in order, a pasted
- * column of serials fills the serial boxes in order, and a location or
- * condition can be set for a whole line at once. A blank barcode is generated
+ * forty: a starting barcode numbers every unit on the screen in order, serials
+ * are either pasted as a column or scanned one box at a time (each scan fills
+ * the next unit and counts one more if the count runs out, so a receiver can
+ * scan the pallet instead of counting it first), and a location or condition
+ * can be set for a whole line at once. A blank barcode is generated
  * on receipt; a blank serial stays blank — a box without its paperwork still
  * belongs in the fleet.
  */
@@ -63,6 +65,12 @@ type LineState = {
   serials: string;
   model: NewModel | { kind: "existing"; assetId: string } | { kind: "count" };
 };
+
+type ScanResult =
+  | { kind: "empty" }
+  | { kind: "duplicate"; serial: string }
+  | { kind: "full" }
+  | { kind: "filled"; serial: string; index: number; grew: boolean };
 
 function blankUnit(locationId: string): ReceiveUnitInput {
   return { barcode: "", serial: "", locationId, condition: "New" };
@@ -146,6 +154,53 @@ export function POReceive({
       );
       return { ...current, [lineId]: { ...current[lineId], units } };
     });
+  }
+
+  /**
+   * One scanned serial onto a line: the next unit without a serial takes it, and
+   * when every unit has one the count grows by one — up to what is outstanding.
+   *
+   * A serial already on the screen is refused rather than written twice; the
+   * fleet-wide check still runs on receipt. Case is ignored for that comparison
+   * because scanners and labels disagree about it more often than serials do.
+   */
+  function scanSerial(line: ReceiveLine, raw: string): ScanResult {
+    const serial = raw.trim();
+    if (!serial) return { kind: "empty" };
+    const needle = serial.toLowerCase();
+    const seen = lines.some((other) =>
+      state[other.id].units.some((unit) => unit.serial.trim().toLowerCase() === needle),
+    );
+    if (seen) return { kind: "duplicate", serial };
+
+    const units = state[line.id].units;
+    const open = units.findIndex((unit) => !unit.serial.trim());
+    if (open >= 0) {
+      setUnit(line.id, open, { serial });
+      return { kind: "filled", serial, index: open, grew: false };
+    }
+    if (units.length >= line.remaining) return { kind: "full" };
+
+    setState((current) => {
+      const grown = [...current[line.id].units];
+      grown.push({ ...blankUnit(grown.at(-1)?.locationId ?? defaultLocationId), serial });
+      const next = {
+        ...current,
+        [line.id]: { ...current[line.id], quantity: String(grown.length), units: grown },
+      };
+      return startBarcode.trim() ? renumber(next, startBarcode) : next;
+    });
+    return { kind: "filled", serial, index: units.length, grew: true };
+  }
+
+  /** Takes back the last scan: clears its serial, or uncounts the unit it added. */
+  function undoScan(line: ReceiveLine, scan: { index: number; grew: boolean }) {
+    const units = state[line.id].units;
+    if (scan.grew && scan.index === units.length - 1) {
+      setQuantity(line, String(units.length - 1));
+    } else if (units[scan.index]) {
+      setUnit(line.id, scan.index, { serial: "" });
+    }
   }
 
   /** Every unit on the screen, in order, from one starting barcode. */
@@ -280,6 +335,8 @@ export function POReceive({
           onQuantity={(raw) => setQuantity(line, raw)}
           onPatch={(next) => patch(line.id, next)}
           onUnit={(index, next) => setUnit(line.id, index, next)}
+          onScan={(raw) => scanSerial(line, raw)}
+          onUndoScan={(scan) => undoScan(line, scan)}
         />
       ))}
 
@@ -322,6 +379,8 @@ function LineCard({
   onQuantity,
   onPatch,
   onUnit,
+  onScan,
+  onUndoScan,
 }: {
   line: ReceiveLine;
   state: LineState;
@@ -332,9 +391,35 @@ function LineCard({
   onQuantity: (raw: string) => void;
   onPatch: (next: Partial<LineState>) => void;
   onUnit: (index: number, next: Partial<ReceiveUnitInput>) => void;
+  onScan: (raw: string) => ScanResult;
+  onUndoScan: (scan: { index: number; grew: boolean }) => void;
 }) {
   const quantity = Number(state.quantity) || 0;
   const [paste, setPaste] = useState("");
+  const [entry, setEntry] = useState<"paste" | "scan">("paste");
+  const [scan, setScan] = useState("");
+  const [scans, setScans] = useState<{ serial: string; index: number; grew: boolean }[]>([]);
+  const [scanNote, setScanNote] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
+  const withSerial = state.units.filter((unit) => unit.serial.trim()).length;
+
+  function takeScan(event: React.KeyboardEvent<HTMLInputElement>) {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    const result = onScan(scan);
+    setScan("");
+    if (result.kind === "empty") return;
+    if (result.kind === "duplicate") {
+      setScanNote({ tone: "error", text: `${result.serial} is already scanned on this receipt — skipped.` });
+    } else if (result.kind === "full") {
+      setScanNote({
+        tone: "error",
+        text: `All ${line.remaining} outstanding ${line.remaining === 1 ? "unit has" : "units have"} a serial — that scan was not recorded.`,
+      });
+    } else {
+      setScans((current) => [...current, { serial: result.serial, index: result.index, grew: result.grew }]);
+      setScanNote({ tone: "ok", text: `Unit ${result.index + 1}: ${result.serial}` });
+    }
+  }
 
   const note =
     line.mode === "units"
@@ -390,132 +475,198 @@ function LineCard({
         />
       ) : null}
 
-      {makesUnits && quantity > 0 ? (
+      {makesUnits ? (
         <div className="flex flex-col gap-2">
           <div className="flex flex-wrap items-end gap-2 rounded-well bg-sunken p-2">
-            <label className="min-w-[220px] flex-1">
-              <span className="mb-1 block text-micro uppercase text-ink-muted">
-                Paste serials, one per line
-              </span>
-              <textarea
-                rows={1}
-                value={paste}
-                onChange={(event) => setPaste(event.target.value)}
-                className="h-9 w-full resize-y rounded-well bg-panel px-2 py-2 font-mono text-detail text-ink outline-none"
-              />
-            </label>
-            <button
-              type="button"
-              disabled={!paste.trim()}
-              onClick={() => {
-                const list = paste.split(/[\n,\t]/).map((s) => s.trim()).filter(Boolean);
-                state.units.forEach((_, index) => {
-                  if (list[index] !== undefined) onUnit(index, { serial: list[index] });
-                });
-                setPaste("");
-              }}
-              className="h-9 rounded-pill bg-panel px-3 text-pill text-ink hover:bg-row-hover disabled:opacity-50"
-            >
-              Fill serials
-            </button>
-            <label>
-              <span className="mb-1 block text-micro uppercase text-ink-muted">All to</span>
-              <select
-                value=""
-                onChange={(event) =>
-                  event.target.value &&
-                  state.units.forEach((_, index) => onUnit(index, { locationId: event.target.value }))
-                }
-                className="h-9 rounded-well bg-panel px-2 text-detail text-ink outline-none"
+            <div role="group" aria-label="How serials are entered" className="flex h-9 rounded-pill bg-panel p-[3px]">
+              {(["paste", "scan"] as const).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  aria-pressed={entry === mode}
+                  onClick={() => {
+                    setEntry(mode);
+                    setScanNote(null);
+                  }}
+                  className={`rounded-pill px-3 text-pill ${entry === mode ? "bg-accent-solid text-accent-on-solid" : "text-ink hover:bg-row-hover"}`}
+                >
+                  {mode === "paste" ? "Paste / type" : "Scan"}
+                </button>
+              ))}
+            </div>
+            {entry === "scan" ? (
+              <label className="min-w-[220px] flex-1">
+                <span className="mb-1 block text-micro uppercase text-ink-muted">
+                  Scan serials — {withSerial} of {quantity > 0 ? quantity : line.remaining}
+                  {quantity > 0 ? " counted" : " outstanding"}
+                </span>
+                <input
+                  value={scan}
+                  onChange={(event) => setScan(event.target.value)}
+                  onKeyDown={takeScan}
+                  autoFocus
+                  placeholder="Scan a serial"
+                  aria-label={`Scan serials for ${line.description}`}
+                  className="h-9 w-full rounded-well bg-panel px-2 font-mono text-detail text-ink outline-none focus:ring-1 focus:ring-accent-solid"
+                />
+              </label>
+            ) : quantity > 0 ? (
+              <>
+                <label className="min-w-[220px] flex-1">
+                  <span className="mb-1 block text-micro uppercase text-ink-muted">
+                    Paste serials, one per line
+                  </span>
+                  <textarea
+                    rows={1}
+                    value={paste}
+                    onChange={(event) => setPaste(event.target.value)}
+                    className="h-9 w-full resize-y rounded-well bg-panel px-2 py-2 font-mono text-detail text-ink outline-none"
+                  />
+                </label>
+                <button
+                  type="button"
+                  disabled={!paste.trim()}
+                  onClick={() => {
+                    const list = paste.split(/[\n,\t]/).map((s) => s.trim()).filter(Boolean);
+                    state.units.forEach((_, index) => {
+                      if (list[index] !== undefined) onUnit(index, { serial: list[index] });
+                    });
+                    setPaste("");
+                  }}
+                  className="h-9 rounded-pill bg-panel px-3 text-pill text-ink hover:bg-row-hover disabled:opacity-50"
+                >
+                  Fill serials
+                </button>
+              </>
+            ) : (
+              <p className="min-w-[220px] flex-1 self-center text-detail text-ink-muted">
+                Count what arrived above, or switch to Scan and let the scans count it.
+              </p>
+            )}
+            {entry === "scan" && scans.length > 0 ? (
+              <button
+                type="button"
+                onClick={() => {
+                  const last = scans.at(-1)!;
+                  onUndoScan(last);
+                  setScans((current) => current.slice(0, -1));
+                  setScanNote({ tone: "ok", text: `Took back ${last.serial}.` });
+                }}
+                className="h-9 rounded-pill bg-panel px-3 text-pill text-ink hover:bg-row-hover"
               >
-                <option value="">Location…</option>
-                {locations.map((location) => (
-                  <option key={location.id} value={location.id}>
-                    {location.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              <span className="mb-1 block text-micro uppercase text-ink-muted">All as</span>
-              <select
-                value=""
-                onChange={(event) =>
-                  event.target.value &&
-                  state.units.forEach((_, index) => onUnit(index, { condition: event.target.value }))
-                }
-                className="h-9 rounded-well bg-panel px-2 text-detail text-ink outline-none"
-              >
-                <option value="">Condition…</option>
-                {RECEIVE_CONDITIONS.map((condition) => (
-                  <option key={condition} value={condition}>
-                    {condition}
-                  </option>
-                ))}
-              </select>
-            </label>
+                Undo last scan
+              </button>
+            ) : null}
+            {quantity > 0 ? (
+              <>
+                <label>
+                  <span className="mb-1 block text-micro uppercase text-ink-muted">All to</span>
+                  <select
+                    value=""
+                    onChange={(event) =>
+                      event.target.value &&
+                      state.units.forEach((_, index) => onUnit(index, { locationId: event.target.value }))
+                    }
+                    className="h-9 rounded-well bg-panel px-2 text-detail text-ink outline-none"
+                  >
+                    <option value="">Location…</option>
+                    {locations.map((location) => (
+                      <option key={location.id} value={location.id}>
+                        {location.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  <span className="mb-1 block text-micro uppercase text-ink-muted">All as</span>
+                  <select
+                    value=""
+                    onChange={(event) =>
+                      event.target.value &&
+                      state.units.forEach((_, index) => onUnit(index, { condition: event.target.value }))
+                    }
+                    className="h-9 rounded-well bg-panel px-2 text-detail text-ink outline-none"
+                  >
+                    <option value="">Condition…</option>
+                    {RECEIVE_CONDITIONS.map((condition) => (
+                      <option key={condition} value={condition}>
+                        {condition}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </>
+            ) : null}
           </div>
 
-          <div className="grid grid-cols-[28px_minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,1fr)_110px] gap-2 px-1 text-colhead uppercase text-ink-muted">
-            <span>#</span>
-            <span>Barcode</span>
-            <span>Serial</span>
-            <span>Location</span>
-            <span>Condition</span>
-          </div>
-          <ol className="flex flex-col gap-[2px]">
-            {state.units.map((unit, index) => (
-              <li
-                key={index}
-                className="grid grid-cols-[28px_minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,1fr)_110px] items-center gap-2 rounded-row bg-row-alt p-1"
-              >
-                <span className="text-right text-detail tabular-nums text-ink-faint">{index + 1}</span>
-                <input
-                  value={unit.barcode}
-                  onChange={(event) => onUnit(index, { barcode: event.target.value })}
-                  onKeyDown={advance}
-                  data-scan="barcode"
-                  placeholder="Generated if blank"
-                  aria-label={`${line.description} unit ${index + 1} barcode`}
-                  className={`${ROW_INPUT} font-mono`}
-                />
-                <input
-                  value={unit.serial}
-                  onChange={(event) => onUnit(index, { serial: event.target.value })}
-                  onKeyDown={advance}
-                  data-scan="serial"
-                  placeholder="Scan or type"
-                  aria-label={`${line.description} unit ${index + 1} serial`}
-                  className={`${ROW_INPUT} font-mono`}
-                />
-                <select
-                  value={unit.locationId}
-                  onChange={(event) => onUnit(index, { locationId: event.target.value })}
-                  aria-label={`${line.description} unit ${index + 1} location`}
-                  className={ROW_INPUT}
-                >
-                  <option value="">Where?</option>
-                  {locations.map((location) => (
-                    <option key={location.id} value={location.id}>
-                      {location.name}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  value={unit.condition}
-                  onChange={(event) => onUnit(index, { condition: event.target.value })}
-                  aria-label={`${line.description} unit ${index + 1} condition`}
-                  className={ROW_INPUT}
-                >
-                  {RECEIVE_CONDITIONS.map((condition) => (
-                    <option key={condition} value={condition}>
-                      {condition}
-                    </option>
-                  ))}
-                </select>
-              </li>
-            ))}
-          </ol>
+          {entry === "scan" && scanNote ? (
+            <Notice tone={scanNote.tone}>{scanNote.text}</Notice>
+          ) : null}
+
+          {quantity > 0 ? (
+            <>
+              <div className="grid grid-cols-[28px_minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,1fr)_110px] gap-2 px-1 text-colhead uppercase text-ink-muted">
+                <span>#</span>
+                <span>Barcode</span>
+                <span>Serial</span>
+                <span>Location</span>
+                <span>Condition</span>
+              </div>
+              <ol className="flex flex-col gap-[2px]">
+                {state.units.map((unit, index) => (
+                  <li
+                    key={index}
+                    className="grid grid-cols-[28px_minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,1fr)_110px] items-center gap-2 rounded-row bg-row-alt p-1"
+                  >
+                    <span className="text-right text-detail tabular-nums text-ink-faint">{index + 1}</span>
+                    <input
+                      value={unit.barcode}
+                      onChange={(event) => onUnit(index, { barcode: event.target.value })}
+                      onKeyDown={advance}
+                      data-scan="barcode"
+                      placeholder="Generated if blank"
+                      aria-label={`${line.description} unit ${index + 1} barcode`}
+                      className={`${ROW_INPUT} font-mono`}
+                    />
+                    <input
+                      value={unit.serial}
+                      onChange={(event) => onUnit(index, { serial: event.target.value })}
+                      onKeyDown={advance}
+                      data-scan="serial"
+                      placeholder="Scan or type"
+                      aria-label={`${line.description} unit ${index + 1} serial`}
+                      className={`${ROW_INPUT} font-mono`}
+                    />
+                    <select
+                      value={unit.locationId}
+                      onChange={(event) => onUnit(index, { locationId: event.target.value })}
+                      aria-label={`${line.description} unit ${index + 1} location`}
+                      className={ROW_INPUT}
+                    >
+                      <option value="">Where?</option>
+                      {locations.map((location) => (
+                        <option key={location.id} value={location.id}>
+                          {location.name}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      value={unit.condition}
+                      onChange={(event) => onUnit(index, { condition: event.target.value })}
+                      aria-label={`${line.description} unit ${index + 1} condition`}
+                      className={ROW_INPUT}
+                    >
+                      {RECEIVE_CONDITIONS.map((condition) => (
+                        <option key={condition} value={condition}>
+                          {condition}
+                        </option>
+                      ))}
+                    </select>
+                  </li>
+                ))}
+              </ol>
+            </>
+          ) : null}
         </div>
       ) : null}
     </section>
