@@ -7,6 +7,8 @@ import {
   SettingsHeader,
 } from "@/components/settings/settings-chrome";
 import { UserEditor } from "@/components/settings/user-form";
+import { ApproverScopes } from "@/components/settings/approver-scopes";
+import { APPROVAL_TYPE_LABEL } from "@/lib/approvals/labels";
 import { dayYear } from "@/lib/format";
 import { isMfaEnforced } from "@/lib/mfa-enforcement";
 import { getUserDetail } from "@/lib/queries/settings";
@@ -70,6 +72,36 @@ export default async function UserRecordPage({ params }: Params) {
         </Card>
 
         <div className="flex min-h-0 flex-col gap-3">
+          <Card
+            title="Approvals"
+            meta={
+              user.role === "SUPER_ADMIN"
+                ? "always"
+                : user.approvalScopes.length === 0
+                  ? "approves nothing"
+                  : `approves ${user.approvalScopes.length} of 3`
+            }
+          >
+            <ApproverScopes
+              userId={user.id}
+              name={user.name}
+              role={user.role}
+              scopes={user.approvalScopes}
+              canEdit={viewer.role === "SUPER_ADMIN"}
+            />
+            {user.scopeGrants.length > 0 ? (
+              <ul className="flex flex-col gap-px border-t border-hairline px-4 py-2 text-detail text-ink-muted">
+                {user.scopeGrants.map((grant) => (
+                  <li key={grant.recordType}>
+                    {APPROVAL_TYPE_LABEL[grant.recordType]} · tagged{" "}
+                    {dayYear(grant.grantedAt)}
+                    {grant.grantedBy ? ` by ${grant.grantedBy}` : ""}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </Card>
+
           <Suspense fallback={<CardSkeleton title="Trail" rows={4} />}>
             <TrailCard id={id} />
           </Suspense>

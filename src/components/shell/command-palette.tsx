@@ -56,9 +56,12 @@ function groupOf(destination: NavMatch): string {
 
 export function CommandPalette({
   role,
+  approver = false,
   onClose,
 }: {
   role: Role;
+  /** Offers Procurement → Approvals, as the rail does. */
+  approver?: boolean;
   onClose: () => void;
 }) {
   const router = useRouter();
@@ -73,7 +76,7 @@ export function CommandPalette({
     hits: [],
   });
 
-  const destinations = useMemo(() => navDestinations(role), [role]);
+  const destinations = useMemo(() => navDestinations(role, approver), [role, approver]);
   const pages = useMemo(() => {
     const needle = query.trim().toLowerCase();
     if (!needle) return destinations;

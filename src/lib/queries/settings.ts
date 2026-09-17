@@ -1,4 +1,4 @@
-import type { Prisma } from "@/generated/prisma/client";
+import type { ApprovalRecordType, Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 
 /**
@@ -122,6 +122,8 @@ export type UserRow = {
   mfaEnabled: boolean;
   createdAt: Date;
   lastPasswordChange: Date | null;
+  /** Record types the owner tagged this person to approve. SUPER_ADMIN needs none. */
+  approvalScopes: ApprovalRecordType[];
 };
 
 export async function getUserRows(search: string): Promise<UserRow[]> {
@@ -141,6 +143,7 @@ export async function getUserRows(search: string): Promise<UserRow[]> {
       // Selected only to be reduced to a boolean below — the hash never leaves
       // this function.
       passwordHash: true,
+      approvalScopes: { select: { recordType: true } },
     },
     orderBy: [{ role: "asc" }, { name: "asc" }],
   });
@@ -154,6 +157,7 @@ export async function getUserRows(search: string): Promise<UserRow[]> {
     mfaEnabled: user.mfaEnabled,
     createdAt: user.createdAt,
     lastPasswordChange: user.passwordChangedAt,
+    approvalScopes: user.approvalScopes.map((scope) => scope.recordType),
   }));
 }
 
@@ -185,6 +189,8 @@ export type UserDetail = UserRow & {
   ordersPrepared: number;
   auditEvents: number;
   lastSeen: Date | null;
+  /** Who tagged each scope, and when — the row a revocation deletes. */
+  scopeGrants: { recordType: ApprovalRecordType; grantedAt: Date; grantedBy: string | null }[];
 };
 
 /**
@@ -211,6 +217,9 @@ export async function getUserDetail(id: string): Promise<UserDetail | null> {
       createdAt: true,
       passwordChangedAt: true,
       passwordHash: true,
+      approvalScopes: {
+        select: { recordType: true, grantedAt: true, grantedBy: { select: { name: true } } },
+      },
       _count: {
         select: {
           checkoutsCreated: true,
@@ -245,6 +254,12 @@ export async function getUserDetail(id: string): Promise<UserDetail | null> {
     ordersPrepared: user._count.reservationsPrepared,
     auditEvents: user._count.auditLogs,
     lastSeen: lastAudit?.createdAt ?? null,
+    approvalScopes: user.approvalScopes.map((scope) => scope.recordType),
+    scopeGrants: user.approvalScopes.map((scope) => ({
+      recordType: scope.recordType,
+      grantedAt: scope.grantedAt,
+      grantedBy: scope.grantedBy?.name ?? null,
+    })),
   };
 }
 

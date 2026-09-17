@@ -49,9 +49,15 @@ export function NavPanel({
   user,
   counts,
   bell,
+  approver = false,
 }: {
   user: SessionUser;
   counts: NavCounts;
+  /**
+   * Whether this user approves anything — shows Procurement → Approvals. Read
+   * on the server by the shell; approving is a per-user tag, not a role.
+   */
+  approver?: boolean;
   /**
    * The notification bell, server-rendered upstream so its count streams in
    * behind its own boundary. Passed through untouched — this component is a
@@ -60,7 +66,7 @@ export function NavPanel({
   bell?: React.ReactNode;
 }) {
   const pathname = usePathname();
-  const clusters = useMemo(() => clustersForRole(user.role), [user.role]);
+  const clusters = useMemo(() => clustersForRole(user.role, approver), [user.role, approver]);
   const active = useMemo(() => findNavPage(pathname), [pathname]);
   // Null on the pinned rows: Dashboard and Settings belong to no cluster, so
   // landing on either leaves every bubble closed, which is correct.
@@ -207,7 +213,7 @@ export function NavPanel({
       <UserPod user={user} bell={bell} />
 
       {paletteOpen ? (
-        <CommandPalette role={user.role} onClose={closePalette} />
+        <CommandPalette role={user.role} approver={approver} onClose={closePalette} />
       ) : null}
     </div>
   );

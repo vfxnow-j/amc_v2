@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import type { ApprovalRecordType } from "@/generated/prisma/client";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ListSearch } from "@/components/list/list-search";
@@ -20,12 +21,19 @@ import { roleLabel } from "@/lib/settings/roles";
 
 export const metadata = { title: "Users" };
 
+const SHORT_TYPE: Record<ApprovalRecordType, string> = {
+  PURCHASE_ORDER: "POs",
+  FUNDING_REQUEST: "Funding",
+  QUOTE: "Quotes",
+};
+
 const COLUMNS: Column[] = [
   { key: "name", label: "Name", width: "minmax(0,1fr)" },
   { key: "email", label: "Email", width: "minmax(0,1.3fr)" },
   { key: "access", label: "Access", width: "120px" },
   { key: "signin", label: "Sign-in", width: "150px" },
   { key: "factor", label: "2FA", width: "100px" },
+  { key: "approves", label: "Approves", width: "150px" },
   { key: "added", label: "Added", width: "84px", align: "right" },
 ];
 
@@ -144,6 +152,18 @@ async function Table({ search, selfId }: { search: string; selfId: string }) {
               Enrolled
             </span>
           ),
+          // Phase 6: who the owner has named as approvers. SUPER_ADMIN needs no
+          // tag, and saying so here stops anyone tagging them for nothing.
+          approves:
+            row.role === "SUPER_ADMIN" ? (
+              <span className="text-ink-muted">Always an approver</span>
+            ) : row.approvalScopes.length === 0 ? (
+              <span className="text-ink-faint">—</span>
+            ) : (
+              <span className="text-ink-muted">
+                {row.approvalScopes.map((type) => SHORT_TYPE[type]).join(", ")}
+              </span>
+            ),
           added: (
             <span className="tabular-nums text-ink-muted">
               {dayYear(row.createdAt)}

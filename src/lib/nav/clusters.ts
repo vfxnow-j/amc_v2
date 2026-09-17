@@ -34,6 +34,13 @@ export type NavPage = {
    * screen merges them. Absent means it's new in v2 with no v1 screen behind it.
    */
   from?: string[];
+  /**
+   * Shown only to someone who approves at least one record type. Clusters are
+   * gated by role, but being an approver is not a role — it is a per-user tag
+   * (docs/procurement.md, Phase 6) — so this one page is filtered per user on
+   * top of its cluster's roles. The page checks again; hiding it is courtesy.
+   */
+  approversOnly?: boolean;
 };
 
 export type NavCluster = {
@@ -198,7 +205,9 @@ export const NAV_CLUSTERS: NavCluster[] = [
     code: "PR",
     label: "Procurement",
     isNew: true,
-    roles: ALL_ADMIN,
+    // STAFF since Phase 6: they raise purchase orders and funding requests,
+    // which wait for approval. VIEWER still has no rail entry here.
+    roles: [...ALL_ADMIN, "STAFF"],
     pages: [
       {
         // New in v2 (Phase 5). First because it is the question the cluster is
@@ -232,6 +241,16 @@ export const NAV_CLUSTERS: NavCluster[] = [
         label: "Vendors",
         href: "/dashboard/vendors",
         from: ["/dashboard/vendors"],
+      },
+      {
+        // New in v2 (Phase 6). Everything waiting on the signed-in approver —
+        // purchase orders, funding requests and client quotes — in one list,
+        // oldest first. It lives here because two of the three types are
+        // procurement's, and quotes join them rather than splitting the queue.
+        id: "approvals",
+        label: "Approvals",
+        href: "/dashboard/approvals",
+        approversOnly: true,
       },
     ],
   },
@@ -379,8 +398,12 @@ export const SETTINGS_PAGE: NavPage = {
   from: ["/dashboard/settings"],
 };
 
-export function clustersForRole(role: Role): NavCluster[] {
-  return NAV_CLUSTERS.filter((cluster) => cluster.roles.includes(role));
+export function clustersForRole(role: Role, approver = false): NavCluster[] {
+  return NAV_CLUSTERS.filter((cluster) => cluster.roles.includes(role)).map((cluster) =>
+    cluster.pages.some((page) => page.approversOnly && !approver)
+      ? { ...cluster, pages: cluster.pages.filter((page) => !page.approversOnly) }
+      : cluster,
+  );
 }
 
 /**
@@ -429,10 +452,10 @@ export function findNavPage(pathname: string): NavMatch | null {
  * Dashboard leads, because it is the one destination that is not part of any
  * cluster and is the most likely thing somebody opening the palette wants.
  */
-export function navDestinations(role: Role): NavMatch[] {
+export function navDestinations(role: Role, approver = false): NavMatch[] {
   return [
     { cluster: null, page: DASHBOARD_PAGE },
-    ...clustersForRole(role).flatMap((cluster) =>
+    ...clustersForRole(role, approver).flatMap((cluster) =>
       cluster.pages.map((page) => ({ cluster, page })),
     ),
     { cluster: null, page: SETTINGS_PAGE },

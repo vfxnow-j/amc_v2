@@ -5,6 +5,7 @@ import { NotificationBell } from "@/components/shell/notification-bell";
 import { NotificationBellSlot } from "@/components/shell/notification-bell-slot";
 import { getNavCounts } from "@/lib/queries/nav-counts";
 import { getSessionUser } from "@/lib/roles";
+import { pendingCountFor } from "@/lib/approvals/core";
 
 /**
  * The application shell every routed screen inherits: the rail on the left, a
@@ -26,13 +27,19 @@ export default async function ShellLayout({
   const user = await getSessionUser();
   if (!user) redirect("/login");
 
-  const counts = await getNavCounts();
+  // Approving is a per-user tag, not a role, so the shell asks once per render:
+  // null means this person approves nothing and the Approvals page stays out of
+  // their rail; a number is what is waiting on them. SUPER_ADMIN costs one count;
+  // everyone else one indexed lookup of their scopes first.
+  const [counts, waiting] = await Promise.all([getNavCounts(), pendingCountFor(user)]);
+  if (waiting !== null && waiting > 0) counts.pages.approvals = waiting;
 
   return (
     <div className="flex min-h-0 flex-1 gap-3 bg-ground p-3">
       <NavPanel
         user={user}
         counts={counts}
+        approver={waiting !== null}
         // Its own boundary, because this layout renders on every authenticated
         // route: a slow notification count here would be a slow app everywhere.
         // The fallback is the same bell without a badge, so nothing moves when

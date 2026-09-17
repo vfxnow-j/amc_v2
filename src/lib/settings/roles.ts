@@ -24,17 +24,17 @@ export const ROLE_OPTIONS: RoleOption[] = [
   {
     value: "SUPER_ADMIN",
     label: "Super admin",
-    detail: "Everything, including promoting and demoting other admins.",
+    detail: "Everything, including promoting and demoting other admins, and naming approvers. Always approves purchase orders, funding requests and quotes.",
   },
   {
     value: "ADMIN",
     label: "Admin",
-    detail: "Everything except changing admin-level roles.",
+    detail: "Everything except changing admin-level roles. Approves only what a super admin tags them for — otherwise their POs, requests and quotes wait for approval.",
   },
   {
     value: "STAFF",
     label: "Staff",
-    detail: "Can run the floor — orders, check-out, service. No settings.",
+    detail: "Can run the floor — orders, check-out, service, receiving. Raises POs, funding requests and quotes, which wait for approval. No settings.",
   },
   {
     value: "VIEWER",
