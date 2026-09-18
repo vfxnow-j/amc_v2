@@ -64,6 +64,11 @@ Four nullable columns on `Reservation`. Nullable throughout, so no backfill:
 | `buyerName` | `String?` | Who bought it on eBay |
 | `payoutAmount` | `Decimal? @db.Decimal(12,2)` | What eBay pays us, after fees |
 | `payoutEstimated` | `Boolean @default(true)` | Whether that figure is a guess |
+| `refundedAmount` | `Decimal? @db.Decimal(12,2)` | What we gave back on a return |
+| `refundedAt` | `DateTime?` | When we gave it back |
+
+Plus two on `ReservationItemUnit` — `returnedAt` and `returnCondition` — and both refund
+columns apply to `SALE` as well as `EBAY`. See "Returns".
 
 `externalRef` is named generically rather than `ebaySaleNumber`. The next marketplace wants
 the same field, and a column named after one vendor gets a second column bolted beside it.
@@ -144,7 +149,7 @@ and `soldViaReservation` — the traceability the 546 legacy units lack. Declini
 order `SHIPPED`; the stage bar keeps offering the move, so nothing is stranded by saying no.
 
 The dialog is not decoration. Marking hardware sold is irreversible in practice — the
-reverse path, `restoreAssetUnit` (`assets.ts:793`), exists but is a repair, not an undo. A
+reverse path, `restoreUnit` (`assets.ts:773`), exists but is a repair, not an undo. A
 confirmation earns its place on any step that permanently removes units from the fleet.
 
 `ShipDialog` and `CompleteDialog` already exist in `components/orders/order-actions.tsx`
@@ -157,6 +162,111 @@ Two details inside `completeSale` change with them. `soldPrice` is taken from th
 rate (`sales.ts:255`), which is exactly right now that eBay lines carry solid per-item
 prices. `soldNotes` hardcodes `Sold via <number> to client` (`:264`) — on an eBay order that
 is wrong twice over, so it becomes the buyer's name where there is one.
+
+## Returns
+
+Asked for by the owner, 2026-09-17:
+
+> we should have the ability to return order for ebay too, it happens.
+
+`completeSale` is one-way: once units are `SOLD` the only route back is `restoreUnit`
+(`assets.ts:773`), which is a per-unit repair reached from the retired-units screen and
+knows nothing about the order it reverses. A returned eBay sale needs the order to change
+too, so this is a proper flow rather than a tidy-up.
+
+It applies to **`SALE` and `EBAY` alike** (owner, 2026-09-17), for the same reason the
+`completeSale` fix does: a client sale can come back, and a return path built for one type
+leaves the other with the gap we just finished closing.
+
+### Per item, not per order
+
+Units are picked individually. A whole-order return is the case where every unit is ticked.
+A two-item lot where one comes back is common enough on eBay that a whole-order-only flow
+would be worked around by hand, and worked around badly.
+
+### Condition decides where the unit lands
+
+The return asks for a `ReturnCondition` — the enum already exists (`schema.prisma:803`:
+`EXCELLENT`, `GOOD`, `FAIR`, `DAMAGED`).
+
+| Condition | Unit becomes |
+| --- | --- |
+| Excellent, Good, Fair | `AVAILABLE` |
+| Damaged | `MAINTENANCE` |
+
+Damaged stock must not land back in the bookable pool, where the next order would promise
+it to someone. Routing it to `MAINTENANCE` keeps it in the fleet — it is still capacity, it
+just is not promisable — which is the distinction `lib/inventory/availability.ts` already
+draws between `IN_FLEET` and `BOOKABLE`.
+
+**A damaged return must create its own `MaintenanceRecord`.** Setting
+`AssetUnit.status = 'MAINTENANCE'` alone produces a unit that never appears on the
+maintenance page; `reconcileOrphanMaintenanceUnits` (`maintenance.ts:92`) exists precisely
+to sweep up units left in that state. Relying on a reconciler to notice our own write would
+be writing a bug and scheduling its cleanup.
+
+### The money
+
+The sale is kept and a refund is recorded against it. Nothing is erased: the order still
+says what it sold for, and reports net the two. That makes a partial refund expressible —
+a buyer who keeps the item at a discount, or a restocking fee withheld — which zeroing the
+order out could not represent.
+
+Two new columns on `Reservation`:
+
+| Column | Type | Holds |
+| --- | --- | --- |
+| `refundedAmount` | `Decimal? @db.Decimal(12,2)` | What we actually gave back |
+| `refundedAt` | `DateTime?` | When |
+
+`refundedAmount` is **what left our side**, not what the buyer received. eBay's treatment of
+its own fee on a refund varies by case and is not knowable from here, so the field records
+the figure we can actually observe from the payout. Where that differs from the buyer's
+refund, the difference is eBay's business and not ours to model. Stated plainly because a
+column called "refunded" invites the other reading.
+
+Net for the order is `payoutAmount − refundedAmount`. A fully refunded sale nets zero
+without pretending it never happened.
+
+### Recording which units came back
+
+Two new columns on `ReservationItemUnit`:
+
+| Column | Type |
+| --- | --- |
+| `returnedAt` | `DateTime?` |
+| `returnCondition` | `ReturnCondition?` |
+
+Deliberately **not** reusing `checkedInAt`, which already sits on that model. On a rental
+`checkedInAt` means "the hire ended and the kit came back", and it is read by the rental
+movement and due-back queries. A sale coming back is a different event with different
+accounting, and overloading one column would quietly fold returned sales into rental
+check-in figures.
+
+### The action
+
+`returnSale(reservationId, { units: [{ id, condition }], refundAmount, notes })`, beside
+`completeSale` in `lib/actions/sales.ts`, in one transaction:
+
+1. For each unit: clear `soldAt`, `soldPrice`, `soldViaReservation`, `soldNotes`; set status
+   from the condition table above.
+2. Stamp `returnedAt` and `returnCondition` on the junction row.
+3. Create a `MaintenanceRecord` for each damaged unit.
+4. Recompute `Asset.totalQuantity` — `completeSale` decremented it (`sales.ts:269`), so a
+   return that skipped this would leave the count permanently short.
+5. Write `refundedAmount` and `refundedAt` on the order.
+6. Write `StatusHistory` / `AuditLog`, so the reversal is as traceable as the sale.
+
+The order **stays `COMPLETED`**. No `RETURNED` status is added: it would have to be threaded
+through every status map, every filter and every badge, to express something the refund
+fields already say. A fully returned order reads as completed with a full refund, which is
+what happened.
+
+### Guarding it
+
+A unit may only be returned if it is `SOLD` and its `soldViaReservation` points at this
+order. That is the check `restoreUnit` cannot make, and it is the reason this is an
+order-level action rather than a loop over the per-unit repair.
 
 ## Change surface
 
@@ -215,5 +325,7 @@ into the v2 schema. `EBAY` is v2-only and v1 cannot produce it, so no mapping is
 but a refresh must not drop the four new columns. Flagged for whoever rewrites that import.
 
 **The 546 legacy sold units** carry no `soldViaReservation` and this work does not backfill
-them. The information to do it does not exist in v2; it may exist in v1. Out of scope, and
-recorded here so it is not mistaken for something this change fixed.
+them. The information to do it does not exist in v2; it may exist in v1, and the owner said
+(2026-09-17) they may have historical sheets to reference. So the backfill is deferred
+rather than declared impossible — but it is a separate piece of work with its own source
+data, and nothing here should be read as having fixed it.
