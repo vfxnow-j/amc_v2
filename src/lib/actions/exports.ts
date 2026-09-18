@@ -4,7 +4,8 @@ import { prisma } from '@/lib/prisma'
 import { auth } from '@/lib/auth'
 import { createExcelBuffer } from '@/lib/excel'
 import type { ExportType } from '@/lib/export-types'
-import { calculateDepreciatedValue, type DepreciationMethod } from '@/lib/utils/depreciation'
+import { calculateDepreciatedValue, unitCost, type DepreciationMethod } from '@/lib/utils/depreciation'
+import { unitDisposal, dispositionLabels } from '@/lib/utils/disposal'
 import { getDerivedOwnershipStatus, type OwnershipType, type AssetStatus, ownershipTypeLabels, depreciationMethodLabels } from '@/lib/types'
 
 // ============================================
@@ -798,20 +799,24 @@ async function exportInventoryValue() {
     ],
   })
 
-  // Calculate depreciated value (simple straight-line) per unit
+  // Depreciated value per unit, on landed cost (invoice price + PO extras)
   const rows = units.map((unit) => {
     const purchasePrice = Number(unit.purchasePrice || 0)
+    const landedAdj = Number(unit.landedCostAdjustment || 0)
+    const cost = unitCost(unit.purchasePrice, unit.landedCostAdjustment)
     const salvageValue = Number(unit.asset.salvageValue || 0)
-    const usefulLifeMonths = unit.asset.usefulLifeMonths || 36
+    const usefulLifeMonths = unit.asset.usefulLifeMonths || 60
 
-    let currentValue = purchasePrice
-    if (unit.purchaseDate && purchasePrice > 0) {
-      const monthsOwned = Math.floor(
-        (Date.now() - unit.purchaseDate.getTime()) / (1000 * 60 * 60 * 24 * 30)
+    let currentValue = cost
+    if (unit.purchaseDate && cost > 0) {
+      currentValue = calculateDepreciatedValue(
+        cost,
+        unit.purchaseDate,
+        unit.asset.depreciationMethod as DepreciationMethod,
+        usefulLifeMonths,
+        salvageValue,
+        unit.receivedDate
       )
-      const monthlyDepreciation = (purchasePrice - salvageValue) / usefulLifeMonths
-      const totalDepreciation = Math.min(monthsOwned * monthlyDepreciation, purchasePrice - salvageValue)
-      currentValue = purchasePrice - totalDepreciation
     }
 
     return {
@@ -823,6 +828,8 @@ async function exportInventoryValue() {
       'Status': unit.status,
       'Purchase Date': unit.purchaseDate ? formatDate(unit.purchaseDate) : '',
       'Purchase Price': purchasePrice || '',
+      'Landed Cost Adj.': landedAdj || '',
+      'Total Cost': cost || '',
       'Warranty Expiry': unit.warrantyExpiry ? formatDate(unit.warrantyExpiry) : '',
       'Salvage Value': salvageValue || '',
       'Useful Life (months)': usefulLifeMonths,
@@ -836,6 +843,8 @@ async function exportInventoryValue() {
   // Add summary row (exclude retired units from totals)
   const activeRows = rows.filter((r) => r['Status'] !== 'RETIRED')
   const totalPurchase = activeRows.reduce((sum, r) => sum + (Number(r['Purchase Price']) || 0), 0)
+  const totalLandedAdj = activeRows.reduce((sum, r) => sum + (Number(r['Landed Cost Adj.']) || 0), 0)
+  const totalCost = activeRows.reduce((sum, r) => sum + (Number(r['Total Cost']) || 0), 0)
   const totalCurrentValue = activeRows.reduce((sum, r) => sum + (Number(r['Current Book Value']) || 0), 0)
   const totalRevenue = activeRows.reduce((sum, r) => sum + (Number(r['Total Revenue']) || 0), 0)
   const totalMaintenance = activeRows.reduce((sum, r) => sum + (Number(r['Maintenance Cost']) || 0), 0)
@@ -849,6 +858,8 @@ async function exportInventoryValue() {
     'Status': '' as unknown as typeof rows[0]['Status'],
     'Purchase Date': '',
     'Purchase Price': totalPurchase,
+    'Landed Cost Adj.': Math.round(totalLandedAdj * 100) / 100,
+    'Total Cost': Math.round(totalCost * 100) / 100,
     'Warranty Expiry': '',
     'Salvage Value': '',
     'Useful Life (months)': '' as unknown as number,
@@ -891,13 +902,18 @@ async function exportTrafficReport(dateRange?: DateRange) {
     const unit = c.assetUnit
     const asset = unit.asset
     const purchasePrice = unit.purchasePrice ? Number(unit.purchasePrice) : 0
+    const cost = unitCost(unit.purchasePrice, unit.landedCostAdjustment)
     const salvageValue = asset.salvageValue ? Number(asset.salvageValue) : 0
-    const usefulLifeMonths = asset.usefulLifeMonths || 36
-    const ageMonths = unit.purchaseDate
-      ? Math.max(0, Math.round((Date.now() - new Date(unit.purchaseDate).getTime()) / (1000 * 60 * 60 * 24 * 30.44)))
-      : 0
-    const depreciatedValue = purchasePrice > 0
-      ? Math.max(salvageValue, purchasePrice - ((purchasePrice - salvageValue) * Math.min(ageMonths, usefulLifeMonths) / usefulLifeMonths))
+    const usefulLifeMonths = asset.usefulLifeMonths || 60
+    const depreciatedValue = cost > 0 && unit.purchaseDate
+      ? calculateDepreciatedValue(
+          cost,
+          new Date(unit.purchaseDate),
+          asset.depreciationMethod as DepreciationMethod,
+          usefulLifeMonths,
+          salvageValue,
+          unit.receivedDate
+        )
       : 0
 
     const checkoutDate = new Date(c.checkoutDate)
@@ -928,6 +944,7 @@ async function exportTrafficReport(dateRange?: DateRange) {
       'Ownership Type': unit.ownershipType,
       'Purchase Date': unit.purchaseDate ? formatDate(unit.purchaseDate) : '',
       'Purchase Price': purchasePrice || '',
+      'Total Cost': cost || '',
       'Depreciation Method': asset.depreciationMethod,
       'Useful Life (months)': usefulLifeMonths,
       'Salvage Value': salvageValue || '',
@@ -950,8 +967,10 @@ async function exportTrafficReport(dateRange?: DateRange) {
       maintenanceCost: true,
       loanAmount: true,
       ownershipType: true,
-      asset: { select: { salvageValue: true, usefulLifeMonths: true } },
+      asset: { select: { salvageValue: true, usefulLifeMonths: true, depreciationMethod: true } },
       purchaseDate: true,
+      receivedDate: true,
+      landedCostAdjustment: true,
     },
   })
 
@@ -961,17 +980,22 @@ async function exportTrafficReport(dateRange?: DateRange) {
   let totalLoanBalance = 0
 
   for (const u of allUnits) {
-    const pp = Number(u.purchasePrice || 0)
-    const sv = Number(u.asset.salvageValue || 0)
-    const ulm = u.asset.usefulLifeMonths || 36
-    const age = u.purchaseDate
-      ? Math.max(0, Math.round((Date.now() - new Date(u.purchaseDate).getTime()) / (1000 * 60 * 60 * 24 * 30.44)))
+    const cost = unitCost(u.purchasePrice, u.landedCostAdjustment)
+    const bv = cost > 0 && u.purchaseDate
+      ? calculateDepreciatedValue(
+          cost,
+          new Date(u.purchaseDate),
+          u.asset.depreciationMethod as DepreciationMethod,
+          u.asset.usefulLifeMonths || 60,
+          Number(u.asset.salvageValue || 0),
+          u.receivedDate
+        )
       : 0
-    const bv = pp > 0 ? Math.max(sv, pp - ((pp - sv) * Math.min(age, ulm) / ulm)) : 0
 
+    // Sold units are off the books — they were landing in "In House"
     if (u.status === 'CHECKED_OUT') valueRented += bv
     else if (u.status === 'RETIRED') valueRetired += bv
-    else valueInHouse += bv
+    else if (u.status !== 'SOLD') valueInHouse += bv
 
     if (u.ownershipType === 'LOAN' && u.loanAmount) {
       totalLoanBalance += Number(u.loanAmount)
@@ -999,7 +1023,7 @@ async function exportTrafficReport(dateRange?: DateRange) {
 async function exportFullInventory() {
   const units = await prisma.assetUnit.findMany({
     where: {
-      status: { in: ['AVAILABLE', 'CHECKED_OUT', 'MAINTENANCE', 'RESERVED'] },
+      status: { in: ['AVAILABLE', 'CHECKED_OUT', 'MAINTENANCE', 'RESERVED', 'SOLD', 'RETIRED'] },
     },
     include: {
       asset: {
@@ -1016,24 +1040,34 @@ async function exportFullInventory() {
 
   const rows = units.map((unit) => {
     const purchasePrice = Number(unit.purchasePrice || 0)
+    const landedAdj = Number(unit.landedCostAdjustment || 0)
+    const cost = unitCost(unit.purchasePrice, unit.landedCostAdjustment)
     const salvageValue = Number(unit.asset.salvageValue || 0)
     const usefulLifeMonths = unit.asset.usefulLifeMonths || 60
     const depMethod = unit.asset.depreciationMethod as DepreciationMethod
 
-    let currentBookValue = purchasePrice
-    if (unit.purchaseDate && purchasePrice > 0) {
+    // Sold/retired units stop depreciating when they leave: book value is as of disposal
+    const disposal = unitDisposal(unit)
+    const bookAsOf = disposal.disposedAt ?? new Date()
+    let currentBookValue = cost
+    if (unit.purchaseDate && cost > 0) {
       currentBookValue = calculateDepreciatedValue(
-        purchasePrice,
+        cost,
         unit.purchaseDate,
         depMethod,
         usefulLifeMonths,
         salvageValue,
-        unit.receivedDate
+        unit.receivedDate,
+        bookAsOf
       )
     }
+    currentBookValue = Math.round(currentBookValue * 100) / 100
+    const gainLoss = disposal.disposition === 'SOLD' && disposal.salePrice != null
+      ? Math.round((disposal.salePrice - currentBookValue) * 100) / 100
+      : null
 
-    const accumulatedDepreciation = purchasePrice - currentBookValue
-    const depreciableBase = purchasePrice - salvageValue
+    const accumulatedDepreciation = cost - currentBookValue
+    const depreciableBase = cost - salvageValue
     const totalRevenue = Number(unit.totalRevenue || 0)
     const maintenanceCost = Number(unit.maintenanceCost || 0)
     const ownershipStatus = getDerivedOwnershipStatus(
@@ -1054,28 +1088,47 @@ async function exportFullInventory() {
       'Ownership Status': ownershipStatus === 'OWNED' ? 'Owned' : ownershipStatus === 'NOT_OWNED' ? 'Not Owned' : '',
       'Purchase Date': unit.purchaseDate ? formatDate(unit.purchaseDate) : '',
       'Purchase Price': purchasePrice || '',
+      'Landed Cost Adj.': landedAdj || '',
+      'Total Cost': cost || '',
       'Salvage Value': salvageValue || '',
       'Depreciable Base': depreciableBase > 0 ? depreciableBase : '',
       'Useful Life (months)': usefulLifeMonths,
       'Depreciation Method': depreciationMethodLabels[depMethod] || depMethod,
-      'Current Book Value': Math.round(currentBookValue * 100) / 100,
+      'Current Book Value': currentBookValue,
+      'Book Value As Of': formatDate(bookAsOf),
       'Accumulated Depreciation': Math.round(accumulatedDepreciation * 100) / 100,
       'Lifetime Revenue': totalRevenue,
       'Maintenance Cost': maintenanceCost,
       'Net Profit': Math.round((totalRevenue - maintenanceCost) * 100) / 100,
+      'Disposition': disposal.disposition ? dispositionLabels[disposal.disposition] : '',
+      'Disposed On': disposal.disposedAt ? formatDate(disposal.disposedAt) : '',
+      'Disposed To': disposal.recipient || '',
+      'Sale Price': disposal.salePrice ?? '',
+      'Gain / Loss': gainLoss ?? '',
     }
   })
 
-  // Summary row
-  const totalPurchase = rows.reduce((sum, r) => sum + (Number(r['Purchase Price']) || 0), 0)
-  const totalBookValue = rows.reduce((sum, r) => sum + (Number(r['Current Book Value']) || 0), 0)
-  const totalDepreciation = rows.reduce((sum, r) => sum + (Number(r['Accumulated Depreciation']) || 0), 0)
-  const totalSalvage = rows.reduce((sum, r) => sum + (Number(r['Salvage Value']) || 0), 0)
-  const totalRevenue = rows.reduce((sum, r) => sum + (Number(r['Lifetime Revenue']) || 0), 0)
-  const totalMaintenance = rows.reduce((sum, r) => sum + (Number(r['Maintenance Cost']) || 0), 0)
+  // Live inventory first, then everything sold/retired
+  const activeRows = rows.filter((r) => !r['Disposition'] && r['Status'] !== 'SOLD' && r['Status'] !== 'RETIRED')
+  const disposedRows = rows.filter((r) => !activeRows.includes(r))
 
-  rows.push({
-    'Asset Name': '--- TOTALS ---',
+  // Summary row
+  const sum = (list: typeof rows, key: keyof (typeof rows)[number]) =>
+    Math.round(list.reduce((acc, r) => acc + (Number(r[key]) || 0), 0) * 100) / 100
+  const totalPurchase = sum(activeRows, 'Purchase Price')
+  const totalLandedAdj = sum(activeRows, 'Landed Cost Adj.')
+  const totalCost = sum(activeRows, 'Total Cost')
+  const totalBookValue = sum(activeRows, 'Current Book Value')
+  const totalDepreciation = sum(activeRows, 'Accumulated Depreciation')
+  const totalSalvage = sum(activeRows, 'Salvage Value')
+  const totalRevenue = sum(activeRows, 'Lifetime Revenue')
+  const totalMaintenance = sum(activeRows, 'Maintenance Cost')
+
+  const blank = Object.fromEntries(Object.keys(rows[0] || {}).map((k) => [k, ''])) as unknown as (typeof rows)[number]
+  const out: (typeof rows)[number][] = [...activeRows]
+  out.push({
+    ...blank,
+    'Asset Name': `--- TOTALS (${activeRows.length} active units) ---`,
     'Category': '',
     'Barcode': '',
     'Serial Number': '',
@@ -1085,8 +1138,10 @@ async function exportFullInventory() {
     'Ownership Status': '',
     'Purchase Date': '',
     'Purchase Price': totalPurchase,
+    'Landed Cost Adj.': Math.round(totalLandedAdj * 100) / 100,
+    'Total Cost': Math.round(totalCost * 100) / 100,
     'Salvage Value': totalSalvage,
-    'Depreciable Base': Math.round((totalPurchase - totalSalvage) * 100) / 100,
+    'Depreciable Base': Math.round((totalCost - totalSalvage) * 100) / 100,
     'Useful Life (months)': '' as unknown as number,
     'Depreciation Method': '',
     'Current Book Value': Math.round(totalBookValue * 100) / 100,
@@ -1096,7 +1151,25 @@ async function exportFullInventory() {
     'Net Profit': Math.round((totalRevenue - totalMaintenance) * 100) / 100,
   })
 
-  return rows
+  if (disposedRows.length > 0) {
+    out.push({ ...blank })
+    out.push({ ...blank, 'Asset Name': `=== SOLD / RETIRED (${disposedRows.length} units — not in the totals above; book value as of disposal) ===` })
+    out.push(...disposedRows)
+    out.push({
+      ...blank,
+      'Asset Name': '--- SOLD / RETIRED TOTALS ---',
+      'Purchase Price': sum(disposedRows, 'Purchase Price'),
+      'Landed Cost Adj.': sum(disposedRows, 'Landed Cost Adj.'),
+      'Total Cost': sum(disposedRows, 'Total Cost'),
+      'Current Book Value': sum(disposedRows, 'Current Book Value'),
+      'Accumulated Depreciation': sum(disposedRows, 'Accumulated Depreciation'),
+      'Lifetime Revenue': sum(disposedRows, 'Lifetime Revenue'),
+      'Sale Price': sum(disposedRows, 'Sale Price'),
+      'Gain / Loss': sum(disposedRows, 'Gain / Loss'),
+    })
+  }
+
+  return out
 }
 
 /**
@@ -1105,7 +1178,7 @@ async function exportFullInventory() {
 async function exportSimpleInventory() {
   const units = await prisma.assetUnit.findMany({
     where: {
-      status: { in: ['AVAILABLE', 'CHECKED_OUT', 'MAINTENANCE', 'RESERVED', 'RETIRED'] },
+      status: { in: ['AVAILABLE', 'CHECKED_OUT', 'MAINTENANCE', 'RESERVED', 'RETIRED', 'SOLD'] },
     },
     include: {
       asset: { include: { category: true } },
@@ -1118,23 +1191,20 @@ async function exportSimpleInventory() {
     ],
   })
 
-  const retirementReasonLabels: Record<string, string> = {
-    SOLD: 'Sold', RECYCLED: 'Recycled', GIFTED: 'Gifted',
-    DAMAGED: 'Damaged', STOLEN: 'Stolen', LOST: 'Lost',
-    RELEASED: 'Released', OTHER: 'Other',
-  }
-
   return units.map((unit) => {
-    const purchasePrice = Number(unit.purchasePrice || 0)
+    const cost = unitCost(unit.purchasePrice, unit.landedCostAdjustment)
     const salvageValue = Number(unit.asset.salvageValue || 0)
     const usefulLifeMonths = unit.asset.usefulLifeMonths || 60
     const depMethod = unit.asset.depreciationMethod as DepreciationMethod
+    // Sold/retired units are valued as of the day they left
+    const disposal = unitDisposal(unit)
 
-    let currentBookValue = purchasePrice
-    if (unit.purchaseDate && purchasePrice > 0) {
+    let currentBookValue = cost
+    if (unit.purchaseDate && cost > 0) {
       currentBookValue = calculateDepreciatedValue(
-        purchasePrice, unit.purchaseDate, depMethod,
-        usefulLifeMonths, salvageValue, unit.receivedDate
+        cost, unit.purchaseDate, depMethod,
+        usefulLifeMonths, salvageValue, unit.receivedDate,
+        disposal.disposedAt ?? new Date()
       )
     }
 
@@ -1145,11 +1215,10 @@ async function exportSimpleInventory() {
       'Status': unit.status,
       'Book Value': Math.round(currentBookValue * 100) / 100,
       'Location': unit.location?.name || '',
-      'Retirement Reason': unit.retirementReason
-        ? (retirementReasonLabels[unit.retirementReason] || unit.retirementReason)
-        : '',
-      'Disposed To': unit.retiredTo || '',
-      'Retired On': unit.retiredAt ? formatDate(unit.retiredAt) : '',
+      'Disposition': disposal.disposition ? dispositionLabels[disposal.disposition] : '',
+      'Disposed To': disposal.recipient || '',
+      'Disposed On': disposal.disposedAt ? formatDate(disposal.disposedAt) : '',
+      'Sale Price': disposal.salePrice ?? '',
     }
   })
 }

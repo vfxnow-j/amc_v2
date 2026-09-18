@@ -2,12 +2,14 @@
 
 import { revalidatePath } from 'next/cache'
 import { prisma } from '@/lib/prisma'
+import type { Prisma } from '@/generated/prisma/client'
 import { auth } from '@/lib/auth'
 import { requireAdmin, requireAuth, requireEditor } from '@/lib/auth-utils'
 import { isAdmin } from '@/lib/auth'
 import { mayRevisePO, mayWorkOnPO } from '@/lib/procurement/access'
 import { actorFor, noteMoneyChange, releaseGate, supersedePending } from '@/lib/approvals/core'
 import { serialize } from '@/lib/utils'
+import { allocateLandedCost, landedAdjustmentForUnit, toLandedCostPO } from '@/lib/pricing/landed-cost'
 import { generateBarcode } from '@/lib/utils/barcode'
 import { syncUnitsToPurchaseOrderLease } from '@/lib/funding/lease-sync'
 import {
@@ -122,6 +124,32 @@ function calculatePOTotals(params: {
 // Generate unique PO number
 async function generatePONumber(): Promise<string> {
   return nextNumber('purchaseOrder')
+}
+
+/**
+ * Re-derive every received unit's share of this PO's extras (freight + fees +
+ * tax − discount), so its depreciable cost is what it really cost. SETS the
+ * value (never increments), so receiving, PO edits and re-runs all converge.
+ * Hand-priced units (price ≠ their line) are left alone. Ported from v1,
+ * 2026-09-17; the allocation is lib/pricing/landed-cost.ts.
+ */
+async function recomputeLandedCostTx(tx: Prisma.TransactionClient, purchaseOrderId: string) {
+  const po = await tx.purchaseOrder.findUnique({ where: { id: purchaseOrderId }, include: { items: true } })
+  if (!po) return
+  const input = toLandedCostPO(po)
+  const allocation = allocateLandedCost(input)
+  const units = await tx.assetUnit.findMany({
+    where: { purchaseOrderId },
+    select: { id: true, assetId: true, purchasePrice: true, landedCostAdjustment: true },
+  })
+  for (const u of units) {
+    const adj = landedAdjustmentForUnit(input, allocation, {
+      assetId: u.assetId,
+      purchasePrice: u.purchasePrice == null ? null : Number(u.purchasePrice),
+    })
+    if (adj === null || adj === Number(u.landedCostAdjustment)) continue
+    await tx.assetUnit.update({ where: { id: u.id }, data: { landedCostAdjustment: adj } })
+  }
 }
 
 export async function getPurchaseOrders(filters: POFilters = {}) {
@@ -468,6 +496,9 @@ export async function updatePurchaseOrder(id: string, data: POFormData) {
         fees: true,
       },
     })
+
+    // Extras or line prices may have changed — re-derive received units' share
+    await recomputeLandedCostTx(tx, id)
 
     return updated
   })
@@ -957,6 +988,9 @@ export async function receivePurchaseOrder(id: string, data: ReceivePOData) {
         },
       })
     }
+
+    // Units just received carry their share of the PO's extras
+    await recomputeLandedCostTx(tx, id)
 
     // Step 3: Determine new PO status
     // Re-fetch items to get updated receivedQuantity

@@ -429,15 +429,23 @@ export async function OwnershipCard({ id }: { id: string }) {
         />
         <Figure
           label="Paid"
-          value={uncosted ? "—" : money(own.purchasePrice!)}
+          value={
+            uncosted
+              ? "—"
+              : money(own.purchasePrice! + own.landedCostAdjustment)
+          }
           note={
             uncosted
               ? `bought ${dayYear(own.purchaseDate)}, price unrecorded`
-              : dayYear(own.purchaseDate)
+              : own.landedCostAdjustment !== 0
+                ? `${money(own.purchasePrice!)} ${own.landedCostAdjustment < 0 ? "−" : "+"} ${money(Math.abs(own.landedCostAdjustment))} landed · ${dayYear(own.purchaseDate)}`
+                : dayYear(own.purchaseDate)
           }
         />
         <Figure label="Earned" value={money(own.revenue)} note="lifetime" />
         <Figure
+        {/* Landed cost: the invoice price plus this unit's share of its PO's
+            freight, fees and tax less discount — what book value runs on. */}
           label="Maintenance"
           value={money(own.maintenanceCost)}
           note="charged to this unit"

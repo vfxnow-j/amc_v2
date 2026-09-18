@@ -508,6 +508,11 @@ model AssetUnit {
   purchaseDate   DateTime
   receivedDate   DateTime?
   purchasePrice  Decimal?      @db.Decimal(12, 2)
+  // This unit's share of its PO's net extras (freight + fees + tax − discount),
+  // allocated by value across the PO's tracked asset lines. Signed: a discount
+  // makes it negative. Depreciable cost = purchasePrice + landedCostAdjustment.
+  // Ported from v1 (2026-09-17); lib/pricing/landed-cost.ts.
+  landedCostAdjustment Decimal @default(0) @db.Decimal(12, 2)
   warrantyExpiry DateTime?
 
   // Loan details (when ownershipType = LOAN)

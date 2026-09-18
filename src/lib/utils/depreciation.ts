@@ -6,6 +6,31 @@ export type DepreciationMethod =
   | 'SUM_OF_YEARS'
   | 'UNITS_OF_PRODUCTION'
 
+type NumLike = number | string | { toString(): string } | null | undefined
+
+/**
+ * Whole months of depreciation booked as of `asOf`, full-month convention:
+ * the month the unit is placed in service counts in full, and each month is
+ * booked at its month-end — so received Aug 15 shows 1 month on Sep 17
+ * (August) and 2 once September closes. Calendar months, matching
+ * accounting's schedule. UTC components, so date-only values stored as UTC
+ * midnight land in the month they were entered for. (Ported from v1,
+ * 2026-09-17; it replaced a 30-day-month count.)
+ */
+export function depreciationMonthsElapsed(start: Date, asOf: Date = new Date()): number {
+  const months =
+    (asOf.getUTCFullYear() - start.getUTCFullYear()) * 12 +
+    (asOf.getUTCMonth() - start.getUTCMonth())
+  return Math.max(0, months)
+}
+
+/** Depreciable cost: invoice price plus the unit's share of PO extras. */
+export function unitCost(purchasePrice: NumLike, landedCostAdjustment?: NumLike): number {
+  const price = Number(purchasePrice ?? 0)
+  if (!price) return 0
+  return Math.round((price + Number(landedCostAdjustment ?? 0)) * 100) / 100
+}
+
 /**
  * Calculate current depreciated value of an asset
  */
@@ -20,10 +45,10 @@ export function calculateDepreciatedValue(
   // end of a period to get that period's expense from this same schedule.
   now: Date = new Date()
 ): number {
+  // Depreciation starts when the unit is placed in service (received); older
+  // records predating receiving fall back to the purchase date
   const depreciationStart = receivedDate || purchaseDate
-  const monthsOwned = Math.floor(
-    (now.getTime() - depreciationStart.getTime()) / (1000 * 60 * 60 * 24 * 30)
-  )
+  const monthsOwned = depreciationMonthsElapsed(depreciationStart, now)
 
   if (monthsOwned >= usefulLifeMonths) {
     return salvageValue

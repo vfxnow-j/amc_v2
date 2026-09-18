@@ -2,7 +2,7 @@
 
 import { prisma } from '@/lib/prisma'
 import { requireAuth, requireEditor } from '@/lib/auth-utils'
-import { calculateDepreciatedValue, type DepreciationMethod } from '@/lib/utils/depreciation'
+import { calculateDepreciatedValue, unitCost, type DepreciationMethod } from '@/lib/utils/depreciation'
 import { getDerivedOwnershipStatus, type OwnershipType, type AssetStatus } from '@/lib/types'
 
 export type DateRange = {
@@ -592,7 +592,11 @@ export async function getFullInventoryReport() {
   })
 
   const items = units.map((unit) => {
-    const purchasePrice = Number(unit.purchasePrice || 0)
+    const invoicePrice = Number(unit.purchasePrice || 0)
+    const landedCostAdjustment = Number(unit.landedCostAdjustment || 0)
+    // "purchasePrice" on the report item is the depreciable (landed) cost; the
+    // invoice price and adjustment ride along for the hover split.
+    const purchasePrice = unitCost(unit.purchasePrice, unit.landedCostAdjustment)
     const salvageValue = Number(unit.asset.salvageValue || 0)
     const usefulLifeMonths = unit.asset.usefulLifeMonths || 60
     const depreciationMethod = unit.asset.depreciationMethod as DepreciationMethod
@@ -631,6 +635,8 @@ export async function getFullInventoryReport() {
       loanName: unit.loanName || null,
       purchaseDate: unit.purchaseDate?.toISOString() || null,
       purchasePrice,
+      invoicePrice,
+      landedCostAdjustment,
       salvageValue,
       depreciableBase,
       usefulLifeMonths,

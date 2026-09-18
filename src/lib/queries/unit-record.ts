@@ -279,6 +279,7 @@ export async function getUnitOwnership(id: string) {
       purchaseDate: true,
       receivedDate: true,
       purchasePrice: true,
+      landedCostAdjustment: true,
       ownershipType: true,
       totalRevenue: true,
       maintenanceCost: true,
@@ -339,6 +340,7 @@ export async function getUnitOwnership(id: string) {
     purchaseDate: unit.purchaseDate,
     receivedDate: unit.receivedDate,
     purchasePrice,
+    landedCostAdjustment: Number(unit.landedCostAdjustment),
     ownershipType: unit.ownershipType,
     revenue: Number(unit.totalRevenue),
     maintenanceCost: Number(unit.maintenanceCost),
@@ -361,6 +363,7 @@ export async function getUnitOwnership(id: string) {
     book: bookValue(
       {
         purchasePrice,
+        landedCostAdjustment: Number(unit.landedCostAdjustment),
         purchaseDate: unit.purchaseDate,
         receivedDate: unit.receivedDate,
       },

@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import type { AssetStatus, OwnershipType, Prisma } from "@/generated/prisma/client";
 import { IN_FLEET, OUT_OF_FLEET } from "@/lib/inventory/availability";
 import { bookValue, hasSchedule } from "@/lib/inventory/depreciation";
+import { unitCost } from "@/lib/utils/depreciation";
 
 /**
  * Accounting → Fixed assets: the fixed asset register, one row per unit
@@ -137,6 +138,7 @@ export async function getFixedAssets(filters: FixedAssetFilters = {}, now: Date 
       purchaseDate: true,
       receivedDate: true,
       purchasePrice: true,
+      landedCostAdjustment: true,
       totalRevenue: true,
       maintenanceCost: true,
       loanName: true,
@@ -178,14 +180,21 @@ export async function getFixedAssets(filters: FixedAssetFilters = {}, now: Date 
   }
 
   const rows: FixedAssetRow[] = units.map((unit) => {
-    const cost = unit.purchasePrice === null ? null : Number(unit.purchasePrice);
+    const invoicePrice = unit.purchasePrice === null ? null : Number(unit.purchasePrice);
+    // Landed cost: the invoice price plus the unit's share of its PO's extras.
+    const cost = invoicePrice === null ? null : unitCost(invoicePrice, unit.landedCostAdjustment);
     const schedule = {
       method: unit.asset.depreciationMethod,
       usefulLifeMonths: unit.asset.usefulLifeMonths,
       salvageValue: unit.asset.salvageValue === null ? null : Number(unit.asset.salvageValue),
     };
     const value = bookValue(
-      { purchasePrice: cost, purchaseDate: unit.purchaseDate, receivedDate: unit.receivedDate },
+      {
+        purchasePrice: invoicePrice,
+        landedCostAdjustment: Number(unit.landedCostAdjustment),
+        purchaseDate: unit.purchaseDate,
+        receivedDate: unit.receivedDate,
+      },
       schedule,
       now,
     );

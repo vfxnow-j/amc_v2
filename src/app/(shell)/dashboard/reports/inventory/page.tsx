@@ -231,6 +231,14 @@ async function Table({ view, page }: { view: View; page: number }) {
           cost:
             item.purchasePrice === 0 ? (
               <span className="text-ink-faint">—</span>
+            ) : item.landedCostAdjustment !== 0 ? (
+              // Landed cost; the hover splits out the PO's extras.
+              <span
+                title={`Invoice ${money(item.invoicePrice)} ${item.landedCostAdjustment < 0 ? "−" : "+"} ${money(Math.abs(item.landedCostAdjustment))} landed`}
+              >
+                {money(item.purchasePrice)}
+                <span className="text-ink-muted">*</span>
+              </span>
             ) : (
               money(item.purchasePrice)
             ),

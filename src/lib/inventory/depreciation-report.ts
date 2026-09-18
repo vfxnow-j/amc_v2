@@ -150,6 +150,7 @@ export async function buildDepreciationReport(frequency: Frequency, now: Date = 
       purchaseDate: true,
       receivedDate: true,
       purchasePrice: true,
+      landedCostAdjustment: true,
       createdAt: true,
       asset: {
         select: {
@@ -175,7 +176,12 @@ export async function buildDepreciationReport(frequency: Frequency, now: Date = 
       usefulLifeMonths: row.asset.usefulLifeMonths,
       salvageValue: row.asset.salvageValue === null ? null : Number(row.asset.salvageValue),
     };
-    const unit = { purchasePrice: price, purchaseDate: row.purchaseDate, receivedDate: row.receivedDate };
+    const unit = {
+      purchasePrice: price,
+      landedCostAdjustment: Number(row.landedCostAdjustment),
+      purchaseDate: row.purchaseDate,
+      receivedDate: row.receivedDate,
+    };
     const nowValue = bookValue(unit, schedule, now);
 
     if (!nowValue) {

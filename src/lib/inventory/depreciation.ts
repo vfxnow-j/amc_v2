@@ -1,5 +1,7 @@
 import {
   calculateDepreciatedValue,
+  depreciationMonthsElapsed,
+  unitCost,
   type DepreciationMethod,
 } from "@/lib/utils/depreciation";
 
@@ -29,7 +31,12 @@ export function hasSchedule(method: string): method is DepreciationMethod {
 }
 
 export type BookValue = {
+  /** Depreciable cost: the invoice price plus the unit's landed share. */
   cost: number;
+  /** What the unit was invoiced at, before its share of the PO's extras. */
+  invoicePrice: number;
+  /** Its share of freight, fees and tax less discount. Signed. */
+  landedCostAdjustment: number;
   book: number;
   /** Cost less book. What has been written off so far. */
   accumulated: number;
@@ -50,10 +57,13 @@ export type BookValue = {
 export function bookValue(
   {
     purchasePrice,
+    landedCostAdjustment,
     purchaseDate,
     receivedDate,
   }: {
+    /** The invoice price. Book value runs on it plus the landed share. */
     purchasePrice: number | null;
+    landedCostAdjustment?: number | null;
     purchaseDate: Date;
     receivedDate: Date | null;
   },
@@ -73,8 +83,10 @@ export function bookValue(
   if (!usefulLifeMonths || usefulLifeMonths <= 0) return null;
 
   const salvage = salvageValue ?? 0;
+  const landed = landedCostAdjustment ?? 0;
+  const cost = unitCost(purchasePrice, landed);
   const book = calculateDepreciatedValue(
-    purchasePrice,
+    cost,
     purchaseDate,
     method,
     usefulLifeMonths,
@@ -87,15 +99,14 @@ export function bookValue(
   // not. Depreciation runs from when the hardware arrived, not when it was paid
   // for, and on this import `receivedDate` is usually null.
   const start = receivedDate ?? purchaseDate;
-  const monthsOwned = Math.max(
-    0,
-    Math.floor((now.getTime() - start.getTime()) / (1000 * 60 * 60 * 24 * 30)),
-  );
+  const monthsOwned = depreciationMonthsElapsed(start, now);
 
   return {
-    cost: purchasePrice,
+    cost,
+    invoicePrice: purchasePrice,
+    landedCostAdjustment: landed,
     book,
-    accumulated: purchasePrice - book,
+    accumulated: cost - book,
     fullyDepreciated: monthsOwned >= usefulLifeMonths,
     monthsOwned,
     usefulLifeMonths,

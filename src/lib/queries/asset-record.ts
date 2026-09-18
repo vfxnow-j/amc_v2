@@ -121,7 +121,7 @@ export async function getAssetEarnings(id: string) {
   const [lifetime, sold, priced] = await Promise.all([
     prisma.assetUnit.aggregate({
       where: { assetId: id },
-      _sum: { totalRevenue: true, maintenanceCost: true, purchasePrice: true },
+      _sum: { totalRevenue: true, maintenanceCost: true, purchasePrice: true, landedCostAdjustment: true },
       _count: true,
     }),
     prisma.assetUnit.aggregate({
@@ -140,7 +140,8 @@ export async function getAssetEarnings(id: string) {
   return {
     revenue: Number(lifetime._sum.totalRevenue ?? 0),
     maintenance: Number(lifetime._sum.maintenanceCost ?? 0),
-    spend: Number(lifetime._sum.purchasePrice ?? 0),
+    // Landed cost: invoice prices plus each unit's share of its PO's extras.
+    spend: Number(lifetime._sum.purchasePrice ?? 0) + Number(lifetime._sum.landedCostAdjustment ?? 0),
     unitsEver: lifetime._count,
     unitsPriced: priced,
     soldProceeds: Number(sold._sum.soldPrice ?? 0),
@@ -160,7 +161,7 @@ export async function getAssetDepreciation(id: string) {
   const [units, asset] = await Promise.all([
     prisma.assetUnit.findMany({
       where: { assetId: id, status: { in: IN_FLEET } },
-      select: { purchasePrice: true, purchaseDate: true, receivedDate: true },
+      select: { purchasePrice: true, landedCostAdjustment: true, purchaseDate: true, receivedDate: true },
     }),
     prisma.asset.findUnique({
       where: { id },
@@ -187,6 +188,7 @@ export async function getAssetDepreciation(id: string) {
         {
           purchasePrice:
             unit.purchasePrice === null ? null : Number(unit.purchasePrice),
+          landedCostAdjustment: Number(unit.landedCostAdjustment),
           purchaseDate: unit.purchaseDate,
           receivedDate: unit.receivedDate,
         },
