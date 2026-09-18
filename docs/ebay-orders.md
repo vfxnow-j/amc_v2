@@ -84,9 +84,10 @@ editable under Settings → Business, beside the numbering patterns.
 
 ## What "more simplistic" means, concretely
 
-An eBay order's lifecycle is **`DRAFT` → `PREPARING` → `SHIPPED` → `COMPLETED`**, with the
-units marked `SOLD` at that last step. No quote stage, no approval stage. Those exist to get
-a client to agree to terms; eBay's buyer agreed to terms on eBay.
+An eBay order's lifecycle is **`DRAFT` → `PREPARING` → `SHIPPED`**, and shipping is what
+marks the units sold and closes the order. No quote stage, no approval stage. Those exist to
+get a client to agree to terms; eBay's buyer agreed to terms on eBay. See "When units become
+sold" for the rule across every order type.
 
 Note there is no `SOLD` *order* status and none is added — `ReservationStatus.COMPLETED` is
 documented as "all items returned / sale fulfilled" and already covers it. "Sold" describes
@@ -139,7 +140,57 @@ counting it as profit would overstate every eBay sale by that much. This is the 
 the eBay type diverges from `SALE` in a way that matters to reporting, and it is the reason
 the payout column exists rather than being left to a note.
 
-## Marking sold, and the confirmation
+## When units become sold
+
+Stated by the owner, 2026-09-17:
+
+> let's just keep it simple. If we ship on a ebay or sales order, etc. it's sold. if we ship
+> rent to own, it sells after the term ends, and so on
+
+One rule per order type, and the rule is about **when ownership transfers**, not about what
+stage the order happens to be at:
+
+| Order type | Units become `SOLD` |
+| --- | --- |
+| `EBAY` | On ship |
+| `SALE` | On ship |
+| `RENT_TO_OWN` | When the term completes |
+| `RENTAL` | Never — the kit comes back |
+| `CLOUD` | Never — there is no hardware to transfer |
+
+Shipping is the moment of sale for `SALE` and `EBAY`. There is no separate "complete it
+later" step to forget: the hardware left, so it is sold.
+
+### Rent-to-own
+
+An RTO order ships like a rental — the units go out `CHECKED_OUT` and stay that way, because
+the customer does not own them yet. They become `SOLD` when the term completes.
+
+**"Completes" means the final installment is paid, not that the calendar has run out.** A
+defaulted RTO must not transfer ownership just because time passed, and a date-driven rule
+would do exactly that.
+
+**The obvious field cannot be used.** `rtoInstallmentsPaid` (`schema.prisma:1043`) is set to
+`0` at creation and incremented by nothing — `commercial-cards.tsx:65` already says so in as
+many words: *"a counter nothing increments — no billing run"*. It is a second dead path of
+exactly the kind `completeSale` turned out to be, and building the ownership transfer on it
+would mean no RTO ever completed.
+
+So the trigger counts **`PAID` invoices against the order** — a fact the invoice table
+actually holds — rather than trusting the counter. When recording a payment brings that
+count to `rtoTermMonths`, the order's units are marked sold through the same `completeSale`
+path, with `soldPrice` from the line and `soldNotes` naming the order.
+
+Repairing `rtoInstallmentsPaid` itself is out of scope here and belongs with the billing
+run; the RTO-progress figures on the order screen and the order PDF
+(`order-detail-pdf.tsx:325-355`) read that dead counter and are therefore wrong today, which
+is a pre-existing fault this work neither causes nor fixes.
+
+This is an assumption worth confirming, and it is called out rather than buried: paid-in-full
+is the honest trigger, but if the business treats a term as complete on its end date
+regardless of arrears, this rule inverts and the condition becomes a date comparison.
+
+## The confirmation on ship
 
 `markShipped` behaves as it does today. On success, for `SALE` **and** `EBAY`, a follow-on
 dialog opens: *mark the order sold and complete?*
