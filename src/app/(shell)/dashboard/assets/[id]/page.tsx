@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { AssetCoverage } from "@/components/service/asset-coverage";
+import { ENROLLMENT_STATUS_LABEL } from "@/lib/coverage/labels";
 import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/shell/page-header";
 import {
@@ -403,16 +404,39 @@ async function AssetBuild({ id, assetName }: { id: string; assetName: string }) 
   );
 }
 
-/** Coverage every unit of this model comes with; shown on its work orders. */
+/**
+ * Coverage every unit of this model comes with; shown on its work orders. Plans
+ * individual units are enrolled in (AppleCare+ bought on a PO) are counted
+ * underneath, because "comes with" and "is on" are different claims and the
+ * model page should not let the first stand for the second.
+ */
 async function CoverageCard({ id }: { id: string }) {
-  const rows = await prisma.assetCoverage.findMany({
-    where: { assetId: id },
-    orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
-    select: { id: true, name: true, provider: true, termMonths: true },
-  });
+  const [rows, plans] = await Promise.all([
+    prisma.assetCoverage.findMany({
+      where: { assetId: id },
+      orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+      select: { id: true, name: true, provider: true, termMonths: true },
+    }),
+    prisma.coverageEnrollment.groupBy({
+      by: ["status"],
+      where: { unit: { assetId: id } },
+      _count: { _all: true },
+    }),
+  ]);
+  const planned = plans.reduce((sum, row) => sum + row._count._all, 0);
   return (
     <Card title="Coverage" meta={rows.length ? `${rows.length} for every unit` : undefined}>
       <AssetCoverage assetId={id} rows={rows} />
+      {planned > 0 ? (
+        <p className="px-4 pb-4 text-detail text-ink-muted">
+          {planned} {planned === 1 ? "unit has a plan" : "units have plans"} of their own —{" "}
+          {plans.map((row) => `${row._count._all} ${ENROLLMENT_STATUS_LABEL[row.status].toLowerCase()}`).join(", ")}.{" "}
+          <Link href="/dashboard/service/coverage" className="text-accent-text hover:underline">
+            Coverage &amp; RMA
+          </Link>{" "}
+          lists them unit by unit.
+        </p>
+      ) : null}
     </Card>
   );
 }

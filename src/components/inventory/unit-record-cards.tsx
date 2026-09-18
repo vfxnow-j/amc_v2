@@ -11,6 +11,8 @@ import {
 } from "@/lib/queries/unit-record";
 import { WORK_ORDER_LABEL } from "@/lib/queries/service";
 import { FUNDING_STATUS_LABEL } from "@/lib/procurement/po-labels";
+import { getUnitEnrollments } from "@/lib/queries/coverage-enrollments";
+import { UnitPlans } from "@/components/service/unit-plans";
 
 /**
  * The cards the unit record is built from.
@@ -234,17 +236,29 @@ export async function ServiceHistoryCard({ id }: { id: string }) {
 
 /** Warranty and service contracts: if this breaks, who pays. */
 export async function CoverageCard({ id }: { id: string }) {
-  const coverage = await getUnitCoverage(id);
-  const live = coverage.coverages.filter((row) => row.live).length;
+  // Plans (CoverageEnrollment) are read separately: they carry a status and
+  // may have no dates yet, which the contract rows above can't express. The
+  // plans list is the one editable part of this otherwise read-only record —
+  // confirming a plan with its provider is tracking, not moving stock.
+  const [coverage, plans] = await Promise.all([
+    getUnitCoverage(id),
+    getUnitEnrollments(id),
+  ]);
+  const live =
+    coverage.coverages.filter((row) => row.live).length +
+    plans.filter((row) => row.covers).length;
+  const total = coverage.coverages.length + plans.length;
 
-  if (coverage.coverages.length === 0 && !coverage.warrantyExpiry) {
+  if (total === 0 && !coverage.warrantyExpiry) {
     return (
       <Card title="Coverage">
         <CardEmpty>
-          No warranty date and no service contract on this unit. If it fails,
+          No warranty date, service contract or plan on this unit. If it fails,
           nothing on the record says the repair is anyone else&rsquo;s to pay
-          for — add the warranty expiry from the purchase order.
+          for — add the warranty expiry from the purchase order, or a plan
+          below.
         </CardEmpty>
+        <UnitPlans unitId={id} rows={[]} />
       </Card>
     );
   }
@@ -252,11 +266,7 @@ export async function CoverageCard({ id }: { id: string }) {
   return (
     <Card
       title="Coverage"
-      meta={
-        coverage.coverages.length === 0
-          ? undefined
-          : `${live} of ${coverage.coverages.length} live`
-      }
+      meta={total === 0 ? undefined : `${live} of ${total} live`}
     >
       <div className="grid grid-cols-2 gap-3 px-4 pb-4">
         <Field label="Warranty">
@@ -310,6 +320,7 @@ export async function CoverageCard({ id }: { id: string }) {
           ))}
         </ul>
       ) : null}
+      <UnitPlans unitId={id} rows={plans} />
     </Card>
   );
 }
@@ -427,6 +438,8 @@ export async function OwnershipCard({ id }: { id: string }) {
           }
           loud
         />
+        {/* Landed cost: the invoice price plus this unit's share of its PO's
+            freight, fees and tax less discount — what book value runs on. */}
         <Figure
           label="Paid"
           value={
@@ -444,8 +457,6 @@ export async function OwnershipCard({ id }: { id: string }) {
         />
         <Figure label="Earned" value={money(own.revenue)} note="lifetime" />
         <Figure
-        {/* Landed cost: the invoice price plus this unit's share of its PO's
-            freight, fees and tax less discount — what book value runs on. */}
           label="Maintenance"
           value={money(own.maintenanceCost)}
           note="charged to this unit"

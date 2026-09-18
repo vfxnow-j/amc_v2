@@ -554,6 +554,8 @@ model AssetUnit {
   // it, and on units added by hand or by import.
   purchaseOrderId      String?
   purchaseOrder        PurchaseOrder?        @relation(fields: [purchaseOrderId], references: [id])
+  // Plans this unit is enrolled in, dates or not (v2-only). See CoverageEnrollment.
+  coverageEnrollments  CoverageEnrollment[]
 
   @@index([purchaseOrderId])
   @@index([assetId])
@@ -1366,6 +1368,9 @@ model PurchaseOrder {
   // Funding requests that cite this PO as supporting evidence.
   fundingRequests FundingRequest[] @relation("FundingRequestPurchaseOrders")
 
+  // Coverage bought on this PO for the units it delivered (v2-only).
+  coverageEnrollments CoverageEnrollment[]
+
   @@index([leaseId])
   @@map("purchase_orders")
 }
@@ -1406,6 +1411,10 @@ model POItem {
   receivedSerials String[] @default([])
 
   createdAt DateTime @default(now())
+
+  // Units whose coverage this line paid for — an "AppleCare+ (Auto Enroll)"
+  // line (v2-only).
+  coverageEnrollments CoverageEnrollment[]
 
   @@map("po_items")
 }
@@ -2865,4 +2874,60 @@ model AssetCoverage {
 
   @@index([assetId])
   @@map("asset_coverages")
+}
+
+/// Where a unit's enrollment in a plan stands. Lapsed is not a status: it is
+/// read off `endDate` once one is known.
+enum CoverageEnrollmentStatus {
+  /// Paid for — usually a line on the PO — but nobody has yet seen the
+  /// provider's own record of it. "AppleCare+ (Auto Enroll)" starts here.
+  PURCHASED
+  /// Confirmed against the provider's record (Apple's coverage check by serial).
+  ENROLLED
+  /// The provider has no record of it: chase the seller.
+  NOT_ENROLLED
+  /// Refunded, cancelled or transferred away.
+  CANCELLED
+}
+
+/// A plan one unit is enrolled in, tracked by status (v2-only, 2026-09-17).
+///
+/// Sits beside ServiceCoverage rather than in it because ServiceCoverage is
+/// shared with v1 and requires a start and an end date on every row, and the
+/// coverage that prompted this — AppleCare+ bought on "Auto Enroll" lines of
+/// Melrose Mac POs — arrives with neither: the PO names the plan and the price,
+/// not the term. Dates stay null until somebody reads them off the provider's
+/// record; nothing here is inferred into a date. `source` says where the row
+/// came from, including how the unit was tied to the PO line, because receiving
+/// did not record the PO on the units it created.
+model CoverageEnrollment {
+  id              String                   @id @default(cuid())
+  unitId          String
+  unit            AssetUnit                @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  type            CoverageType             @default(EXTENDED_WARRANTY)
+  name            String
+  provider        String?
+  status          CoverageEnrollmentStatus @default(PURCHASED)
+  startDate       DateTime?
+  endDate         DateTime?
+  /// The provider's agreement or plan number, once known.
+  agreementNumber String?
+  /// What this unit's plan cost — the PO line's unit price.
+  cost            Decimal?                 @db.Decimal(12, 2)
+  purchaseOrderId String?
+  purchaseOrder   PurchaseOrder?           @relation(fields: [purchaseOrderId], references: [id], onDelete: SetNull)
+  poItemId        String?
+  poItem          POItem?                  @relation(fields: [poItemId], references: [id], onDelete: SetNull)
+  /// Provenance, in words: which document said so and how the unit was matched.
+  source          String?
+  notes           String?
+  /// When somebody last checked it against the provider.
+  checkedAt       DateTime?
+  createdAt       DateTime                 @default(now())
+  updatedAt       DateTime                 @updatedAt
+
+  @@index([unitId])
+  @@index([status])
+  @@index([purchaseOrderId])
+  @@map("coverage_enrollments")
 }

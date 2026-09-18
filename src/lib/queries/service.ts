@@ -1,6 +1,7 @@
 import type { QcResult, WorkOrderStatus } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { OPEN_WORK_ORDER_STATUSES } from "@/lib/service/statuses";
+import { ENROLLMENT_STATUS_LABEL, enrollmentCovers } from "@/lib/coverage/labels";
 
 /** Read side of the service center. */
 
@@ -196,7 +197,7 @@ export async function getCoverage(now = new Date()) {
         provider: true,
         endDate: true,
         unit: {
-          select: { barcode: true, asset: { select: { name: true } } },
+          select: { id: true, barcode: true, asset: { select: { name: true } } },
         },
       },
     }),
@@ -220,17 +221,25 @@ export async function getCoverage(now = new Date()) {
 export type UnitCoverage = {
   name: string;
   provider: string | null;
-  /** Where it's defined: every unit of the model, or this unit alone. */
-  source: "model" | "unit" | "warranty";
+  /**
+   * Where it's defined: every unit of the model, a dated contract on this unit,
+   * its warranty date, or a plan this unit is enrolled in (CoverageEnrollment),
+   * whose end date may not be known yet.
+   */
+  source: "model" | "unit" | "warranty" | "plan";
   endDate: Date | null;
   active: boolean;
+  /** For a plan: where its enrollment stands, e.g. "Bought, unconfirmed". */
+  status?: string;
 };
 
 /**
  * What covers one unit: the model's coverage (running its term from the unit's
  * purchase date), coverage recorded on the unit itself, and the unit's
  * warranty date. Active when its end date hasn't passed; a model coverage on a
- * unit with no purchase date can't be dated and shows undated.
+ * unit with no purchase date can't be dated and shows undated. A plan the unit
+ * is enrolled in counts while bought or enrolled and not past a known end
+ * date — an AppleCare+ plan with no end on file is still the first call.
  */
 export async function getUnitCoverage(unitId: string): Promise<UnitCoverage[]> {
   const unit = await prisma.assetUnit.findUnique({
@@ -239,6 +248,7 @@ export async function getUnitCoverage(unitId: string): Promise<UnitCoverage[]> {
       purchaseDate: true,
       warrantyExpiry: true,
       serviceCoverages: { select: { name: true, provider: true, endDate: true } },
+      coverageEnrollments: { orderBy: { createdAt: "asc" }, select: { name: true, provider: true, status: true, endDate: true } },
       asset: { select: { coverages: { orderBy: { sortOrder: "asc" }, select: { name: true, provider: true, termMonths: true } } } },
     },
   });
@@ -255,6 +265,16 @@ export async function getUnitCoverage(unitId: string): Promise<UnitCoverage[]> {
   }
   for (const coverage of unit.serviceCoverages) {
     rows.push({ name: coverage.name, provider: coverage.provider, source: "unit", endDate: coverage.endDate, active: coverage.endDate > now });
+  }
+  for (const plan of unit.coverageEnrollments) {
+    rows.push({
+      name: plan.name,
+      provider: plan.provider,
+      source: "plan",
+      endDate: plan.endDate,
+      active: enrollmentCovers(plan, now),
+      status: ENROLLMENT_STATUS_LABEL[plan.status],
+    });
   }
   if (unit.warrantyExpiry) {
     rows.push({ name: "Warranty", provider: null, source: "warranty", endDate: unit.warrantyExpiry, active: unit.warrantyExpiry > now });

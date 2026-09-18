@@ -2,6 +2,9 @@ import Link from "next/link";
 import { PageHeader } from "@/components/shell/page-header";
 import { Card } from "@/components/reservations/record-cards";
 import { getCoverage } from "@/lib/queries/service";
+import { getEnrollmentBoard } from "@/lib/queries/coverage-enrollments";
+import { PlanBoard } from "@/components/service/plan-board";
+import { ENROLLMENT_STATUS_LABEL, ENROLLMENT_STATUSES } from "@/lib/coverage/labels";
 
 export const metadata = { title: "Coverage & RMA" };
 
@@ -21,16 +24,46 @@ function daysUntil(date: Date, now: Date) {
  * Two things that both mean "someone else is on the hook for this unit":
  * warranty about to lapse, and hardware physically away at a vendor. The window
  * is 90 days because that is long enough to renew or claim before it closes.
+ *
+ * Below them, every unit with a plan of its own (CoverageEnrollment) and where
+ * that plan stands. Model-level coverage ("every Mac Studio comes with…") says
+ * what a unit should have; this says what each one does — AppleCare+ bought on
+ * a Melrose PO is "bought, unconfirmed" until somebody sees it on Apple's
+ * record. A plan joins "Coverage closing" only once its end date is known.
  */
 export default async function CoveragePage() {
-  const { expiring, rma, now } = await getCoverage();
+  const [{ expiring: contracts, rma, now }, plans] = await Promise.all([
+    getCoverage(),
+    getEnrollmentBoard(),
+  ]);
+  const expiring = [
+    ...contracts.map((row) => ({
+      id: row.id,
+      barcode: row.unit.barcode,
+      name: row.name,
+      by: row.provider ?? row.type.toLowerCase(),
+      endDate: row.endDate,
+      href: `/dashboard/units/${row.unit.id}`,
+    })),
+    ...plans.closing.map((row) => ({
+      id: row.id,
+      barcode: row.unit.barcode,
+      name: row.name,
+      by: row.provider ?? "plan",
+      endDate: row.endDate,
+      href: `/dashboard/units/${row.unit.id}`,
+    })),
+  ].sort((a, b) => a.endDate.getTime() - b.endDate.getTime());
+  const planTally = ENROLLMENT_STATUSES.filter((status) => plans.counts[status] > 0)
+    .map((status) => `${plans.counts[status]} ${ENROLLMENT_STATUS_LABEL[status].toLowerCase()}`)
+    .join(" · ");
 
   return (
     <>
       <PageHeader
         eyebrow="Service center"
         title="Coverage & RMA"
-        blurb={`${expiring.length} coverage ${expiring.length === 1 ? "window" : "windows"} closing within 90 days · ${rma.length} ${rma.length === 1 ? "unit" : "units"} away at a vendor`}
+        blurb={`${expiring.length} coverage ${expiring.length === 1 ? "window" : "windows"} closing within 90 days · ${rma.length} ${rma.length === 1 ? "unit" : "units"} away at a vendor · ${plans.total} ${plans.total === 1 ? "unit" : "units"} on a plan of their own`}
       />
 
       <div className="grid flex-1 gap-3 lg:grid-cols-2">
@@ -55,13 +88,12 @@ export default async function CoveragePage() {
                       lapsed ? "bg-accent-tint" : index % 2 === 1 ? "bg-row-alt" : ""
                     }`}
                   >
-                    <span className="truncate font-bold">{row.unit.barcode}</span>
+                    <Link href={row.href} className="truncate font-bold hover:underline">
+                      {row.barcode}
+                    </Link>
                     <span className="truncate">
                       {row.name}
-                      <span className="text-ink-faint">
-                        {" "}
-                        · {row.provider ?? row.type.toLowerCase()}
-                      </span>
+                      <span className="text-ink-faint"> · {row.by}</span>
                     </span>
                     <span
                       className={
@@ -105,6 +137,22 @@ export default async function CoveragePage() {
                 </li>
               ))}
             </ul>
+          )}
+        </Card>
+
+        <Card
+          title="Plans by unit"
+          meta={plans.total > 0 ? planTally : undefined}
+          className="lg:col-span-2"
+        >
+          {plans.total === 0 ? (
+            <p className="px-4 pb-4 text-body text-ink-muted">
+              No unit has a plan of its own yet. A plan bought on a purchase
+              order — AppleCare+ on a Melrose Mac order — is recorded against
+              each unit it covers, and added by hand from a unit&rsquo;s record.
+            </p>
+          ) : (
+            <PlanBoard models={plans.models} />
           )}
         </Card>
       </div>
