@@ -104,6 +104,12 @@ const TABLE_RULES: Record<string, TableRule> = {
   // (the lease record's "Funding & purchase orders"). v1 has the columns but
   // never sets them, so v1-wins would erase every link on the next sync.
   purchase_orders: { v2OwnedOnUpdate: ["leaseId"] },
+  // Revenue earned is v2's own figure, derived from the checkouts and orders
+  // this sync brings (lib/billing/earned.ts): v1 counts it by its isRecurring
+  // switch and books a fixed term's whole charge up front, v2 by the billing
+  // period (owner, 2026-09-17). scripts/sync-from-v1.ts re-derives it after
+  // every apply, so a new unit's v1 figure does not stand either.
+  asset_units: { v2OwnedOnUpdate: ["totalRevenue"] },
   funding_requests: { v2OwnedOnUpdate: ["leaseId"] },
   users: {
     // v2's sign-in is its own: the dev password differs from v1's by design,

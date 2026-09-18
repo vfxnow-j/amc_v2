@@ -15,6 +15,8 @@ import { cpSync, existsSync } from "node:fs";
 import path from "node:path";
 import { SyncRestrictError, syncFromV1, type SyncReport } from "@/lib/v1-sync/engine";
 import { ensureWorkOrders } from "@/lib/service/ensure-work-orders";
+import { prisma } from "@/lib/prisma";
+import { refreshUnitRevenue } from "@/lib/utils/revenue";
 
 const APPLY = process.argv.includes("--apply");
 const onlyArg = process.argv.find((arg, i) => process.argv[i - 1] === "--only");
@@ -65,6 +67,9 @@ syncFromV1({ apply: APPLY, only })
       if (created.length) {
         console.log(`\nwork orders raised for units in service: ${created.map((w) => `${w.number} (${w.barcode})`).join(", ")}`);
       }
+      // Revenue earned is derived in v2 from what just arrived.
+      const revenue = await refreshUnitRevenue(prisma);
+      console.log(`\nrevenue earned: re-derived ${revenue.checked} units, ${revenue.changed} changed`);
     }
     process.exit(0);
   })

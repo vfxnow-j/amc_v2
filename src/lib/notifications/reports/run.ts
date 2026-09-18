@@ -21,6 +21,7 @@ import { isDue, normalizeSchedule, pacificParts, type Schedule } from "@/lib/not
 import { raiseNotifications, type RaiseResult } from "@/lib/notifications/raise";
 import { sendNotificationDigests, type DigestRun } from "@/lib/notifications/digest-email";
 import { sendDepreciationReport, sendInventoryReport } from "@/lib/notifications/reports/reports";
+import { refreshUnitRevenue } from "@/lib/utils/revenue";
 
 /**
  * Running the scheduled reports: reading schedules, deciding what is due,
@@ -282,6 +283,10 @@ export async function runDailySweep(now: Date = new Date(), force = false): Prom
     return null;
   });
   if (!raised && !force) await release("sweep", p.dateKey);
+  // Each new billing period credits the units still out on it.
+  await refreshUnitRevenue(prisma).catch((error) => {
+    console.error("Refreshing revenue earned failed:", error);
+  });
   // Digests after the raise, so today's items are in today's mail.
   const digests = await sendNotificationDigests().catch((error) => {
     console.error("Notification digests failed:", error);
