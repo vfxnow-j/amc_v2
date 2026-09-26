@@ -94,12 +94,22 @@ export type FlowFunding = {
   penaltyPct: number
 }
 
+/** v2: one note against some of an order's gear — typically one lease. */
+export type FlowLoan = { balance: number; aprPct: number; monthsLeft: number; label?: string }
+
 export type FlowProcurement = {
   mode: 'new' | 'stock_owned' | 'stock_financed'
   /** Age of the gear if it is already ours. */
   monthsInService: number
   /** The note already against it, when mode is stock_financed. */
   loan: { balance: number; aprPct: number; monthsLeft: number }
+  /**
+   * v2: several notes at once — gear on one order can sit on different leases
+   * (and some of it on none). When present and non-empty it replaces `loan`; each
+   * note is costed on its own terms and the results summed. One entry prices
+   * exactly like `loan`.
+   */
+  loans?: FlowLoan[]
 }
 
 export type FlowChainLine = {
@@ -388,6 +398,12 @@ export type ResolvedFunding = {
   aprPct: number
   noteMonths: number
   fees: number
+  /**
+   * v2: every note costed separately. `financed` is their total, `aprPct` the
+   * balance-weighted rate and `noteMonths` the longest — summaries only; quote()
+   * costs each note from this list.
+   */
+  loans: { balance: number; aprPct: number; noteMonths: number; label?: string }[]
 }
 
 export function resolveFunding(
@@ -408,10 +424,17 @@ export function resolveFunding(
   let noteMonths = 0
   let fees = 0
 
+  // v2: gear on one order can sit on several leases, so a stock_financed order
+  // carries a list of notes. v1's single `loan` is the one-entry case.
+  let loans: ResolvedFunding['loans'] = []
   if (P.mode === 'stock_financed') {
-    financed = num(P.loan.balance)
-    aprPct = num(P.loan.aprPct)
-    noteMonths = Math.round(num(P.loan.monthsLeft))
+    const source = P.loans && P.loans.length ? P.loans : [P.loan]
+    loans = source
+      .map((l) => ({ balance: num(l.balance), aprPct: num(l.aprPct), noteMonths: Math.round(num(l.monthsLeft)), label: (l as FlowLoan).label }))
+      .filter((l) => l.balance > 0)
+    financed = loans.reduce((s, l) => s + l.balance, 0)
+    aprPct = financed > 0 ? loans.reduce((s, l) => s + l.aprPct * l.balance, 0) / financed : 0
+    noteMonths = loans.reduce((m, l) => Math.max(m, l.noteMonths), 0)
   } else if (P.mode === 'new' && F.mode !== 'cash') {
     aprPct = F.aprPct == null ? DEFAULT_APR[F.mode] : num(F.aprPct)
     noteMonths = num(F.termMonths) > 0
@@ -419,9 +442,11 @@ export function resolveFunding(
       : clamp(termMonths, 24, 60)
     financed = chain.landed
     fees = (financed * num(F.feePct)) / 100
+    // v2: a new purchase is one note, so it is the one-entry list.
+    loans = financed > 0 ? [{ balance: financed, aprPct, noteMonths }] : []
   }
 
-  return { funding: F, procurement: P, financed, aprPct, noteMonths, fees }
+  return { funding: F, procurement: P, financed, aprPct, noteMonths, fees, loans }
 }
 
 /* ───────────────────────── the quote ───────────────────────── */
@@ -502,16 +527,21 @@ export function quote(input: FlowQuoteInput): FlowQuote {
   const sched = buildSchedule(chain, T, C)
   const f = resolveFunding(input.funding, input.procurement, chain, T)
 
-  const notePmt = payment(f.financed, f.aprPct, f.noteMonths)
-  const interest = interestOver(f.financed, f.aprPct, f.noteMonths, T)
-  const loanLeft = balanceAfter(f.financed, f.aprPct, f.noteMonths, T)
+  // v2: each note (one per lease) is costed on its own terms and summed. With a
+  // single note these are exactly v1's three figures.
+  const pmts = f.loans.map((l) => payment(l.balance, l.aprPct, l.noteMonths))
+  const notePmt = pmts.reduce((s, p) => s + p, 0)
+  const interest = f.loans.reduce((s, l) => s + interestOver(l.balance, l.aprPct, l.noteMonths, T), 0)
+  const loanLeft = f.loans.reduce((s, l) => s + balanceAfter(l.balance, l.aprPct, l.noteMonths, T), 0)
 
   /* what the money cost against what we charged for it */
   const allowance = chain.finance
   const actual = interest + f.fees
   const gap = allowance - actual
 
-  /* the longest note the allowance stretches to, at this rate */
+  /* the longest note the allowance stretches to, at this rate. It reads the summary
+     figures (total financed, balance-weighted rate): exact for one loan, an
+     approximation when several leases sit behind the order. */
   let coveredNote = 0
   if (f.financed > 0 && f.aprPct > 0) {
     for (let N = 6; N <= 120; N++) {
@@ -527,9 +557,10 @@ export function quote(input: FlowQuoteInput): FlowQuote {
   const cashOutAtSigning = f.procurement.mode === 'new' && f.funding.mode === 'cash'
     ? chain.landed
     : 0
-  const noteMonthsInTerm = Math.min(f.noteMonths, T)
-  const cashEnd = -cashOutAtSigning - f.fees + chain.contract - notePmt * noteMonthsInTerm
-  const monthlyNet = sched.rates.map((r, i) => r - (i < f.noteMonths ? notePmt : 0))
+  // v2: each note stops costing cash after its own last payment.
+  const paidInTerm = f.loans.reduce((s, l, i) => s + pmts[i] * Math.min(l.noteMonths, T), 0)
+  const cashEnd = -cashOutAtSigning - f.fees + chain.contract - paidInTerm
+  const monthlyNet = sched.rates.map((r, m) => r - f.loans.reduce((s, l, i) => s + (m < l.noteMonths ? pmts[i] : 0), 0))
 
   /* what is left of the gear, and of the note, when the contract ends */
   const held = Math.max(0, num(f.procurement.monthsInService))
@@ -540,8 +571,9 @@ export function quote(input: FlowQuoteInput): FlowQuote {
   const ageEnd = held + T
   const lifeLeft = Math.max(0, num(C.lifeMonths) - ageEnd)
 
-  const monthsPastTerm = Math.max(0, f.noteMonths - T)
-  const paymentsLeft = notePmt * monthsPastTerm
+  // v2: per note — the longest tail, and what every note still has to pay.
+  const monthsPastTerm = f.loans.reduce((m, l) => Math.max(m, l.noteMonths - T), 0)
+  const paymentsLeft = f.loans.reduce((s, l, i) => s + pmts[i] * Math.max(0, l.noteMonths - T), 0)
   const interestLeft = Math.max(0, paymentsLeft - loanLeft)
   const penalty = f.funding.prepay === 'penalty'
     ? (loanLeft * num(f.funding.penaltyPct)) / 100

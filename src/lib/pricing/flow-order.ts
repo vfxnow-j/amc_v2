@@ -14,6 +14,7 @@ import {
   buildFlowSchedule,
   CONFIG_DEFAULTS,
   type FlowItem,
+  type FlowLoan,
   type FlowQuote,
   type FlowOrderSchedule,
 } from './flow'
@@ -44,8 +45,11 @@ export type FlowOrderConfig = {
   lifeMonths: number
   /** Averaged age of the gear in months, for residual. */
   monthsInService?: number
-  /** The note against the gear, when any unit is financed. Null for cash-owned. */
-  funding?: { aprPct: number; balance: number; monthsLeft: number } | null
+  /**
+   * Notes against the order's gear (v2: one per lease — gear on one order can sit
+   * on different leases). The single-object form is v1's. Null/empty for cash-owned.
+   */
+  funding?: FlowLoan[] | { aprPct: number; balance: number; monthsLeft: number } | null
   /** Which month of the term the order is in. Defaults to 1. */
   currentMonth?: number
 }
@@ -130,21 +134,16 @@ export function flowOrder(lines: FlowOrderLine[], config: FlowOrderConfig): Flow
   // Flow is owned stock, so procurement is never `new`: nothing is laid out at
   // signing. A unit under a note makes it stock_financed and the note's real terms
   // drive the cash picture.
+  const loans: FlowLoan[] = Array.isArray(config.funding)
+    ? config.funding
+    : config.funding ? [config.funding] : []
   const q = quote({
     items,
     termMonths: config.termMonths,
     config: engineConfig,
-    funding: { mode: config.funding ? 'loan' : 'cash' },
-    procurement: config.funding
-      ? {
-          mode: 'stock_financed',
-          monthsInService: num(config.monthsInService),
-          loan: {
-            balance: num(config.funding.balance),
-            aprPct: num(config.funding.aprPct),
-            monthsLeft: Math.round(num(config.funding.monthsLeft)),
-          },
-        }
+    funding: { mode: loans.length ? 'loan' : 'cash' },
+    procurement: loans.length
+      ? { mode: 'stock_financed', monthsInService: num(config.monthsInService), loan: loans[0], loans }
       : { mode: 'stock_owned', monthsInService: num(config.monthsInService) },
   })
 
