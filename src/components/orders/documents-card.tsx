@@ -48,9 +48,16 @@ function size(bytes: number): string {
 export async function OrderDocumentsCard({
   id,
   status,
+  flowQuote = false,
 }: {
   id: string;
   status: ReservationStatus;
+  /**
+   * A Flow order whose schedule prices: offer its Flow quote PDF, rendered on
+   * open (api/orders/[id]/flow-quote). v1 had it in the order's Print menu; v2's
+   * order page has no Print menu, so it sits with the paperwork.
+   */
+  flowQuote?: boolean;
 }) {
   const documents = await getOrderDocuments(id);
   const signed = documents.filter((document) => document.isSigned).length;
@@ -113,6 +120,28 @@ export async function OrderDocumentsCard({
           ))}
         </ul>
       )}
+      {flowQuote ? (
+        <div className="px-2 pb-3">
+          <a
+            href={`/api/orders/${id}/flow-quote`}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-baseline gap-2 rounded-row px-2 py-[6px] text-detail hover:bg-row-hover"
+          >
+            <FileText
+              className="size-[13px] flex-none translate-y-[2px] text-ink-faint"
+              aria-hidden
+            />
+            <span className="min-w-0 flex-1">
+              <span className="block break-words font-bold">Flow quote (PDF)</span>
+              <span className="block break-words text-ink-faint">
+                The schedule, gear and terms the client signs — rendered now, not filed
+              </span>
+            </span>
+            <span className="flex-none text-ink-faint">Open</span>
+          </a>
+        </div>
+      ) : null}
     </Card>
   );
 }

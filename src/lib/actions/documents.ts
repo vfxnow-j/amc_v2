@@ -350,6 +350,138 @@ export async function generateAndSavePODocument(
   }
 }
 
+type SignedQuoteReservation = NonNullable<Awaited<ReturnType<typeof loadSignedQuoteReservation>>>
+
+function loadSignedQuoteReservation(reservationId: string) {
+  return prisma.reservation.findUnique({
+    where: { id: reservationId },
+    include: {
+      client: true,
+      packages: {
+        include: {
+          items: {
+            include: { asset: { include: { category: true } } },
+            orderBy: { sortOrder: 'asc' },
+          },
+        },
+        orderBy: { sortOrder: 'asc' },
+      },
+      items: {
+        include: { asset: { include: { category: true } } },
+        orderBy: { sortOrder: 'asc' },
+      },
+    },
+  })
+}
+
+/** The rental / sale / rent-to-own signed quote, rendered to a PDF buffer. */
+async function renderSignedQuote(
+  reservation: SignedQuoteReservation,
+  signatureDataUrl: string,
+  signerName: string,
+  signedAt: string,
+  approvalStamp?: { method: string; signerName: string; signedAtIso: string },
+): Promise<Buffer> {
+  // Use active package items if multi-package
+  const activePackage = reservation.packages.find((p) => p.isActive)
+  const items = activePackage ? activePackage.items : reservation.items
+
+  // Derive rather than read the stored columns, so the PDF can never quote a total
+  // the order page doesn't show. See src/lib/pricing/financials.ts.
+  const financials = computeReservationFinancials({
+    order: reservation,
+    items,
+    discountType: reservation.discountType,
+    discountValue: reservation.discountValue,
+    taxRate: reservation.taxRate,
+    deliveryCost: activePackage?.deliveryCost ?? reservation.deliveryCost,
+    returnCost: activePackage?.returnCost ?? reservation.returnCost,
+    shippingMarginType: (reservation as any).shippingMarginType,
+    shippingMargin: (reservation as any).shippingMargin,
+    rentalCreditAmount: (reservation as any).rentalCreditAmount,
+  })
+
+  const { QuotePDF } = await import('@/components/documents/quote-pdf')
+  const payment = await paymentLineForOrder(reservation.id)
+
+  const quoteData = {
+    entityType: 'RESERVATION' as const,
+    number: reservation.reservationNumber,
+    reservationType: reservation.reservationType,
+    contactLabel: 'Prepared For',
+    contactName: reservation.client.name,
+    contactCompany: reservation.client.companyName || undefined,
+    contactEmail: reservation.client.email || undefined,
+    contactPhone: reservation.client.phone || undefined,
+    contactAddress: reservation.client.address || undefined,
+    dateLabel: reservation.reservationType === 'SALE' ? 'Order Date' : reservation.reservationType === 'RENT_TO_OWN' ? 'RTO Period' : 'Rental Period',
+    startDate: formatDate(reservation.startDate),
+    endDate: reservation.reservationType !== 'SALE' ? formatDate(reservation.endDate) : undefined,
+    rtoTermMonths: reservation.reservationType === 'RENT_TO_OWN' ? reservation.rtoTermMonths ?? undefined : undefined,
+    rtoMonthlyPayment: reservation.reservationType === 'RENT_TO_OWN' && reservation.rtoMonthlyPayment ? Number(reservation.rtoMonthlyPayment) : undefined,
+    rtoBuyoutPrice: reservation.reservationType === 'RENT_TO_OWN' && reservation.rtoBuyoutPrice ? Number(reservation.rtoBuyoutPrice) : undefined,
+    projectName: reservation.projectName || undefined,
+    status: 'APPROVED',
+    projectCode: reservation.projectCode || undefined,
+    quoteExpiresAt: reservation.quoteExpiresAt ? formatDate(reservation.quoteExpiresAt) : undefined,
+    termLength: reservation.reservationType !== 'SALE'
+      ? formatTermLength(reservation.startDate, reservation.endDate)
+      : undefined,
+    items: items.map((item, index) => {
+      const { title, spec } = lineTitle(item)
+      return {
+        description: title,
+        spec,
+        quantity: item.quantity || 1,
+        pricingType: pricingTypeLabels[(item.pricingType as PricingType) || 'DAILY'] || item.pricingType,
+        rate: Number(item.rate) || 0,
+        amount: financials.itemAmounts[index],
+        category: item.asset?.category?.name || (item as any).category || undefined,
+        termNote: formatTermNote(item, reservation),
+      }
+    }),
+    subtotal: financials.itemsSubtotal,
+    discountAmount: financials.discountAmount || undefined,
+    taxRate: financials.taxRate || undefined,
+    taxAmount: financials.taxAmount,
+    deliveryCost: financials.deliveryCost || undefined,
+    returnCost: financials.returnCost || undefined,
+    deliveryMethod: reservation.deliveryMethod ? (allDeliveryMethodLabels[reservation.deliveryMethod] || reservation.deliveryMethod) : undefined,
+    deliveryAddress: reservation.deliveryAddress || undefined,
+    deliveryDate: reservation.deliveryDate ? formatDate(reservation.deliveryDate) : undefined,
+    deliveryNotes: reservation.deliveryNotes || undefined,
+    deliveryTrackingProvider: reservation.deliveryTrackingProvider || undefined,
+    deliveryTrackingNumber: reservation.deliveryTrackingNumber || undefined,
+    returnMethod: reservation.returnMethod ? (allDeliveryMethodLabels[reservation.returnMethod] || reservation.returnMethod) : undefined,
+    returnDate: reservation.returnDate ? formatDate(reservation.returnDate) : undefined,
+    returnTrackingProvider: reservation.returnTrackingProvider || undefined,
+    returnTrackingNumber: reservation.returnTrackingNumber || undefined,
+    total: financials.total,
+    notes: reservation.notes || undefined,
+    paymentLine: payment ?? undefined,
+  }
+
+  const logoDataUri = await getServerLogoDataUri()
+
+  const { pdf } = await import('@react-pdf/renderer')
+  const doc = React.createElement(QuotePDF, {
+    data: quoteData,
+    logoDataUri,
+    signatureDataUrl: signatureDataUrl || undefined,
+    signerName,
+    signedAt,
+    approvalStamp: approvalStamp
+      ? { method: approvalStamp.method, signerName: approvalStamp.signerName, signedAt }
+      : undefined,
+  })
+  const stream = await pdf(doc as any).toBuffer()
+  const chunks: Uint8Array[] = []
+  for await (const chunk of stream as AsyncIterable<Uint8Array>) {
+    chunks.push(chunk)
+  }
+  return Buffer.concat(chunks)
+}
+
 /**
  * Server-side: generate a signed quote PDF and save it as a PROPOSAL document
  * when a customer approves via the public quote page.
@@ -366,110 +498,9 @@ export async function generateSignedQuoteDocument(
   approvalStamp?: { method: string; signerName: string; signedAtIso: string },
 ): Promise<void> {
   try {
-    const reservation = await prisma.reservation.findUnique({
-      where: { id: reservationId },
-      include: {
-        client: true,
-        packages: {
-          include: {
-            items: {
-              include: { asset: { include: { category: true } } },
-              orderBy: { sortOrder: 'asc' },
-            },
-          },
-          orderBy: { sortOrder: 'asc' },
-        },
-        items: {
-          include: { asset: { include: { category: true } } },
-          orderBy: { sortOrder: 'asc' },
-        },
-      },
-    })
+    const reservation = await loadSignedQuoteReservation(reservationId)
     if (!reservation) return
-    // Flow has no client quote document yet: its line rates are whole-term
-    // contract values the quote PDF would print as rental pricing.
-    if (reservation.reservationType === 'FLOW') return
 
-    // Use active package items if multi-package
-    const activePackage = reservation.packages.find((p) => p.isActive)
-    const items = activePackage ? activePackage.items : reservation.items
-
-    // Derive rather than read the stored columns, so the PDF can never quote a total
-    // the order page doesn't show. See src/lib/pricing/financials.ts.
-    const financials = computeReservationFinancials({
-      order: reservation,
-      items,
-      discountType: reservation.discountType,
-      discountValue: reservation.discountValue,
-      taxRate: reservation.taxRate,
-      deliveryCost: activePackage?.deliveryCost ?? reservation.deliveryCost,
-      returnCost: activePackage?.returnCost ?? reservation.returnCost,
-      shippingMarginType: (reservation as any).shippingMarginType,
-      shippingMargin: (reservation as any).shippingMargin,
-      rentalCreditAmount: (reservation as any).rentalCreditAmount,
-    })
-
-    const { QuotePDF } = await import('@/components/documents/quote-pdf')
-    const payment = await paymentLineForOrder(reservation.id)
-
-    const quoteData = {
-      entityType: 'RESERVATION' as const,
-      number: reservation.reservationNumber,
-      reservationType: reservation.reservationType,
-      contactLabel: 'Prepared For',
-      contactName: reservation.client.name,
-      contactCompany: reservation.client.companyName || undefined,
-      contactEmail: reservation.client.email || undefined,
-      contactPhone: reservation.client.phone || undefined,
-      contactAddress: reservation.client.address || undefined,
-      dateLabel: reservation.reservationType === 'SALE' ? 'Order Date' : reservation.reservationType === 'RENT_TO_OWN' ? 'RTO Period' : 'Rental Period',
-      startDate: formatDate(reservation.startDate),
-      endDate: reservation.reservationType !== 'SALE' ? formatDate(reservation.endDate) : undefined,
-      rtoTermMonths: reservation.reservationType === 'RENT_TO_OWN' ? reservation.rtoTermMonths ?? undefined : undefined,
-      rtoMonthlyPayment: reservation.reservationType === 'RENT_TO_OWN' && reservation.rtoMonthlyPayment ? Number(reservation.rtoMonthlyPayment) : undefined,
-      rtoBuyoutPrice: reservation.reservationType === 'RENT_TO_OWN' && reservation.rtoBuyoutPrice ? Number(reservation.rtoBuyoutPrice) : undefined,
-      projectName: reservation.projectName || undefined,
-      status: 'APPROVED',
-      projectCode: reservation.projectCode || undefined,
-      quoteExpiresAt: reservation.quoteExpiresAt ? formatDate(reservation.quoteExpiresAt) : undefined,
-      termLength: reservation.reservationType !== 'SALE'
-        ? formatTermLength(reservation.startDate, reservation.endDate)
-        : undefined,
-      items: items.map((item, index) => {
-        const { title, spec } = lineTitle(item)
-        return {
-          description: title,
-          spec,
-          quantity: item.quantity || 1,
-          pricingType: pricingTypeLabels[(item.pricingType as PricingType) || 'DAILY'] || item.pricingType,
-          rate: Number(item.rate) || 0,
-          amount: financials.itemAmounts[index],
-          category: item.asset?.category?.name || (item as any).category || undefined,
-          termNote: formatTermNote(item, reservation),
-        }
-      }),
-      subtotal: financials.itemsSubtotal,
-      discountAmount: financials.discountAmount || undefined,
-      taxRate: financials.taxRate || undefined,
-      taxAmount: financials.taxAmount,
-      deliveryCost: financials.deliveryCost || undefined,
-      returnCost: financials.returnCost || undefined,
-      deliveryMethod: reservation.deliveryMethod ? (allDeliveryMethodLabels[reservation.deliveryMethod] || reservation.deliveryMethod) : undefined,
-      deliveryAddress: reservation.deliveryAddress || undefined,
-      deliveryDate: reservation.deliveryDate ? formatDate(reservation.deliveryDate) : undefined,
-      deliveryNotes: reservation.deliveryNotes || undefined,
-      deliveryTrackingProvider: reservation.deliveryTrackingProvider || undefined,
-      deliveryTrackingNumber: reservation.deliveryTrackingNumber || undefined,
-      returnMethod: reservation.returnMethod ? (allDeliveryMethodLabels[reservation.returnMethod] || reservation.returnMethod) : undefined,
-      returnDate: reservation.returnDate ? formatDate(reservation.returnDate) : undefined,
-      returnTrackingProvider: reservation.returnTrackingProvider || undefined,
-      returnTrackingNumber: reservation.returnTrackingNumber || undefined,
-      total: financials.total,
-      notes: reservation.notes || undefined,
-      paymentLine: payment ?? undefined,
-    }
-
-    const logoDataUri = await getServerLogoDataUri()
     const stampDate = approvalStamp ? new Date(approvalStamp.signedAtIso) : new Date()
     const signedAt = stampDate.toLocaleDateString('en-US', {
       year: 'numeric',
@@ -479,24 +510,27 @@ export async function generateSignedQuoteDocument(
       minute: '2-digit',
     })
 
-    const { pdf } = await import('@react-pdf/renderer')
-    const doc = React.createElement(QuotePDF, {
-      data: quoteData,
-      logoDataUri,
-      signatureDataUrl: signatureDataUrl || undefined,
-      signerName,
-      signedAt,
-      approvalStamp: approvalStamp
-        ? { method: approvalStamp.method, signerName: approvalStamp.signerName, signedAt }
-        : undefined,
-    })
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const stream = await pdf(doc as any).toBuffer()
-    const chunks: Uint8Array[] = []
-    for await (const chunk of stream as AsyncIterable<Uint8Array>) {
-      chunks.push(chunk)
+    let buffer: Buffer
+    if (reservation.reservationType === 'FLOW') {
+      // Flow: the Flow quote — the payment schedule, never line prices or costs —
+      // with the frozen terms, the signature and the autopay authorization.
+      const { renderFlowQuotePdf } = await import('@/lib/flow/quote-pdf')
+      const rendered = await renderFlowQuotePdf(reservationId, {
+        signatureDataUrl: signatureDataUrl || undefined,
+        signerName,
+        signedAt,
+        approvalStamp: approvalStamp
+          ? { method: approvalStamp.method, signerName: approvalStamp.signerName, signedAt }
+          : undefined,
+      })
+      if (!rendered.ok) {
+        console.error(`Signed Flow quote not generated for ${reservationId}: ${rendered.problem}`)
+        return
+      }
+      buffer = rendered.buffer
+    } else {
+      buffer = await renderSignedQuote(reservation, signatureDataUrl, signerName, signedAt, approvalStamp)
     }
-    const buffer = Buffer.concat(chunks)
 
     // Save to disk
     const folder = path.join(DOCUMENTS_ROOT, 'reservations', reservationId)
