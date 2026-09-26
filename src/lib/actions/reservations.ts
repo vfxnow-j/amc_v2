@@ -31,10 +31,13 @@ import { businessToday, intendedDay } from '@/lib/billing/calendar'
 import { recurringFor } from '@/lib/orders/recurring'
 import { kindForOrderType, nextNumber } from '@/lib/numbering/next'
 import { CHECKOUT_LINE_WHERE, pickScanLine, unitChargeFor } from '@/lib/checkout/lines'
-import { calculateReservationTotals } from '@/lib/pricing/reservation-totals'
+import { calculateReservationTotals, sanitizeMarginPercent } from '@/lib/pricing/reservation-totals'
 import { loadFlowBases } from '@/lib/flow/load-bases'
+import { applyFlowDefaults } from '@/lib/flow/defaults'
+import { carryFlowLine, matchFlowLines } from '@/lib/flow/line-carry'
+import { loadFlowDefaults } from '@/lib/flow/order-inputs'
+import { duplicateOrderTx, duplicateTargetType } from '@/lib/orders/duplicate'
 import { repriceFlowTx } from '@/lib/flow/reprice'
-import { duplicateOrderTx } from '@/lib/orders/duplicate'
 import { buildFlowTermsSnapshot } from '@/lib/flow-terms-server'
 import { addTermMonths, flowCreateLineCost, flowSnapshotLineCost } from '@/lib/flow/stored-money'
 // Transaction client type for passing prisma tx to helpers
@@ -108,6 +111,9 @@ export type ReservationFormData = {
     // Client-side stable id used only to wire up parent/child within this submission.
     // Ignored on persistence — the DB assigns cuids.
     uid?: string | null
+    // The existing line this row edits, when it edits one. Flow matches on it to
+    // carry the line's cost basis and co-term month forward (else it matches by asset).
+    id?: string | null
     parentUid?: string | null
     assetId?: string | null
     serviceId?: string | null
@@ -154,20 +160,6 @@ export async function calculatePeriods(startDate: Date, endDate: Date, pricingTy
   return calculatePeriodsSync(startDate, endDate, pricingType, isRecurring)
 }
 
-// `marginPercent` is stored as Decimal(5,2), so anything outside [-999.99, 999.99]
-// triggers a Postgres numeric overflow. The form's auto-margin math (rate × cost ratio)
-// can easily blow past this when an asset's purchase price is far larger than its
-// rental rate — e.g. a $30k workstation rented at $2k/mo computes to ~-1268%. Margin
-// is only meaningful for SALE/CLOUD items anyway, so we drop it entirely for rentals
-// and clamp it for sales as a safety net.
-function sanitizeMarginPercent(margin: number | null | undefined, reservationType: string): number | null {
-  if (margin == null || !Number.isFinite(margin)) return null
-  if (reservationType !== 'SALE' && reservationType !== 'CLOUD') return null
-  if (margin > 999.99) return 999.99
-  if (margin < -999.99) return -999.99
-  return margin
-}
-
 // Recalculate RTO monthly payment when totals change
 async function maybeRecalcRto(tx: TxClient, reservationId: string, newTotal: number): Promise<void> {
   const res = await tx.reservation.findUnique({
@@ -196,7 +188,7 @@ async function maybeRecalcFlow(tx: Prisma.TransactionClient, reservationId: stri
 // been billed, or once the client has agreed (a revision request reopens them).
 function assertFlowTermsOpen(
   r: { flowPeriodsBilled: number | null; flowTermsSnapshot: unknown },
-  what: 'terms' | 'pricing' | 'schedule',
+  what: 'terms' | 'pricing' | 'schedule' | 'cost basis' | 'co-term months',
 ): void {
   if ((r.flowPeriodsBilled ?? 0) > 0) {
     throw new Error(`This Flow order has already been billed — its ${what} can no longer change.`)
@@ -674,6 +666,23 @@ export async function createReservation(input: ReservationFormData) {
     }
   }
 
+  // Flow: the knobs are fixed at birth. A blank knob takes the house default now,
+  // once, and the order stores the concrete value, so a later Settings change can
+  // never reprice it (the repricer reads only the order's own knobs). Resolved
+  // before the transaction: no global-client reads inside an open one. The step
+  // stays null when blank — null is the recoverByMonth-shaped schedule, not a gap.
+  const flowKnobs = isFlow
+    ? applyFlowDefaults({
+        flowMarginPct: data.flowMarginPct ?? null,
+        flowFinancePct: data.flowFinancePct ?? null,
+        flowPurchaseTaxPct: data.flowPurchaseTaxPct ?? null,
+        flowTaxExempt: data.flowTaxExempt ?? null,
+        flowRecoverByMonth: data.flowRecoverByMonth ?? null,
+        flowDeprPct: data.flowDeprPct ?? null,
+        flowLifeMonths: data.flowLifeMonths ?? null,
+      }, await loadFlowDefaults(prisma))
+    : null
+
   const reservation = await prisma.$transaction(async (tx) => {
     const res = await tx.reservation.create({
       data: {
@@ -729,13 +738,13 @@ export async function createReservation(input: ReservationFormData) {
           flowMonthlyPayment: null,
           flowStartDate: data.startDate,
           flowPeriodsBilled: 0,
-          flowMarginPct: data.flowMarginPct ?? null,
-          flowFinancePct: data.flowFinancePct ?? null,
-          flowPurchaseTaxPct: data.flowPurchaseTaxPct ?? null,
-          flowTaxExempt: data.flowTaxExempt ?? true,
-          flowRecoverByMonth: data.flowRecoverByMonth ?? null,
-          flowDeprPct: data.flowDeprPct ?? null,
-          flowLifeMonths: data.flowLifeMonths ?? null,
+          flowMarginPct: flowKnobs!.flowMarginPct,
+          flowFinancePct: flowKnobs!.flowFinancePct,
+          flowPurchaseTaxPct: flowKnobs!.flowPurchaseTaxPct,
+          flowTaxExempt: flowKnobs!.flowTaxExempt ?? true, // always filled; the column is non-null
+          flowRecoverByMonth: flowKnobs!.flowRecoverByMonth,
+          flowDeprPct: flowKnobs!.flowDeprPct,
+          flowLifeMonths: flowKnobs!.flowLifeMonths,
           flowStepPct: data.flowStepPct ?? null,
         } : {}),
         // Delivery & Return
@@ -1033,13 +1042,24 @@ export async function updateReservation(id: string, input: Partial<ReservationFo
       // asset on this order; the caller's value is not trusted. A new asset gets none
       // here and repriceFlowTx snapshots it from the landed-cost basis.
       const flowSnapshotByAsset = new Map<string, number>()
+      // Flow: each incoming row is matched to the existing line it edits (by line
+      // id, else by asset) so an omitted cost basis or co-term month carries
+      // forward rather than silently resetting a raised basis to true cost; once
+      // the order is locked (agreed or billed) a changed one is refused
+      // (lib/flow/line-carry.ts).
+      const flowLocked = isFlowOrder
+        && ((existingReservation.flowPeriodsBilled ?? 0) > 0 || existingReservation.flowTermsSnapshot != null)
+      let flowMatch = new Map<number, (typeof existingReservation.items)[number]>()
       if (isFlowOrder) {
-        for (const existing of existingReservation.items) {
-          if (activePackage && existing.packageId !== activePackage.id) continue
+        const lines = existingReservation.items
+          .filter((e) => !activePackage || e.packageId === activePackage.id)
+          .sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt.getTime() - b.createdAt.getTime())
+        for (const existing of lines) {
           if (existing.assetId && existing.trueCost != null && !flowSnapshotByAsset.has(existing.assetId)) {
             flowSnapshotByAsset.set(existing.assetId, Number(existing.trueCost))
           }
         }
+        flowMatch = matchFlowLines(itemsWithSubtotals, lines)
       }
       const buildRow = (item: typeof itemsWithSubtotals[number], index: number, parentId: string | null) => {
         let costBasis = item.costBasis != null
@@ -1050,9 +1070,23 @@ export async function updateReservation(id: string, input: Partial<ReservationFo
         const isCloudProduct = !!item.cloudProductId
         // Drop nonsensical margins for rentals & clamp sale margins into Decimal(5,2) bounds.
         const safeMargin = sanitizeMarginPercent(item.marginPercent ?? null, updateReservationType)
-        const flowTrueCost = isFlowOrder && item.assetId ? flowSnapshotByAsset.get(item.assetId) ?? null : null
-        // The basis may be raised but never sits below true cost.
-        if (flowTrueCost != null) costBasis = Math.max(costBasis ?? flowTrueCost, flowTrueCost)
+        let flowTrueCost: number | null = null
+        let flowAddedAtMonth: number | null = null
+        if (isFlowOrder) {
+          const carry = carryFlowLine(
+            item,
+            flowMatch.get(index),
+            item.assetId ? flowSnapshotByAsset.get(item.assetId) ?? null : null,
+            flowLocked,
+          )
+          if (!carry.ok) {
+            assertFlowTermsOpen(existingReservation, carry.changed)
+            throw new Error(`This Flow order is locked — its ${carry.changed} can no longer change.`)
+          }
+          costBasis = carry.costBasis
+          flowTrueCost = carry.trueCost
+          flowAddedAtMonth = carry.flowAddedAtMonth
+        }
         return {
           reservationId: id,
           packageId: activePackage?.id || null,
@@ -1074,7 +1108,7 @@ export async function updateReservation(id: string, input: Partial<ReservationFo
           ...((isSaleUpdate || isCloudUpdate || isFlowOrder) && costBasis != null ? { costBasis } : {}),
           ...(safeMargin != null ? { marginPercent: safeMargin } : {}),
           ...(flowTrueCost != null ? { trueCost: flowTrueCost } : {}),
-          ...(isFlowOrder && item.flowAddedAtMonth != null ? { flowAddedAtMonth: item.flowAddedAtMonth } : {}),
+          ...(isFlowOrder && flowAddedAtMonth != null ? { flowAddedAtMonth } : {}),
         }
       }
 
@@ -5031,12 +5065,22 @@ export async function duplicateReservation(
   const authResult = await requireEditor()
   if (!authResult.authorized) throw new Error(authResult.error)
 
+  // Settle the new type and read everything global before the transaction opens:
+  // the number for that type and the billing anchor (duplicateOrderTx reads only
+  // through the transaction it is handed).
+  const source = await prisma.reservation.findUnique({ where: { id: reservationId }, select: { reservationType: true } })
+  if (!source) throw new Error('Reservation not found')
+  const targetType = duplicateTargetType(source.reservationType, options?.targetType)
+  const reservationNumber = await generateReservationNumber(targetType)
+  const billingAnchor = await getBillingAnchor()
+
   const newReservation = await prisma.$transaction(
     (tx) => duplicateOrderTx(tx, reservationId, {
-      targetType: options?.targetType,
+      targetType,
       rtoTermMonths: options?.rtoTermMonths,
       userId: authResult.userId,
-      reservationNumber: generateReservationNumber,
+      reservationNumber,
+      billingAnchor,
     }),
     { timeout: 30_000 },
   )

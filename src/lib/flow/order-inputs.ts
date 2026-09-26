@@ -1,7 +1,7 @@
 /**
  * Everything flowOrder() needs to price one Flow order, read from the database
- * with nothing written: the config (order knobs over the house defaults, with the
- * lease funding and the gear's age), the lines, and the per-line funding.
+ * with nothing written: the config (the order's stored knobs — never the live
+ * settings row — with the lease funding and the gear's age), the lines, and the per-line funding.
  *
  * The repricing path and the order page both call this, so the stored numbers and
  * the numbers on screen come from the same inputs.
@@ -12,11 +12,11 @@
  * snapshotting is the repricing path's job.
  */
 import type { PrismaClient } from '@/generated/prisma/client'
-import { flowConfigFromSettings, type FlowLineInput } from '@/lib/pricing/flow-lines'
+import type { FlowLineInput } from '@/lib/pricing/flow-lines'
 import type { FlowOrderConfig } from '@/lib/pricing/flow-order'
 import type { FlowBasis } from '@/lib/pricing/flow-basis'
 import { FLOW_LEASE_ASSUMPTION } from '@/lib/pricing/lease-funding'
-import { applyFlowDefaults, mergeFlowDefaults, FLOW_DEFAULTS_KEY, type FlowPricingDefaults } from './defaults'
+import { mergeFlowDefaults, storedFlowConfig, FLOW_DEFAULTS_KEY, type FlowPricingDefaults } from './defaults'
 import { loadFlowBases } from './load-bases'
 import { loadFlowFunding, type OrderFunding } from './load-funding'
 
@@ -36,6 +36,10 @@ export type FlowOrderInputs = {
   funding: OrderFunding
   /** Landed-cost basis per asset on the order, for snapshotting and the form. */
   bases: Record<string, FlowBasis>
+  /**
+   * The live house defaults — for the funding assumption and for seeding a form.
+   * NOT used to price this order: see storedFlowConfig.
+   */
   defaults: FlowPricingDefaults
 }
 
@@ -99,7 +103,9 @@ export async function flowInputsForOrder(db: Db, orderId: string, asOf: Date = n
   }
   const monthsInService = ageUnits ? Math.round(ageWeighted / ageUnits) : 0
 
-  const base = flowConfigFromSettings(applyFlowDefaults(order, defaults))
+  // The order's own knobs, never the live settings row: those seeded the order at
+  // create and must not move it now. A legacy null knob takes the engine default.
+  const base = storedFlowConfig(order)
   const config = base ? { ...base, monthsInService, funding: funding.loans.length ? funding.loans : null } : null
 
   return { config, lines, funding, bases, defaults }

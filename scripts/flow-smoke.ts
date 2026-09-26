@@ -16,7 +16,10 @@
  *      - the lease funding loans are non-empty;
  *      - no next billing date, and the end date is start + term;
  *   3. raises one line's basis and reprices: the contract rises, the cost doesn't;
- *   4. duplicates it with duplicateOrderTx (the body of duplicateReservation) and
+ *   4. changes the Flow pricing defaults in Settings (inside the same rolled-back
+ *      transaction) and reprices: the order's money does not move — the settings
+ *      row only seeds new orders, and a null knob prices at the engine default;
+ *   5. duplicates it with duplicateOrderTx (the body of duplicateReservation) and
  *      asserts the copy is repriced: same contract, same month-1 payment.
  * Then it throws, and checks afterwards that no smoke order exists.
  */
@@ -31,6 +34,8 @@ import { HELD_UNIT_WHERE, loadLeasedHeldUnits } from '@/lib/flow/load-funding'
 import { priceFlowLines } from '@/lib/pricing/flow-lines'
 import { businessToday } from '@/lib/billing/calendar'
 import { addTermMonths } from '@/lib/flow/stored-money'
+import { FLOW_DEFAULTS_KEY } from '@/lib/flow/defaults'
+import { DEFAULT_BILLING_ANCHOR } from '@/lib/billing/calendar'
 
 class Rollback extends Error {}
 
@@ -179,8 +184,20 @@ async function main() {
       await tx.reservationItem.update({ where: { id: raised.id }, data: { costBasis: raised.costBasis } })
       await repriceFlowTx(tx, order.id)
 
-      // 4. Duplicate → repriced copy.
-      const dup = await duplicateOrderTx(tx, order.id, { userId: user.id, reservationNumber: async () => `${TAG}-DUP` })
+      // 4. A Settings change must not move an existing order (rolled back with the rest).
+      const settled = await tx.reservation.findUniqueOrThrow({ where: { id: order.id } })
+      const settledItems = await tx.reservationItem.findMany({ where: { reservationId: order.id }, orderBy: { sortOrder: 'asc' } })
+      const knobs = { marginPct: 77, financePct: 25, purchaseTaxPct: 3, taxExempt: false, deprPct: 10, lifeMonths: 24, recoverByMonth: 6 }
+      await tx.setting.upsert({ where: { key: FLOW_DEFAULTS_KEY }, create: { key: FLOW_DEFAULTS_KEY, value: knobs }, update: { value: knobs } })
+      await repriceFlowTx(tx, order.id)
+      const afterSettings = await tx.reservation.findUniqueOrThrow({ where: { id: order.id } })
+      const afterSettingsItems = await tx.reservationItem.findMany({ where: { reservationId: order.id }, orderBy: { sortOrder: 'asc' } })
+      check('a Settings change leaves the contract alone', cents(afterSettings.flowContractValue) === cents(settled.flowContractValue), `${Number(settled.flowContractValue)} → ${Number(afterSettings.flowContractValue)}`)
+      check('a Settings change leaves the payment and total alone', cents(afterSettings.flowMonthlyPayment) === cents(settled.flowMonthlyPayment) && cents(afterSettings.total) === cents(settled.total))
+      check('a Settings change leaves every line rate alone', afterSettingsItems.every((it, i) => cents(it.rate) === cents(settledItems[i].rate)))
+
+      // 5. Duplicate → repriced copy.
+      const dup = await duplicateOrderTx(tx, order.id, { userId: user.id, reservationNumber: `${TAG}-DUP`, billingAnchor: DEFAULT_BILLING_ANCHOR })
       const dupItems = await tx.reservationItem.findMany({ where: { reservationId: dup.id }, orderBy: { sortOrder: 'asc' } })
       console.log(`\n  duplicate ${dup.reservationNumber}: contract ${$(Number(dup.flowContractValue))}, month 1 ${$(Number(dup.flowMonthlyPayment))}/mo`)
       check('duplicate is FLOW with nothing billed', dup.reservationType === 'FLOW' && dup.flowPeriodsBilled === 0)

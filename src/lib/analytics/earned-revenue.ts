@@ -1,8 +1,7 @@
 import { prisma } from '@/lib/prisma'
 import { addDays, addMonths } from 'date-fns'
-import { flowConfigFromSettings, priceFlowLines } from '@/lib/pricing/flow-lines'
-import { applyFlowDefaults } from '@/lib/flow/defaults'
-import { loadFlowDefaults } from '@/lib/flow/order-inputs'
+import { priceFlowLines } from '@/lib/pricing/flow-lines'
+import { storedFlowConfig } from '@/lib/flow/defaults'
 import { flowAccrualInWindow } from '@/lib/flow/accrual'
 
 /**
@@ -141,11 +140,9 @@ export async function getEarnedRevenue(from: Date, to: Date): Promise<EarnedReve
   const sales = Number(salesAgg._sum.total ?? 0)
   addType('SALE', sales)
 
-  // Flow lines (active package only — the one the stored totals are priced off),
-  // and the house defaults their blank knobs fall back to.
+  // Flow lines (active package only — the one the stored totals are priced off).
   const flowIds = recurringOrders.filter((r) => r.reservationType === 'FLOW').map((r) => r.id)
   const flowLinesByOrder = new Map<string, FlowLine[]>()
-  const flowDefaults = flowIds.length ? await loadFlowDefaults(prisma) : null
   if (flowIds.length) {
     const flowItems = await prisma.reservationItem.findMany({
       where: {
@@ -174,7 +171,8 @@ export async function getEarnedRevenue(from: Date, to: Date): Promise<EarnedReve
     const effectiveEnd = new Date(Math.min(...candidates))
 
     if (r.reservationType === 'FLOW') {
-      const config = flowDefaults ? flowConfigFromSettings(applyFlowDefaults(r, flowDefaults)) : null
+      // The order's stored knobs, as the repricer prices it (never the live settings).
+      const config = storedFlowConfig(r)
       const start = new Date(r.flowStartDate ?? r.startDate)
       let amount = 0
       if (config) {

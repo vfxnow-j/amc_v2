@@ -1123,6 +1123,7 @@ export async function updateSaleItemMargin(reservationId: string, itemId: string
     include: { items: true },
   })
   if (!reservation) throw new Error('Order not found')
+  if (reservation.reservationType === 'FLOW') throw new Error("Flow prices come from each line's cost basis — edit the basis instead.")
   if (!['DRAFT', 'QUOTE_SENT', 'REVISION', 'APPROVED'].includes(reservation.status)) {
     throw new Error('Can only edit margins on draft, quoted, or approved orders')
   }
@@ -1215,6 +1216,7 @@ export async function updateSaleItemCost(reservationId: string, itemId: string, 
     include: { items: true },
   })
   if (!reservation) throw new Error('Order not found')
+  if (reservation.reservationType === 'FLOW') throw new Error("Flow prices come from each line's cost basis — edit the basis instead.")
   if (!['DRAFT', 'QUOTE_SENT', 'REVISION', 'APPROVED'].includes(reservation.status)) {
     throw new Error('Can only edit costs on draft, quoted, or approved orders')
   }
@@ -1255,6 +1257,7 @@ export async function applyMarginToAll(reservationId: string, marginPercent: num
     include: { items: true },
   })
   if (!reservation) throw new Error('Order not found')
+  if (reservation.reservationType === 'FLOW') throw new Error("Flow prices come from each line's cost basis — edit the basis instead.")
   if (!['DRAFT', 'QUOTE_SENT', 'REVISION', 'APPROVED'].includes(reservation.status)) {
     throw new Error('Can only edit margins on draft, quoted, or approved orders')
   }
@@ -1641,6 +1644,10 @@ export async function updateInternalCosts(
 ) {
   const authResult = await requireEditor()
   if (!authResult.authorized) throw new Error(authResult.error || 'Unauthorized')
+
+  const order = await prisma.reservation.findUnique({ where: { id: reservationId }, select: { reservationType: true } })
+  if (!order) throw new Error('Order not found')
+  if (order.reservationType === 'FLOW') throw new Error("Flow prices come from each line's cost basis — edit the basis instead.")
 
   await prisma.reservation.update({
     where: { id: reservationId },

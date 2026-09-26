@@ -5,13 +5,21 @@
  *
  * NOT a 'use server' module: it takes a transaction and trusts its caller to have
  * done the auth. The action is the only caller in the app.
+ *
+ * Everything that reads through the global client (the new order's number, the
+ * business billing anchor) is resolved by the caller BEFORE the transaction opens
+ * and passed in: nothing here reads outside the transaction it was handed.
+ *
+ * A Flow copy carries the source's knobs verbatim, nulls included: a legacy null
+ * knob prices at the engine default (lib/flow/defaults.ts storedFlowConfig), the
+ * same value the source is priced at, so the copy matches it.
  */
 import type { Prisma } from '@/generated/prisma/client'
 import type { BillingCycleType, ReservationType } from '@/lib/types'
 import { calculatePeriods as calculatePeriodsSync, roundMoney } from '@/lib/pricing/periods'
 import { sanitizeMarginPercent } from '@/lib/pricing/reservation-totals'
 import { calculateNextBillingDate } from '@/lib/utils/billing'
-import { getBillingAnchor } from '@/lib/settings/business'
+import type { BillingAnchor } from '@/lib/billing/calendar'
 import { businessToday, intendedDay } from '@/lib/billing/calendar'
 import { repriceFlowTx } from '@/lib/flow/reprice'
 
@@ -20,8 +28,25 @@ export type DuplicateOrderOptions = {
   rtoTermMonths?: number
   /** Who is duplicating it. */
   userId: string
-  /** Issues the new order's number for its type. */
-  reservationNumber: (type: ReservationType) => Promise<string>
+  /** The new order's number, already issued for its type (duplicateTargetType). */
+  reservationNumber: string
+  /** The business billing anchor (getBillingAnchor), read before the transaction. */
+  billingAnchor: BillingAnchor
+}
+
+/**
+ * The type a duplicate takes — the requested one, else the source's — refusing a
+ * copy into or out of Flow (v1): its line rates are per-unit contract values and
+ * its pricing lives in flow* columns no other type reads, and vice versa. Pure, so
+ * the caller can settle the type (and issue the number for it) before the
+ * transaction opens.
+ */
+export function duplicateTargetType(sourceType: ReservationType, requested?: ReservationType): ReservationType {
+  const targetType = requested ?? sourceType
+  if (targetType !== sourceType && (targetType === 'FLOW' || sourceType === 'FLOW')) {
+    throw new Error('A Flow order can only be duplicated as a Flow order.')
+  }
+  return targetType
 }
 
 export async function duplicateOrderTx(
@@ -42,14 +67,9 @@ export async function duplicateOrderTx(
   }
 
   // "Duplicate as" — the new order may take a different type than the source.
-  const targetType: ReservationType = options?.targetType ?? source.reservationType
+  const targetType = duplicateTargetType(source.reservationType, options?.targetType)
   const isSaleTarget = targetType === 'SALE'
   const isRtoTarget = targetType === 'RENT_TO_OWN'
-  // Flow only duplicates as Flow (v1): its line rates are per-unit contract values
-  // and its pricing lives in flow* columns no other type reads, and vice versa.
-  if (targetType !== source.reservationType && (targetType === 'FLOW' || source.reservationType === 'FLOW')) {
-    throw new Error('A Flow order can only be duplicated as a Flow order.')
-  }
   const isFlowTarget = targetType === 'FLOW'
 
   // RTO financing term: explicit choice → source's existing term → sane default.
@@ -57,8 +77,9 @@ export async function duplicateOrderTx(
     ? (options?.rtoTermMonths || source.rtoTermMonths || 24)
     : null
 
-  // Number prefix must match the NEW order's type (RTO-/RES-/SALE-/CLD-).
-  const reservationNumber = await options.reservationNumber(targetType)
+  // Number prefix matches the NEW order's type (RTO-/RES-/SALE-/CLD-): the caller
+  // issued it for duplicateTargetType's answer.
+  const reservationNumber = options.reservationNumber
 
   // Shift dates: new start is today, end date offset by same duration
   const durationMs = new Date(source.endDate).getTime() - new Date(source.startDate).getTime()
@@ -79,7 +100,7 @@ export async function duplicateOrderTx(
   // A Flow order is billed from its schedule, never by the billing run.
   const nextBillingDate = isSaleTarget || isFlowTarget
     ? null
-    : calculateNextBillingDate(newStart, billingCycleType, source.billingCycleDay, source.billingCycleDays ?? undefined, await getBillingAnchor())
+    : calculateNextBillingDate(newStart, billingCycleType, source.billingCycleDay, source.billingCycleDays ?? undefined, options.billingAnchor)
 
   // A SALE bills once (one-time) and an RTO bills as a single recurring installment
   // plan (periods = 1). When such a target line came from a source that spanned

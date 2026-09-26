@@ -7,7 +7,8 @@
  * through here, so a stored row means the same thing everywhere.
  */
 import { FLOW_CONFIG_DEFAULTS } from '@/lib/pricing/flow-order'
-import type { FlowOrderSettings } from '@/lib/pricing/flow-lines'
+import { flowConfigFromSettings, type FlowOrderSettings } from '@/lib/pricing/flow-lines'
+import type { FlowOrderConfig } from '@/lib/pricing/flow-order'
 
 export const FLOW_DEFAULTS_KEY = 'flow_pricing_defaults'
 
@@ -47,7 +48,12 @@ export function mergeFlowDefaults(value: unknown): FlowPricingDefaults {
 /**
  * Fill the pricing knobs an order left blank from the defaults, so
  * flowConfigFromSettings() sees the house position rather than the engine's.
- * A knob the order set is never touched; the term is never defaulted.
+ * A knob the order set is never touched; the term is never defaulted, and nor is
+ * flowStepPct: a null step is meaningful (the recoverByMonth-shaped schedule).
+ *
+ * Called ONCE, when an order is born (createReservation), so the order stores
+ * concrete knobs. Never call it when pricing an existing order: that would let a
+ * Settings change move the money of every order that already exists.
  */
 export function applyFlowDefaults<T extends FlowOrderSettings>(order: T, d: FlowPricingDefaults): T {
   const blank = (v: unknown) => v == null || v === ''
@@ -61,4 +67,18 @@ export function applyFlowDefaults<T extends FlowOrderSettings>(order: T, d: Flow
     flowDeprPct: blank(order.flowDeprPct) ? d.deprPct : order.flowDeprPct,
     flowLifeMonths: order.flowLifeMonths ?? d.lifeMonths,
   }
+}
+
+/**
+ * The pricing config of an order that EXISTS, from its stored knobs alone.
+ *
+ * The settings row only seeds new orders (applyFlowDefaults at create); it is
+ * deliberately not an input here, so no Settings change can ever move an existing
+ * order's money. A knob still null — a legacy row, e.g. a v1 Flow order arriving
+ * by the data sync — falls back to the engine's FLOW_CONFIG_DEFAULTS, which is
+ * exactly how v1's repriceFlowTx priced a null (flowConfigFromSettings(reservation)).
+ * Null when the order has no term.
+ */
+export function storedFlowConfig(order: FlowOrderSettings): FlowOrderConfig | null {
+  return flowConfigFromSettings(order)
 }

@@ -15,8 +15,6 @@ import {
   type FlowTermsSettings,
   type RenderedFlowTerms,
 } from '@/lib/pricing/flow-terms'
-import { applyFlowDefaults } from '@/lib/flow/defaults'
-import { loadFlowDefaults } from '@/lib/flow/order-inputs'
 
 export const FLOW_TERMS_SETTING_KEY = 'flow_subscription_terms'
 
@@ -50,10 +48,10 @@ async function renderLive(reservationId: string): Promise<RenderedFlowTerms | nu
     shippingMargin: reservation.shippingMargin,
     rentalCreditAmount: reservation.rentalCreditAmount,
   })
-  // The knobs the order left blank take the house defaults, exactly as the
-  // repricer does (lib/flow/order-inputs.ts), so the terms quote the stored price.
-  const defaults = await loadFlowDefaults(prisma)
-  const { quote, problem } = flowQuoteForOrder(applyFlowDefaults(reservation, defaults), items, {
+  // Priced from the order's stored knobs alone, exactly as the repricer does
+  // (lib/flow/defaults.ts storedFlowConfig), so the terms quote the stored price:
+  // a legacy null knob takes the engine default, never the live settings row.
+  const { quote, problem } = flowQuoteForOrder(reservation, items, {
     discountAmount: financials.discountAmount,
     taxRate: financials.taxRate,
     deliveryCost: financials.deliveryCost,
