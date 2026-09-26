@@ -184,6 +184,26 @@ async function main() {
       await tx.reservationItem.update({ where: { id: raised.id }, data: { costBasis: raised.costBasis } })
       await repriceFlowTx(tx, order.id)
 
+      // 3.5. Internal costs (shipping/sub-rental/hardware) are a legitimate Flow input:
+      // repriceFlowTx folds them into totalCost via flowStoredMoney, so setting one
+      // should move totalCost by exactly that amount and leave the contract/payment
+      // alone. This is what updateInternalCosts (lib/actions/sales.ts) now reprices
+      // through for FLOW orders, instead of refusing them.
+      const beforeInternalCost = await tx.reservation.findUniqueOrThrow({ where: { id: order.id } })
+      const shippingBump = 543.21
+      await tx.reservation.update({ where: { id: order.id }, data: { internalShippingCost: shippingBump } })
+      await repriceFlowTx(tx, order.id)
+      const afterInternalCost = await tx.reservation.findUniqueOrThrow({ where: { id: order.id } })
+      check(
+        'internalShippingCost moves totalCost by exactly that amount',
+        cents(afterInternalCost.totalCost) - cents(beforeInternalCost.totalCost) === cents(shippingBump),
+        `${Number(beforeInternalCost.totalCost)} → ${Number(afterInternalCost.totalCost)}`,
+      )
+      check('internalShippingCost leaves flowContractValue alone', cents(afterInternalCost.flowContractValue) === cents(beforeInternalCost.flowContractValue))
+      check('internalShippingCost leaves flowMonthlyPayment alone', cents(afterInternalCost.flowMonthlyPayment) === cents(beforeInternalCost.flowMonthlyPayment))
+      await tx.reservation.update({ where: { id: order.id }, data: { internalShippingCost: beforeInternalCost.internalShippingCost } })
+      await repriceFlowTx(tx, order.id)
+
       // 4. A Settings change must not move an existing order (rolled back with the rest).
       const settled = await tx.reservation.findUniqueOrThrow({ where: { id: order.id } })
       const settledItems = await tx.reservationItem.findMany({ where: { reservationId: order.id }, orderBy: { sortOrder: 'asc' } })

@@ -6,6 +6,7 @@ import { requireEditor } from '@/lib/auth-utils'
 import { serialize } from '@/lib/utils'
 import { calculatePeriods } from '@/lib/actions/reservations'
 import { computeItemSubtotal } from '@/lib/pricing/periods'
+import { repriceFlowTx } from '@/lib/flow/reprice'
 
 /**
  * Resolve the active package id for a reservation, if any.
@@ -1637,6 +1638,12 @@ export async function autoAllocateUnitsForItem(
 
 /**
  * Update internal costs (shipping, sub-rental, hardware) on any reservation/sale and recalculate margins.
+ *
+ * Internal costs are a legitimate Flow input: repriceFlowTx (lib/flow/reprice.ts) folds
+ * internalShippingCost/subRentalCost/hardwareCost into totalCost/totalMargin via
+ * flowStoredMoney (lib/flow/stored-money.ts). So for a FLOW order we save the costs and
+ * then reprice through repriceFlowTx in the same transaction, rather than the non-Flow
+ * totalCost/margin formula below (which flowContractValue/flowMonthlyPayment never touch).
  */
 export async function updateInternalCosts(
   reservationId: string,
@@ -1647,18 +1654,22 @@ export async function updateInternalCosts(
 
   const order = await prisma.reservation.findUnique({ where: { id: reservationId }, select: { reservationType: true } })
   if (!order) throw new Error('Order not found')
-  if (order.reservationType === 'FLOW') throw new Error("Flow prices come from each line's cost basis — edit the basis instead.")
 
-  await prisma.reservation.update({
-    where: { id: reservationId },
-    data: {
-      internalShippingCost: costs.internalShippingCost ?? undefined,
-      subRentalCost: costs.subRentalCost ?? undefined,
-      hardwareCost: costs.hardwareCost ?? undefined,
-    },
-  })
+  const data = {
+    internalShippingCost: costs.internalShippingCost ?? undefined,
+    subRentalCost: costs.subRentalCost ?? undefined,
+    hardwareCost: costs.hardwareCost ?? undefined,
+  }
 
-  await recalculateSaleMarginTotals(reservationId)
+  if (order.reservationType === 'FLOW') {
+    await prisma.$transaction(async (tx) => {
+      await tx.reservation.update({ where: { id: reservationId }, data })
+      await repriceFlowTx(tx, reservationId)
+    })
+  } else {
+    await prisma.reservation.update({ where: { id: reservationId }, data })
+    await recalculateSaleMarginTotals(reservationId)
+  }
 
   revalidatePath(`/dashboard/orders/${reservationId}`)
   return { success: true }
