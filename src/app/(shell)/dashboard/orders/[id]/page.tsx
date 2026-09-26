@@ -25,6 +25,10 @@ import {
   RtoTermsCard,
 } from "@/components/orders/commercial-cards";
 import { OrderBillingCard } from "@/components/orders/billing-card";
+import { FlowTermsCard } from "@/components/orders/flow/flow-terms-card";
+import { FlowScheduleCard } from "@/components/orders/flow/flow-schedule-card";
+import { FlowEconomicsCard } from "@/components/orders/flow/flow-economics-card";
+import { getFlowRecord } from "@/lib/queries/flow-record";
 import { OrderDocumentsCard } from "@/components/orders/documents-card";
 import { ShippingCard } from "@/components/orders/shipping-card";
 import { ConversionCard } from "@/components/tracker/conversion-card";
@@ -141,6 +145,9 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
  * - every order gets the handover strip, the lines, activity and notes;
  * - a sale or a rent-to-own additionally gets cost, margin and commercial
  *   terms, and an RTO gets its financing schedule;
+ * - a Flow order gets its subscription terms, its payment schedule and — for
+ *   staff, as every cost and margin figure on this page is — the deal placed
+ *   against the gear's cost and its leases;
  * - check-out and check-in are offered only where there are physical units to
  *   scan and the order is far enough along to accept one — which is a fact
  *   about the order, not about its type, so a cloud order with hardware on it
@@ -189,6 +196,9 @@ export default async function OrderRecordPage({
       ? periodFromAnchor(anchorOnOrBefore(periodDay, header.cycle, anchor), header.cycle, anchor)
       : null;
   const isRto = header.type === "RENT_TO_OWN";
+  const isFlow = header.type === "FLOW";
+  // Cached per request: the three Flow cards below read the same record.
+  const flowRecord = isFlow ? await getFlowRecord(id) : null;
   const hasUnits = progress.ordered > 0;
   const unitsOut = hasUnits ? await unitsOutOn(header.id) : [];
   // A fixed-term rental that is out: its return date is real, so it can run
@@ -222,6 +232,9 @@ export default async function OrderRecordPage({
                 before it is sent, the live page once it is, what their link
                 says after they answer. A preview: no link is issued and nothing
                 is marked viewed (app/quote/preview). */}
+            {/* Flow has no client quote yet (it comes with the Flow quote), so
+                there is nothing priced to preview. */}
+            {isFlow ? null : (
             <a
               href={`/quote/preview/${header.id}`}
               target="_blank"
@@ -231,6 +244,7 @@ export default async function OrderRecordPage({
               View online quote
               <ExternalLink className="size-3" aria-hidden />
             </a>
+            )}
             <span className="rounded-pill bg-sunken px-3 py-1 text-pill text-ink">
               {STATUS_LABEL[header.status]}
             </span>
@@ -301,6 +315,14 @@ export default async function OrderRecordPage({
             option={
               viewedOption
                 ? { id: viewedOption.id, name: viewedOption.name, several: options.length > 1 }
+                : undefined
+            }
+            flow={
+              isFlow
+                ? {
+                    termMonths: flowRecord?.knobs?.termMonths ?? null,
+                    basisLock: flowRecord?.lock ?? null,
+                  }
                 : undefined
             }
           />
@@ -374,6 +396,27 @@ export default async function OrderRecordPage({
             <Suspense fallback={<CardSkeleton title="Rent-to-own terms" rows={4} />}>
               <RtoTermsCard id={id} />
             </Suspense>
+          ) : null}
+
+          {/* A Flow order's terms and schedule, and the deal against its gear.
+              The deal is internal: shown to staff on the same rule as every
+              other cost and margin figure here — anyone signed in to the shell
+              (a FLOW_USER never reaches it; proxy.ts sends them to
+              /no-access). */}
+          {isFlow ? (
+            <>
+              <Suspense fallback={<CardSkeleton title="Flow terms" rows={6} />}>
+                <FlowTermsCard id={id} canEdit={!!user && user.role !== "VIEWER"} />
+              </Suspense>
+              <Suspense fallback={<CardSkeleton title="Payment schedule" rows={8} />}>
+                <FlowScheduleCard id={id} />
+              </Suspense>
+              {user ? (
+                <Suspense fallback={<CardSkeleton title="The deal" rows={8} />}>
+                  <FlowEconomicsCard id={id} />
+                </Suspense>
+              ) : null}
+            </>
           ) : null}
 
           {/* One card: what it bills on, and what it has billed. The type
