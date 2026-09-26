@@ -31,6 +31,11 @@ import { businessToday, intendedDay } from '@/lib/billing/calendar'
 import { recurringFor } from '@/lib/orders/recurring'
 import { kindForOrderType, nextNumber } from '@/lib/numbering/next'
 import { CHECKOUT_LINE_WHERE, pickScanLine, unitChargeFor } from '@/lib/checkout/lines'
+import { calculateReservationTotals } from '@/lib/pricing/reservation-totals'
+import { loadFlowBases } from '@/lib/flow/load-bases'
+import { repriceFlowTx } from '@/lib/flow/reprice'
+import { duplicateOrderTx } from '@/lib/orders/duplicate'
+import { addTermMonths, flowCreateLineCost, flowSnapshotLineCost } from '@/lib/flow/stored-money'
 // Transaction client type for passing prisma tx to helpers
 type TxClient = Omit<typeof prisma, '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'>
 
@@ -82,6 +87,19 @@ export type ReservationFormData = {
   // from it and the order total rather than typed, so they cannot disagree with
   // what the order actually costs. Ignored on every other type.
   rtoTermMonths?: number
+  // Flow: the term and the pricing knobs (v1). A knob left blank takes the house
+  // default (Settings, lib/flow/defaults.ts). The money is never taken from here:
+  // lib/flow/reprice.ts derives every rate and total. Ignored on every other type.
+  flowTermMonths?: number
+  flowMarginPct?: number
+  flowFinancePct?: number
+  flowPurchaseTaxPct?: number
+  flowTaxExempt?: boolean
+  flowRecoverByMonth?: number
+  flowDeprPct?: number
+  flowLifeMonths?: number
+  /** From month 13 on, pay this % of the year-one payment. Null = the engine's shape. */
+  flowStepPct?: number | null
   // Action tracking (e.g. from builder)
   actionRequired?: boolean
   actionRequiredNote?: string
@@ -104,45 +122,9 @@ export type ReservationFormData = {
     marginPercent?: number | null
     // Cloud host only: specific asset units (tags) to reserve as backing hardware.
     backingAssetUnitIds?: string[] | null
+    // Flow only: the month a co-termed line joined the subscription.
+    flowAddedAtMonth?: number | null
   }[]
-}
-
-// Apply margin to a shipping cost to get the client-facing price
-function applyShippingMargin(cost: number, marginType?: string | null, margin?: number | null): number {
-  if (!marginType || !margin || margin <= 0) return cost
-  if (marginType === 'PERCENTAGE') return Math.round(cost * (1 + margin / 100) * 100) / 100
-  return Math.round((cost + margin) * 100) / 100 // FIXED
-}
-
-// Centralized reservation total calculation with discount, tax, and logistics
-function calculateReservationTotals(params: {
-  itemsSubtotal: number
-  discountType?: string | null
-  discountValue?: number
-  taxRate: number
-  deliveryCost?: number | null
-  returnCost?: number | null
-  shippingMarginType?: string | null
-  shippingMargin?: number | null
-  rentalCreditAmount?: number
-}) {
-  let discountAmount = 0
-  if (params.discountType === 'PERCENTAGE' && params.discountValue && params.discountValue > 0) {
-    discountAmount = params.itemsSubtotal * (params.discountValue / 100)
-  } else if (params.discountType === 'FIXED' && params.discountValue && params.discountValue > 0) {
-    discountAmount = Math.min(params.discountValue, params.itemsSubtotal)
-  }
-
-  const afterDiscount = params.itemsSubtotal - discountAmount
-  const creditAmount = params.rentalCreditAmount || 0
-  const afterCredit = afterDiscount - creditAmount
-  const taxAmount = afterCredit * (params.taxRate / 100)
-  const clientDelivery = applyShippingMargin(params.deliveryCost || 0, params.shippingMarginType, params.shippingMargin)
-  const clientReturn = applyShippingMargin(params.returnCost || 0, params.shippingMarginType, params.shippingMargin)
-  const logistics = clientDelivery + clientReturn
-  const total = afterCredit + taxAmount + logistics
-
-  return { discountAmount, taxAmount, total }
 }
 
 // Pick the most appropriate "general rate" for an asset when adding it ad hoc to
@@ -578,10 +560,16 @@ export async function createReservation(input: ReservationFormData) {
   // A sale has no term (owner, 2026-09-16): its end date is its order date, so
   // nothing downstream can read a "deliver by" as a term or a return.
   const startDate = intendedDay(input.startDate)
+  const isFlow = input.reservationType === 'FLOW'
+  const flowTerm = isFlow && input.flowTermMonths && input.flowTermMonths > 0 ? Math.round(input.flowTermMonths) : null
+  if (isFlow && !flowTerm) throw new Error('A Flow order needs a term before it can be priced.')
   const data: ReservationFormData = {
     ...input,
     startDate,
-    endDate: input.reservationType === 'SALE' ? startDate : intendedDay(input.endDate),
+    // A Flow order runs exactly its term; the repricer stores the same end date.
+    endDate: input.reservationType === 'SALE' ? startDate
+      : flowTerm ? addTermMonths(startDate, flowTerm)
+      : intendedDay(input.endDate),
   }
 
   const reservationNumber = await generateReservationNumber(data.reservationType || 'RENTAL')
@@ -649,6 +637,21 @@ export async function createReservation(input: ReservationFormData) {
     shippingMargin: data.shippingMargin,
   })
 
+  // Flow (v1): an asset line's true cost is derived here from its units' landed
+  // cost — the caller's trueCost/costBasis are not trusted. The basis may be raised
+  // but never sits below true cost. A line whose units are not fully costed is
+  // refused before anything is written.
+  const flowBasisByAsset: Record<string, number> = {}
+  if (isFlow) {
+    const assetItems = data.items.filter((i) => i.assetId)
+    const bases = await loadFlowBases(prisma, assetItems.map((i) => i.assetId!))
+    for (const item of assetItems) {
+      const snap = flowSnapshotLineCost({ trueCost: null, costBasis: null }, bases[item.assetId!], item.description || 'A line')
+      if (!snap.ok) throw new Error(snap.error)
+      flowBasisByAsset[item.assetId!] = snap.cost.trueCost
+    }
+  }
+
   const reservation = await prisma.$transaction(async (tx) => {
     const res = await tx.reservation.create({
       data: {
@@ -680,7 +683,9 @@ export async function createReservation(input: ReservationFormData) {
           : billingCycleType,
         billingCycleDay,
         billingCycleDays,
-        nextBillingDate: data.reservationType === 'SALE' ? null : nextBillingDate,
+        // A sale bills once; a Flow order is billed from its schedule, never by the
+        // billing run, so neither carries a next billing date.
+        nextBillingDate: data.reservationType === 'SALE' || isFlow ? null : nextBillingDate,
         isRecurring: effectiveIsRecurring,
         notBilled: data.notBilled || false,
         paymentTerms: data.paymentTerms ?? null,
@@ -691,6 +696,25 @@ export async function createReservation(input: ReservationFormData) {
           rtoBuyoutPrice: total,
           rtoInstallmentsPaid: 0,
           rtoDefaultCount: 0,
+        } : {}),
+        // Flow — a term subscription on owned stock. Monthly and recurring like RTO,
+        // but the rate steps at each anniversary, so flowMonthlyPayment is the CURRENT
+        // period's rate. The money columns (and every line rate) are derived by
+        // repriceFlowTx once the lines exist, below — never taken from the caller.
+        ...(isFlow ? {
+          flowTermMonths: flowTerm,
+          flowContractValue: null,
+          flowMonthlyPayment: null,
+          flowStartDate: data.startDate,
+          flowPeriodsBilled: 0,
+          flowMarginPct: data.flowMarginPct ?? null,
+          flowFinancePct: data.flowFinancePct ?? null,
+          flowPurchaseTaxPct: data.flowPurchaseTaxPct ?? null,
+          flowTaxExempt: data.flowTaxExempt ?? true,
+          flowRecoverByMonth: data.flowRecoverByMonth ?? null,
+          flowDeprPct: data.flowDeprPct ?? null,
+          flowLifeMonths: data.flowLifeMonths ?? null,
+          flowStepPct: data.flowStepPct ?? null,
         } : {}),
         // Delivery & Return
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -760,6 +784,9 @@ export async function createReservation(input: ReservationFormData) {
         const explicitCost = item.costBasis != null && item.costBasis >= 0 ? Number(item.costBasis) : null
         // Drop nonsensical margins for rentals & clamp sale margins into Decimal(5,2) bounds.
         const safeMargin = sanitizeMarginPercent(item.marginPercent ?? null, reservationType)
+        const flowCost = isFlow && item.assetId && flowBasisByAsset[item.assetId] != null
+          ? flowCreateLineCost(explicitCost, flowBasisByAsset[item.assetId])
+          : null
         return {
           reservationId: res.id,
           packageId: defaultPackage.id,
@@ -783,11 +810,14 @@ export async function createReservation(input: ReservationFormData) {
           ...(safeMargin != null ? { marginPercent: safeMargin } : {}),
           ...(isService
             ? { costBasis: 0 }
+            : flowCost
+              ? { costBasis: flowCost.costBasis, trueCost: flowCost.trueCost }
             : explicitCost != null
               ? { costBasis: explicitCost }
               : autoCost != null
                 ? { costBasis: autoCost }
                 : {}),
+          ...(isFlow && item.flowAddedAtMonth != null ? { flowAddedAtMonth: item.flowAddedAtMonth } : {}),
         }
       }
 
@@ -846,6 +876,10 @@ export async function createReservation(input: ReservationFormData) {
         data: { subtotal: actualSubtotal, discountAmount: da, taxAmount: ta, total: t, totalCost, totalMargin },
       })
     }
+
+    // Flow: re-derive line rates and totals from cost basis; refuses (and rolls the
+    // whole create back) when a line is unpriced or the schedule is infeasible.
+    if (isFlow) await repriceFlowTx(tx, res.id)
 
     return tx.reservation.findUnique({
       where: { id: res.id },
@@ -4859,248 +4893,15 @@ export async function duplicateReservation(
   const authResult = await requireEditor()
   if (!authResult.authorized) throw new Error(authResult.error)
 
-  const source = await prisma.reservation.findUnique({
-    where: { id: reservationId },
-    include: {
-      packages: { include: { items: true }, orderBy: { sortOrder: 'asc' } },
-      items: true,
-    },
-  })
-
-  if (!source) {
-    throw new Error('Reservation not found')
-  }
-
-  // "Duplicate as" — the new order may take a different type than the source.
-  const targetType: ReservationType = options?.targetType ?? source.reservationType
-  const isSaleTarget = targetType === 'SALE'
-  const isRtoTarget = targetType === 'RENT_TO_OWN'
-  // Flow only duplicates as Flow (v1): its line rates are per-unit contract values
-  // and its pricing lives in flow* columns no other type reads, and vice versa.
-  if (targetType !== source.reservationType && (targetType === 'FLOW' || source.reservationType === 'FLOW')) {
-    throw new Error('A Flow order can only be duplicated as a Flow order.')
-  }
-  const isFlowTarget = targetType === 'FLOW'
-
-  // RTO financing term: explicit choice → source's existing term → sane default.
-  const rtoTermMonths = isRtoTarget
-    ? (options?.rtoTermMonths || source.rtoTermMonths || 24)
-    : null
-
-  // Number prefix must match the NEW order's type (RTO-/RES-/SALE-/CLD-).
-  const reservationNumber = await generateReservationNumber(targetType)
-
-  // Shift dates: new start is today, end date offset by same duration
-  const durationMs = new Date(source.endDate).getTime() - new Date(source.startDate).getTime()
-  const newStart = businessToday()
-  const newEnd = intendedDay(new Date(newStart.getTime() + durationMs))
-
-  // Recurring/billing semantics for the new order's type. Preserving `isRecurring`
-  // is the crux of the fix: previously the copy silently defaulted to non-recurring,
-  // so re-opening it re-multiplied every per-period line item across the whole term
-  // (e.g. a 24-month RTO's monthly lines × 24) and inflated the totals ~24×.
-  const isRecurring = isRtoTarget ? true
-    : isSaleTarget ? false
-    : source.isRecurring
-  const billingCycleType: BillingCycleType = isSaleTarget ? 'ONE_TIME'
-    : isRtoTarget ? 'MONTHLY'
-    : (source.billingCycleType === 'ONE_TIME' ? 'MONTHLY' : (source.billingCycleType as BillingCycleType))
-
-  const nextBillingDate = isSaleTarget
-    ? null
-    : calculateNextBillingDate(newStart, billingCycleType, source.billingCycleDay, source.billingCycleDays ?? undefined, await getBillingAnchor())
-
-  // A SALE bills once (one-time) and an RTO bills as a single recurring installment
-  // plan (periods = 1). When such a target line came from a source that spanned
-  // multiple periods, fold the period multiplier into the unit rate so rate × qty
-  // still equals the exact stored subtotal — the duplicate matches the source penny
-  // for penny regardless of the order type it's copied into.
-  const collapseToSinglePeriod = isSaleTarget || isRtoTarget
-
-  // Copy every line's stored subtotal verbatim, across every package, so the
-  // duplicate matches the source exactly. Retain each source row's original id so
-  // component→parent linkage can be mapped during duplication.
-  const mapItems = (items: typeof source.items) =>
-    items.map((item, index) => {
-      const sub = Number(item.subtotal)
-      const qty = item.quantity || 1
-      const sourcePeriods = item.isOneTime
-        ? 1
-        : calculatePeriodsSync(source.startDate, source.endDate, item.pricingType, source.isRecurring)
-      const rate = collapseToSinglePeriod && sourcePeriods > 1 && qty > 0
-        ? roundMoney(sub / qty)
-        : Number(item.rate)
-      return {
-        sourceId: item.id,
-        sourceParentId: item.parentId,
-        assetId: item.assetId,
-        serviceId: item.serviceId,
-        cloudProductId: item.cloudProductId,
-        description: item.description || null,
-        category: item.category || null,
-        pricingType: item.pricingType,
-        rate,
-        quantity: qty,
-        subtotal: sub,
-        isOneTime: isSaleTarget ? true : item.isOneTime,
-        costBasis: item.costBasis,
-        // Flow: keep the snapshotted true cost; the basis is floored at it.
-        ...(isFlowTarget ? { trueCost: item.trueCost } : {}),
-        // Base parts stay included in their machine's rate on the copy.
-        includedInParent: item.includedInParent,
-        marginPercent: sanitizeMarginPercent(
-          item.marginPercent != null ? Number(item.marginPercent) : null,
-          targetType
-        ),
-        notes: item.notes || null,
-        sortOrder: item.sortOrder ?? index,
-      }
-    })
-
-  // Reservation-level money copied verbatim from the source (exact match). The
-  // reservation totals mirror the active package, which mapItems preserves.
-  const subtotal = Number(source.subtotal)
-  const discountAmount = Number(source.discountAmount)
-  const taxAmount = Number(source.taxAmount)
-  const total = Number(source.total)
-
-  const newReservation = await prisma.$transaction(async (tx) => {
-    const res = await tx.reservation.create({
-      data: {
-        reservationNumber,
-        clientId: source.clientId,
-        reservationType: targetType,
-        // Rent-to-Own financing: set for RTO targets, cleared for every other type.
-        rtoTermMonths: isRtoTarget ? rtoTermMonths : null,
-        rtoMonthlyPayment: isRtoTarget && rtoTermMonths ? total / rtoTermMonths : null,
-        rtoBuyoutPrice: isRtoTarget ? total : null,
-        rtoInstallmentsPaid: 0,
-        rtoDefaultCount: 0,
-        rtoStartDate: null,
-        startDate: newStart,
-        endDate: newEnd,
-        projectName: source.projectName ? `${source.projectName} (copy)` : undefined,
-        projectCode: source.projectCode,
-        notes: source.notes,
-        internalNotes: source.internalNotes,
-        status: 'DRAFT',
-        priceVerified: false,
-        priceVerifiedAt: null,
-        createdById: authResult.userId,
-        isRecurring,
-        billingCycleType,
-        billingCycleDay: source.billingCycleDay,
-        billingCycleDays: source.billingCycleDays,
-        nextBillingDate,
-        notBilled: source.notBilled,
-        paymentTerms: source.paymentTerms,
-        subtotal,
-        discountType: source.discountType,
-        discountValue: source.discountValue,
-        discountAmount,
-        taxRate: source.taxRate,
-        taxAmount,
-        total,
-        totalCost: source.totalCost,
-        totalMargin: source.totalMargin,
-        internalShippingCost: source.internalShippingCost,
-        subRentalCost: source.subRentalCost,
-        hardwareCost: source.hardwareCost,
-        deliveryMethod: source.deliveryMethod,
-        deliveryAddress: source.deliveryAddress,
-        deliveryCost: source.deliveryCost,
-        deliveryCourier: source.deliveryCourier,
-        deliveryNotes: source.deliveryNotes,
-        shippingMarginType: source.shippingMarginType,
-        shippingMargin: source.shippingMargin,
-        deliveryTrackingProvider: source.deliveryTrackingProvider,
-        deliveryTrackingNumber: source.deliveryTrackingNumber,
-        returnMethod: source.returnMethod,
-        returnCost: source.returnCost,
-        returnCourier: source.returnCourier,
-        returnTrackingProvider: source.returnTrackingProvider,
-        returnTrackingNumber: source.returnTrackingNumber,
-        // Flow: the same term and pricing knobs, a fresh start and nothing billed.
-        // Lines and totals are copied verbatim like every other type, so the
-        // contract value carries over. The current-period payment is left for
-        // the Flow repricer to derive: the source's may already be past a step.
-        ...(isFlowTarget ? {
-          flowTermMonths: source.flowTermMonths,
-          flowContractValue: source.flowContractValue,
-          flowMonthlyPayment: null,
-          flowStartDate: newStart,
-          flowPeriodsBilled: 0,
-          flowStepPct: source.flowStepPct,
-          flowMarginPct: source.flowMarginPct,
-          flowFinancePct: source.flowFinancePct,
-          flowPurchaseTaxPct: source.flowPurchaseTaxPct,
-          flowTaxExempt: source.flowTaxExempt,
-          flowRecoverByMonth: source.flowRecoverByMonth,
-          flowDeprPct: source.flowDeprPct,
-          flowLifeMonths: source.flowLifeMonths,
-          flowAssumedAprPct: source.flowAssumedAprPct,
-          flowAssumedLoanBalance: source.flowAssumedLoanBalance,
-          flowAssumedNoteMonths: source.flowAssumedNoteMonths,
-          flowExtensionPct: source.flowExtensionPct,
-        } : {}),
-      },
-    })
-
-    // Two-pass duplicate preserving parent→child links via a source-id → new-id map.
-    const duplicateItems = async (pkgId: string, items: ReturnType<typeof mapItems>) => {
-      const idMap = new Map<string, string>()
-      // Pass 1: top-level
-      for (const item of items) {
-        if (item.sourceParentId) continue
-        const { sourceId, sourceParentId, ...rest } = item
-        void sourceParentId
-        const created = await tx.reservationItem.create({
-          data: { reservationId: res.id, packageId: pkgId, parentId: null, ...rest },
-        })
-        idMap.set(sourceId, created.id)
-      }
-      // Pass 2: components
-      for (const item of items) {
-        if (!item.sourceParentId) continue
-        const { sourceId, sourceParentId, ...rest } = item
-        const parentId = idMap.get(sourceParentId) || null
-        const created = await tx.reservationItem.create({
-          data: { reservationId: res.id, packageId: pkgId, parentId, ...rest },
-        })
-        idMap.set(sourceId, created.id)
-      }
-    }
-
-    // Duplicate all packages and their items
-    for (const pkg of source.packages) {
-      const newPkg = await tx.package.create({
-        data: {
-          reservationId: res.id,
-          name: pkg.name,
-          description: pkg.description,
-          isActive: pkg.isActive,
-          sortOrder: pkg.sortOrder,
-          deliveryCost: pkg.deliveryCost,
-          returnCost: pkg.returnCost,
-        },
-      })
-
-      const pkgItems = mapItems(pkg.items)
-      if (pkgItems.length > 0) {
-        await duplicateItems(newPkg.id, pkgItems)
-      }
-    }
-
-    // If source had no packages (legacy), create a default one
-    if (source.packages.length === 0 && source.items.length > 0) {
-      const defaultPkg = await tx.package.create({
-        data: { reservationId: res.id, name: 'Default', isActive: true, sortOrder: 0 },
-      })
-      await duplicateItems(defaultPkg.id, mapItems(source.items))
-    }
-
-    return res
-  }, { timeout: 30_000 })
+  const newReservation = await prisma.$transaction(
+    (tx) => duplicateOrderTx(tx, reservationId, {
+      targetType: options?.targetType,
+      rtoTermMonths: options?.rtoTermMonths,
+      userId: authResult.userId,
+      reservationNumber: generateReservationNumber,
+    }),
+    { timeout: 30_000 },
+  )
 
   revalidatePath('/dashboard/orders')
   revalidatePath('/dashboard/rent-to-own')

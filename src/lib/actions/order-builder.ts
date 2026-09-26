@@ -7,6 +7,7 @@ import { createReservation } from "@/lib/actions/reservations";
 import type { ReservationType } from "@/generated/prisma/client";
 import type { PricingType } from "@/lib/types";
 import { intendedDay, parseDateInput } from "@/lib/billing/calendar";
+import { addTermMonths } from "@/lib/flow/stored-money";
 import {
   findSubstitutes,
   searchAssetsForWindow,
@@ -74,6 +75,26 @@ export type DraftLine = {
   pricingType: string;
   /** Set when the person chose "book anyway" on an unavailable line. */
   overbooked?: boolean;
+  /**
+   * Flow only: the pricing basis per unit. It may be raised above the gear's
+   * landed cost but is floored at it on the server; the rate is ignored, since
+   * the server derives every Flow rate.
+   */
+  costBasis?: number;
+};
+
+/** Flow only: the term and the pricing knobs. Blank knobs take the house defaults. */
+export type FlowOrderTerms = {
+  termMonths: number;
+  marginPct?: number;
+  financePct?: number;
+  purchaseTaxPct?: number;
+  taxExempt?: boolean;
+  recoverByMonth?: number;
+  deprPct?: number;
+  lifeMonths?: number;
+  /** From month 13 on, pay this % of the year-one payment. */
+  stepPct?: number | null;
 };
 
 export type CreateOrderInput = {
@@ -90,6 +111,8 @@ export type CreateOrderInput = {
   projectName?: string;
   /** Rent-to-own only; the monthly payment and buyout are derived from it. */
   rtoTermMonths?: number;
+  /** Flow only; the end date is the start plus the term. */
+  flow?: FlowOrderTerms;
   lines: DraftLine[];
 };
 
@@ -121,8 +144,10 @@ export async function createOrder(
   if (!input.clientId) {
     return { status: "error", message: "Choose a client for this order." };
   }
-  // Flow needs its term and pricing on the order, which this form doesn't collect yet.
-  if (input.type === "FLOW") {
+  const isFlow = input.type === "FLOW";
+  // Flow needs its term and pricing on the order, which this form doesn't collect
+  // yet. Task 8 lifts this; everything below already handles a Flow order.
+  if (isFlow) {
     return { status: "error", message: "Flow orders can't be built here yet." };
   }
   if (input.lines.length === 0) {
@@ -134,13 +159,20 @@ export async function createOrder(
 
   // Calendar days at noon UTC (lib/billing/calendar). `new Date("YYYY-MM-DD")`
   // stored UTC midnight, which every Pacific screen then showed a day early.
+  const flowTerm = isFlow ? Math.round(Number(input.flow?.termMonths) || 0) : 0;
+  if (isFlow && flowTerm <= 0) {
+    return { status: "error", message: "Choose the Flow term in months." };
+  }
   const start = parseDateInput(input.start);
   const requestedEnd = parseDateInput(input.end);
-  if (!start || (input.type !== "SALE" && !requestedEnd)) {
+  if (!start || (input.type !== "SALE" && !isFlow && !requestedEnd)) {
     return { status: "error", message: "Choose the order's dates." };
   }
-  // A sale has no term: it stores its order date as both.
-  const end = input.type === "SALE" ? start : requestedEnd!;
+  // A sale has no term: it stores its order date as both. A Flow order runs
+  // exactly its term, whatever end was sent.
+  const end = input.type === "SALE" ? start
+    : isFlow ? addTermMonths(start, flowTerm)
+    : requestedEnd!;
   if (input.type !== "SALE" && !(start < end)) {
     return {
       status: "error",
@@ -150,7 +182,7 @@ export async function createOrder(
 
   const overbooked = input.lines.filter((line) => line.overbooked);
 
-  const created = await createReservation({
+  const payload: Parameters<typeof createReservation>[0] = {
     clientId: input.clientId,
     reservationType: input.type,
     startDate: start,
@@ -158,6 +190,19 @@ export async function createOrder(
     projectName: input.projectName || undefined,
     ...(input.type === "RENT_TO_OWN" && input.rtoTermMonths
       ? { rtoTermMonths: input.rtoTermMonths }
+      : {}),
+    ...(isFlow && input.flow
+      ? {
+          flowTermMonths: flowTerm,
+          flowMarginPct: input.flow.marginPct,
+          flowFinancePct: input.flow.financePct,
+          flowPurchaseTaxPct: input.flow.purchaseTaxPct,
+          flowTaxExempt: input.flow.taxExempt,
+          flowRecoverByMonth: input.flow.recoverByMonth,
+          flowDeprPct: input.flow.deprPct,
+          flowLifeMonths: input.flow.lifeMonths,
+          flowStepPct: input.flow.stepPct ?? null,
+        }
       : {}),
     // Lines waved through as unavailable raise the flag v1 already has for
     // "somebody needs to look at this", and the note names them — ops should
@@ -175,8 +220,23 @@ export async function createOrder(
       quantity: line.quantity,
       rate: line.rate,
       pricingType: line.pricingType as PricingType,
+      ...(isFlow && line.costBasis != null ? { costBasis: line.costBasis } : {}),
     })),
-  });
+  };
+
+  let created: Awaited<ReturnType<typeof createReservation>>;
+  try {
+    created = await createReservation(payload);
+  } catch (error) {
+    // A Flow order is refused, and nothing written, when it can't be priced:
+    // gear whose landed cost is incomplete, or a schedule that isn't feasible.
+    // Those reasons are for the person building it, so hand them back.
+    if (!isFlow) throw error;
+    return {
+      status: "error",
+      message: error instanceof Error ? error.message : "This Flow order couldn't be priced. Nothing was saved.",
+    };
+  }
 
   const reservationId = created?.id;
   if (!reservationId) {
