@@ -152,6 +152,7 @@ async function RevenueCard() {
     ["Rentals", earned.byType.RENTAL],
     ["Sales", earned.byType.SALE],
     ["Rent to own", earned.byType.RENT_TO_OWN],
+    ["Flow", earned.byType.FLOW],
     ["Cloud", earned.byType.CLOUD],
   ];
 

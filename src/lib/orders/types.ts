@@ -26,6 +26,7 @@ export const TYPE_FILTERS = [
   "rental",
   "sale",
   "rent-to-own",
+  "flow",
   "cloud",
 ] as const;
 
@@ -38,6 +39,7 @@ const FILTER_TYPE: Record<Exclude<TypeFilter, "all">, ReservationType> = {
   rental: "RENTAL",
   sale: "SALE",
   "rent-to-own": "RENT_TO_OWN",
+  flow: "FLOW",
   cloud: "CLOUD",
 };
 
@@ -54,6 +56,7 @@ export const TYPE_FILTER_LABEL: Record<TypeFilter, string> = {
   rental: TYPE_LABEL.RENTAL,
   sale: TYPE_LABEL.SALE,
   "rent-to-own": TYPE_LABEL.RENT_TO_OWN,
+  flow: TYPE_LABEL.FLOW,
   cloud: TYPE_LABEL.CLOUD,
 };
 
@@ -62,5 +65,6 @@ export const ORDER_TYPES: ReservationType[] = [
   "RENTAL",
   "SALE",
   "RENT_TO_OWN",
+  "FLOW",
   "CLOUD",
 ];

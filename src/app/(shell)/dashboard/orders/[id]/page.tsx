@@ -86,7 +86,7 @@ function dateStamps(
   // A recurring order's stored end date is its first period's, and nothing
   // moves it: "Period ends Mar 31" on an order still out in September. The
   // period that matters is the one running now.
-  if (period && header.type !== "RENT_TO_OWN") {
+  if (period && header.type !== "RENT_TO_OWN" && header.type !== "FLOW") {
     return [
       { label: header.type === "CLOUD" ? "Started" : "Went out", value: start },
       {
@@ -100,6 +100,7 @@ function dateStamps(
     case "SALE":
       return [{ label: "Ordered", value: start }];
     case "RENT_TO_OWN":
+    case "FLOW":
       return [
         { label: "Starts", value: start },
         { label: "Ends", value: end },
@@ -506,6 +507,11 @@ function handover(
 
   if (header.type === "RENT_TO_OWN" || header.type === "CLOUD") {
     return `${outNow} of ${ordered} with the client, on a term — its end date is not a return`;
+  }
+
+  // Flow gear always comes back, but only when the subscription term ends.
+  if (header.type === "FLOW") {
+    return `${outNow} of ${ordered} with the client on a Flow term — due back when the term ends`;
   }
 
   if (header.isRecurring) {

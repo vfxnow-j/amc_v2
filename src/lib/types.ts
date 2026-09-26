@@ -25,7 +25,7 @@ export type ReservationStatus = 'DRAFT' | 'QUOTE_SENT' | 'APPROVED' | 'REVISION'
  */
 export const PACKAGE_EDITABLE_STATUSES: readonly string[] = ['DRAFT', 'QUOTE_SENT', 'REVISION', 'APPROVED']
 
-export type ReservationType = 'RENTAL' | 'SALE' | 'RENT_TO_OWN' | 'CLOUD'
+export type ReservationType = 'RENTAL' | 'SALE' | 'RENT_TO_OWN' | 'FLOW' | 'CLOUD'
 
 export type BillingCycleType = 'DAILY' | 'WEEKLY' | 'BI_WEEKLY' | 'MONTHLY' | 'CUSTOM' | 'ONE_TIME'
 
@@ -278,6 +278,7 @@ export const reservationTypeLabels: Record<ReservationType, string> = {
   RENTAL: 'Rental',
   SALE: 'Sale',
   RENT_TO_OWN: 'Rent-to-Own (RTO)',
+  FLOW: 'Flow',
   CLOUD: 'Cloud Services',
 }
 
@@ -285,6 +286,7 @@ export const reservationTypeDescriptions: Record<ReservationType, string> = {
   RENTAL: 'Equipment rental - items are returned after the rental period',
   SALE: 'Equipment sale - ownership transfers to client',
   RENT_TO_OWN: 'Equipment financing - fixed monthly payments toward ownership',
+  FLOW: 'Term hardware subscription — owned gear, returns at term end',
   CLOUD: 'Cloud services subscription',
 }
 

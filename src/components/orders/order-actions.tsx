@@ -839,12 +839,14 @@ const CYCLES: { value: BillingCycleType; label: string; detail: string }[] = [
 
 /**
  * The cycles each type may bill on (owner, 2026-09-16). A sale has no term and
- * bills once; a rent-to-own is financed monthly; rentals and cloud choose. The
+ * bills once; a rent-to-own is financed monthly, and so is a Flow subscription
+ * (its schedule is monthly); rentals and cloud choose. The
  * day is never chosen here — it is the business's, set in Settings → Business.
  */
 const CYCLES_FOR: Record<ReservationType, BillingCycleType[]> = {
   SALE: ["ONE_TIME"],
   RENT_TO_OWN: ["MONTHLY"],
+  FLOW: ["MONTHLY"],
   RENTAL: ["ONE_TIME", "MONTHLY", "WEEKLY"],
   CLOUD: ["ONE_TIME", "MONTHLY", "WEEKLY"],
 };
@@ -907,7 +909,9 @@ export function BillingTermsFields({
           {cycle?.detail}
           {type === "RENT_TO_OWN" && value.billingCycleType !== "MONTHLY"
             ? " · A rent-to-own is financed monthly; anything else will not match its installment schedule."
-            : ""}
+            : type === "FLOW" && value.billingCycleType !== "MONTHLY"
+              ? " · A Flow order bills monthly from its schedule; anything else will not match it."
+              : ""}
         </p>
       </div>
 
@@ -961,7 +965,8 @@ export function BillingTermsFields({
         />
       </div>
 
-      {recurring && type !== "RENT_TO_OWN" ? (
+      {/* Rent-to-own and Flow carry their own term; this one is for rentals and cloud. */}
+      {recurring && type !== "RENT_TO_OWN" && type !== "FLOW" ? (
         <div>
           <Label>Committed term, months</Label>
           <input
@@ -1014,6 +1019,8 @@ export function BillingTermsFields({
       <p className="rounded-well bg-sunken px-3 py-2 text-micro text-ink-muted">
         {value.notBilled
           ? "Nothing will be billed against this order."
+          : type === "FLOW"
+            ? "Flow — billed monthly from its schedule. Invoicing for Flow isn't wired yet."
           : recurring
             ? value.termMonths && type !== "RENT_TO_OWN"
               ? `Recurring — ${MONEY.format(total)} each cycle over a ${value.termMonths}-month deal; each cycle raises its own invoice.`

@@ -14,11 +14,15 @@
  * So the flag is derived, everywhere it is written:
  * - a sale never recurs: it has no term;
  * - a rent-to-own always does: it is financed in monthly installments;
+ * - a Flow order always does: it is a term subscription billed monthly from its
+ *   schedule, whatever cycle the column holds;
  * - a rental or cloud order recurs whenever it bills on a cycle — anything but
  *   one time. One time is the fixed term, billed once, with a real end date.
  */
 export function recurringFor(type: string, billingCycleType: string): boolean {
   if (type === "SALE") return false;
   if (type === "RENT_TO_OWN") return true;
+  // Flow bills monthly off its schedule for the whole term, like rent-to-own.
+  if (type === "FLOW") return true;
   return billingCycleType !== "ONE_TIME";
 }

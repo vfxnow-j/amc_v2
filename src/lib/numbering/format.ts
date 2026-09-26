@@ -11,7 +11,7 @@
  * The defaults are exactly the formats v1 and v2 have always generated, so
  * nothing changes until someone edits a pattern. A quote has no number of its
  * own — it is an order at quote stage and carries the order's number — so the
- * four order types are the quote numbers too.
+ * order types are the quote numbers too.
  *
  * Pure: the settings form previews numbers in the browser with the same code
  * the server uses to issue them.
@@ -21,6 +21,7 @@ export const NUMBER_KINDS = [
   "rental",
   "sale",
   "rentToOwn",
+  "flow",
   "cloud",
   "invoice",
   "purchaseOrder",
@@ -50,6 +51,7 @@ export const NUMBER_KIND_LABEL: Record<NumberKind, string> = {
   rental: "Rental orders & quotes",
   sale: "Sales & sale quotes",
   rentToOwn: "Rent-to-own orders & quotes",
+  flow: "Flow orders & quotes",
   cloud: "Cloud orders & quotes",
   invoice: "Invoices",
   purchaseOrder: "Purchase orders",
@@ -62,6 +64,8 @@ export const DEFAULT_NUMBERING: Record<NumberKind, NumberingRule> = {
   rental: { pattern: "RES-{YYYY}-{SEQ}", padding: 5, reset: "yearly", next: null },
   sale: { pattern: "SALE-{YYYY}-{SEQ}", padding: 5, reset: "yearly", next: null },
   rentToOwn: { pattern: "RTO-{YYYY}-{SEQ}", padding: 5, reset: "yearly", next: null },
+  // v1's FLW-2026-00001..3 arrive by the data pull; the next is one past the highest.
+  flow: { pattern: "FLW-{YYYY}-{SEQ}", padding: 5, reset: "yearly", next: null },
   cloud: { pattern: "CLD-{YYYY}-{SEQ}", padding: 5, reset: "yearly", next: null },
   invoice: { pattern: "INV-{YYYY}-{SEQ}", padding: 5, reset: "yearly", next: null },
   purchaseOrder: { pattern: "PO-{YYYY}-{SEQ}", padding: 5, reset: "yearly", next: null },

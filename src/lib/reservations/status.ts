@@ -24,6 +24,7 @@ export const TYPE_LABEL: Record<ReservationType, string> = {
   RENTAL: "Rental",
   SALE: "Sale",
   RENT_TO_OWN: "Rent to own",
+  FLOW: "Flow",
   CLOUD: "Cloud",
 };
 

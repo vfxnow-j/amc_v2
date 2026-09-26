@@ -67,6 +67,7 @@ const DATE_LABELS: Record<ReservationType, { legend: string; start: string; end:
   RENTAL: { legend: "Rental window", start: "Out", end: "Back" },
   SALE: { legend: "Order date", start: "Ordered", end: null },
   RENT_TO_OWN: { legend: "Agreement term", start: "Starts", end: "Ends" },
+  FLOW: { legend: "Subscription term", start: "Starts", end: "Ends" },
   CLOUD: { legend: "Billing period", start: "Starts", end: "Renews" },
 };
 
@@ -76,8 +77,15 @@ const TYPE_NOTE: Record<ReservationType, string> = {
   SALE: "Billed once. No term — just the order date, and the quote's expiry once it is sent.",
   RENT_TO_OWN:
     "Recurring monthly. The payment and buyout are worked out from the term and the order total, so they can't disagree with what it costs.",
+  FLOW: "Recurring monthly from its schedule, stepping down after each 12-month anniversary. The gear always comes back.",
   CLOUD: "Recurring per billing period. No physical units unless you add some.",
 };
+
+/**
+ * The types this builder can make. Flow is left out until its fields (term,
+ * pricing, lease funding) are on the form; an order made here would carry none of them.
+ */
+const BUILDER_TYPES = ORDER_TYPES.filter((type) => type !== "FLOW");
 
 /** Terms offered on a rent-to-own, matching what the existing agreements use. */
 const RTO_TERMS = [3, 6, 12, 24, 36];
@@ -469,7 +477,7 @@ export function OrderBuilder({
             aria-label="Order type"
             className="mb-2 grid grid-cols-2 gap-1"
           >
-            {ORDER_TYPES.map((option) => {
+            {BUILDER_TYPES.map((option) => {
               const selected = option === type;
               return (
                 <button

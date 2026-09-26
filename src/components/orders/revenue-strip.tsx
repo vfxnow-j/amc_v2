@@ -10,6 +10,7 @@ const FILTER_FOR: Record<string, string> = {
   RENTAL: "rental",
   SALE: "sale",
   RENT_TO_OWN: "rent-to-own",
+  FLOW: "flow",
   CLOUD: "cloud",
 };
 

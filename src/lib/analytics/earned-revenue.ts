@@ -16,7 +16,7 @@ import { addDays, addMonths } from 'date-fns'
  *    amount even if only one invoice was ever cut.
  *  - sales: completed SALE orders, recognized at completion.
  */
-export type ReservationTypeKey = 'RENTAL' | 'SALE' | 'RENT_TO_OWN' | 'CLOUD'
+export type ReservationTypeKey = 'RENTAL' | 'SALE' | 'RENT_TO_OWN' | 'FLOW' | 'CLOUD'
 
 export type EarnedRevenueBreakdown = {
   total: number
@@ -97,7 +97,7 @@ export async function getEarnedRevenue(from: Date, to: Date): Promise<EarnedReve
     }),
   ])
 
-  const byType: Record<ReservationTypeKey, number> = { RENTAL: 0, SALE: 0, RENT_TO_OWN: 0, CLOUD: 0 }
+  const byType: Record<ReservationTypeKey, number> = { RENTAL: 0, SALE: 0, RENT_TO_OWN: 0, FLOW: 0, CLOUD: 0 }
   const addType = (type: string | undefined | null, amount: number) => {
     const key = (type ?? 'RENTAL') as ReservationTypeKey
     byType[key] = (byType[key] ?? 0) + amount
@@ -147,6 +147,7 @@ export async function getEarnedRevenue(from: Date, to: Date): Promise<EarnedReve
       RENTAL: round(byType.RENTAL),
       SALE: round(byType.SALE),
       RENT_TO_OWN: round(byType.RENT_TO_OWN),
+      FLOW: round(byType.FLOW),
       CLOUD: round(byType.CLOUD),
     },
   }

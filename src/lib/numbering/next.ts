@@ -44,6 +44,7 @@ async function existing(kind: NumberKind, prefix: string, db: Db): Promise<strin
     case "rental":
     case "sale":
     case "rentToOwn":
+    case "flow":
     case "cloud":
       return (
         await db.reservation.findMany({
@@ -120,5 +121,13 @@ export async function nextNumber(kind: NumberKind, db: Db = prisma): Promise<str
 }
 
 export function kindForOrderType(type: string): NumberKind {
-  return type === "SALE" ? "sale" : type === "RENT_TO_OWN" ? "rentToOwn" : type === "CLOUD" ? "cloud" : "rental";
+  return type === "SALE"
+    ? "sale"
+    : type === "RENT_TO_OWN"
+      ? "rentToOwn"
+      : type === "FLOW"
+        ? "flow"
+        : type === "CLOUD"
+          ? "cloud"
+          : "rental";
 }

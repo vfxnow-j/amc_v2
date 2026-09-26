@@ -121,6 +121,10 @@ export async function createOrder(
   if (!input.clientId) {
     return { status: "error", message: "Choose a client for this order." };
   }
+  // Flow needs its term and pricing on the order, which this form doesn't collect yet.
+  if (input.type === "FLOW") {
+    return { status: "error", message: "Flow orders can't be built here yet." };
+  }
   if (input.lines.length === 0) {
     return {
       status: "error",
