@@ -177,6 +177,21 @@ export const CYCLE_ORDER_INCLUDE = {
   packages: ACTIVE_PACKAGE_SHIPPING,
 }
 
+/**
+ * An item that isn't scoped to a quote option, or belongs to the specific
+ * option named by `packageId`. Same shape as {@link isChosenOptionItem} /
+ * {@link scopeChosenItems}, but for pricing one named option (e.g. the one a
+ * client is looking at on the online quote) rather than whichever is active.
+ */
+export function isPackageOptionItem(item: { packageId: string | null }, packageId: string): boolean {
+  return item.packageId === null || item.packageId === packageId
+}
+
+/** Narrows an order's full item list to the ones {@link isPackageOptionItem} bills, for one option. */
+export function scopePackageItems<T extends { packageId: string | null }>(items: T[], packageId: string): T[] {
+  return items.filter((item) => isPackageOptionItem(item, packageId))
+}
+
 /** An item that isn't scoped to a quote option, or whose package is the chosen one. */
 export function isChosenOptionItem(item: {
   packageId: string | null

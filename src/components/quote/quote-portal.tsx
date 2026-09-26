@@ -50,6 +50,8 @@ export type QuotePackage = {
   discountAmount: number;
   taxAmount: number;
   total: number;
+  /** This option's own payment line — differs from another option's whenever their items/shipping do. */
+  paymentLine: { headline: string; notes: string[] } | null;
 };
 
 export type QuoteData = {
@@ -201,6 +203,10 @@ export function QuotePortal({
     deliveryCost: selected?.deliveryCost ?? quote.deliveryCost,
     returnCost: selected?.returnCost ?? quote.returnCost,
     total: selected?.total ?? quote.total,
+    // The selected option's own line when there are options to choose from,
+    // else the order's one line — never the active option's line while a
+    // client is looking at a different one.
+    paymentLine: hasPackages ? (selected?.paymentLine ?? null) : quote.paymentLine,
   };
 
   const expired =
@@ -255,10 +261,10 @@ export function QuotePortal({
 
       <Totals quote={quote} shown={shown} />
 
-      {quote.paymentLine ? (
+      {shown.paymentLine ? (
         <section className="rounded-2xl bg-white p-5 shadow-sm">
-          <p className="text-sm font-semibold">{quote.paymentLine.headline}</p>
-          {quote.paymentLine.notes.map((note) => (
+          <p className="text-sm font-semibold">{shown.paymentLine.headline}</p>
+          {shown.paymentLine.notes.map((note) => (
             <p key={note} className="mt-1 text-xs text-[#71717a]">{note}</p>
           ))}
         </section>

@@ -13,7 +13,7 @@ import {
   addDays, anchorAfter, billedPeriods, calendarDay, intendedDay, isAnchoredCycle, stretchLabel,
   type BillingAnchor,
 } from './calendar'
-import { cycleInvoice, type CycleLine, type CycleTerms } from './cycle-invoice'
+import { cycleInvoice, cycleTermsForOrder, scopePackageItems, toCycleLine, type CycleLine, type CycleTerms } from './cycle-invoice'
 import { roundMoney } from '@/lib/pricing/periods'
 
 export type ScheduleRow = { start: Date; end: Date; share: number; total: number }
@@ -115,4 +115,58 @@ export function paymentLine(s: PaymentSchedule): PaymentLine {
   if (s.first) notes.push(`First invoice (${stretchLabel(s.first.start, s.first.end)}): ${usd(s.first.total)}`)
   if (s.final) notes.push(`Final invoice (${stretchLabel(s.final.start, s.final.end)}): ${usd(s.final.total)}`)
   return { headline, notes }
+}
+
+/** Everything {@link paymentLineForOption} needs off the order itself. */
+export type PaymentScheduleOrder = {
+  reservationType: string
+  isRecurring: boolean
+  billingCycleType: string
+  startDate: Date
+  termMonths: number | null
+  discountType: string | null
+  discountValue: unknown
+  taxRate: unknown
+  deliveryCost: unknown
+  returnCost: unknown
+  shippingMarginType?: string | null
+  shippingMargin?: unknown
+}
+
+type PaymentScheduleItem = Parameters<typeof toCycleLine>[0] & { packageId: string | null }
+type PaymentSchedulePackage = { id: string; isActive: boolean; deliveryCost: unknown; returnCost: unknown }
+
+/**
+ * Prices one quote option from an order (plus its full items/packages)
+ * already in hand — no query, so a caller that already loaded the order for
+ * other reasons (the online quote) can price every option in memory instead
+ * of one query per package. With no `packageId`, prices whichever package is
+ * active (or the order's own items/shipping when it has no packages) — the
+ * same scope `CHOSEN_OPTION_ITEMS` gives the billing run and the signed quote
+ * PDF, so that path is unchanged. Pure — no prisma, no next — prices through
+ * the same `cycleTermsForOrder` / `toCycleLine` as the billing run and the
+ * manual first invoice, so this is always the figure the client is actually
+ * invoiced for that option.
+ */
+export function paymentLineForOption(
+  order: PaymentScheduleOrder,
+  items: PaymentScheduleItem[],
+  packages: PaymentSchedulePackage[],
+  anchor: BillingAnchor,
+  packageId?: string,
+): PaymentLine | null {
+  const optionId = packageId ?? packages.find((p) => p.isActive)?.id
+  const scopedItems = optionId ? scopePackageItems(items, optionId) : items
+  const scopedPackages = optionId ? packages.filter((p) => p.id === optionId) : []
+  const schedule = paymentSchedule({
+    type: order.reservationType,
+    isRecurring: order.isRecurring,
+    cycle: order.billingCycleType,
+    start: order.startDate,
+    termMonths: order.termMonths,
+    anchor,
+    lines: scopedItems.map(toCycleLine),
+    terms: cycleTermsForOrder({ ...order, packages: scopedPackages }),
+  })
+  return schedule ? paymentLine(schedule) : null
 }

@@ -10,7 +10,8 @@ import { computeReservationFinancials, deriveItemAmount } from '@/lib/pricing/fi
 import crypto from 'crypto'
 import { portalQuoteHold, quoteGate } from '@/lib/approvals/core'
 import { lineTitle } from '@/lib/quotes/line-title'
-import { paymentLineForOrder } from '@/lib/billing/order-payment-schedule'
+import { paymentLineForOption } from '@/lib/billing/payment-schedule'
+import { getBillingAnchor } from '@/lib/settings/business'
 
 const TOKEN_EXPIRY_DAYS = 30
 
@@ -294,6 +295,10 @@ async function buildQuote(
   const marginType = (reservation as any).shippingMarginType || null
   const marginVal = Number((reservation as any).shippingMargin) || 0
 
+  // Priced once here from the reservation already in hand (items + packages),
+  // rather than one query per option — see paymentLineForOption.
+  const billingAnchor = await getBillingAnchor()
+
   const packages = reservation.packages.map((pkg) => {
     const itemsSubtotal = pkg.items.reduce((sum, i) => sum + deriveItemAmount(i, reservation), 0)
     const pkgDeliveryRaw = Number(pkg.deliveryCost) || 0
@@ -313,6 +318,7 @@ async function buildQuote(
       discountAmount: pkgTotals.discountAmount,
       taxAmount: pkgTotals.taxAmount,
       total: pkgTotals.total,
+      paymentLine: paymentLineForOption(reservation, reservation.items, reservation.packages, billingAnchor, pkg.id),
     }
   })
 
@@ -373,7 +379,10 @@ async function buildQuote(
     rtoBuyoutPrice: reservation.rtoBuyoutPrice ? Number(reservation.rtoBuyoutPrice) : null,
     // Multi-package data
     packages: packages.length > 1 ? packages : undefined,
-    paymentLine: await paymentLineForOrder(reservation.id),
+    // The active option's line, for a client viewing a quote with no options to
+    // switch between (or before they've picked one) — quote-portal.tsx renders
+    // whichever option is selected out of packages[] instead, once there's more than one.
+    paymentLine: paymentLineForOption(reservation, reservation.items, reservation.packages, billingAnchor),
   })
 }
 

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { cycleInvoice, cycleTermsFor, cycleTermsForOrder, type CycleLine, type CycleTerms } from './cycle-invoice'
+import { cycleInvoice, cycleTermsFor, cycleTermsForOrder, scopePackageItems, type CycleLine, type CycleTerms } from './cycle-invoice'
 
 const line = (over: Partial<CycleLine> = {}): CycleLine => ({
   description: 'Lenovo P620', assetId: 'a1', rate: 1000, quantity: 1, pricingType: 'MONTHLY',
@@ -93,6 +93,16 @@ test('cycleTermsForOrder: falls back to the order\'s own costs with no active pa
   const t = cycleTermsForOrder(order())
   assert.equal(t.deliveryCost, 50)
   assert.equal(t.returnCost, 25)
+})
+
+test('scopePackageItems: an item with no package is always in scope', () => {
+  const items = [{ id: '1', packageId: null }, { id: '2', packageId: 'pkg-a' }, { id: '3', packageId: 'pkg-b' }]
+  assert.deepEqual(scopePackageItems(items, 'pkg-a').map((i) => i.id), ['1', '2'])
+})
+
+test('scopePackageItems: an item scoped to a different option is out of scope', () => {
+  const items = [{ id: '1', packageId: 'pkg-a' }, { id: '2', packageId: 'pkg-b' }]
+  assert.deepEqual(scopePackageItems(items, 'pkg-b').map((i) => i.id), ['2'])
 })
 
 test('cycleTermsForOrder: the shipping margin still applies on top of the package override', () => {

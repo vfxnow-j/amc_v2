@@ -63,7 +63,36 @@ async function main() {
   }
 }
 
+/**
+ * Read-only check for the review fix: an order with several quote options
+ * (packages) prices a *different* payment line per option, not just the
+ * active one — reproducing what quote-portal.tsx now shows when a client
+ * switches between them.
+ */
+async function printPerPackage(reservationId: string) {
+  const order = await prisma.reservation.findUnique({
+    where: { id: reservationId },
+    select: {
+      reservationNumber: true,
+      packages: { select: { id: true, name: true, isActive: true }, orderBy: { sortOrder: "asc" } },
+    },
+  });
+  if (!order) {
+    console.log(`\n(no reservation ${reservationId})`);
+    return;
+  }
+  console.log(`\n${order.reservationNumber} [${reservationId}] — ${order.packages.length} options`);
+  for (const pkg of order.packages) {
+    const line = await paymentLineForOrder(reservationId, pkg.id);
+    console.log(`  ${pkg.name}${pkg.isActive ? " (active)" : ""}:`);
+    console.log(`    ${line ? line.headline : "<no payment line>"}`);
+    for (const note of line?.notes ?? []) console.log(`    ${note}`);
+  }
+}
+
 main()
+  .then(() => printPerPackage("cmml59ahz000q01pjtidrnp59"))
+  .then(() => printPerPackage("cmtui6u3h00ej01o0nqhovu02"))
   .catch((err) => {
     console.error(err);
     process.exitCode = 1;

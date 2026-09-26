@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { calendarDay } from './calendar'
-import { paymentLine, paymentSchedule, termEnd } from './payment-schedule'
+import { paymentLine, paymentLineForOption, paymentSchedule, termEnd } from './payment-schedule'
 import type { CycleLine, CycleTerms } from './cycle-invoice'
 
 const anchor = { monthly: 1 as const, weekly: 1 }
@@ -66,4 +66,68 @@ test('no payment line for one-time, sale, rent-to-own or non-anchored cycles', (
   assert.equal(paymentSchedule({ ...base, type: 'RENT_TO_OWN', start: calendarDay(2026, 9, 1), termMonths: 12, terms: terms() }), null)
   assert.equal(paymentSchedule({ ...base, cycle: 'DAILY', start: calendarDay(2026, 9, 1), termMonths: 1, terms: terms() }), null)
   assert.equal(paymentSchedule({ ...base, isRecurring: false, start: calendarDay(2026, 9, 1), termMonths: 6, terms: terms() }), null)
+})
+
+// paymentLineForOption — the online quote prices each option in memory from an
+// order it already loaded, rather than one query per package.
+const orderRow = {
+  reservationType: 'RENTAL', isRecurring: true, billingCycleType: 'MONTHLY',
+  startDate: calendarDay(2026, 9, 1), termMonths: null,
+  discountType: null, discountValue: 0, taxRate: 10, deliveryCost: 0, returnCost: 0,
+}
+const optionItem = (over: Record<string, unknown> = {}) => ({
+  description: 'Lenovo P620', assetId: 'a1', rate: 1000, quantity: 1, pricingType: 'MONTHLY',
+  isOneTime: false, includedInParent: false, packageId: null as string | null, ...over,
+})
+
+test('paymentLineForOption: no packageId prices whichever package is active', () => {
+  const items = [optionItem({ packageId: 'a', rate: 1000 }), optionItem({ packageId: 'b', rate: 2000 })]
+  const packages = [
+    { id: 'a', isActive: true, deliveryCost: 0, returnCost: 0 },
+    { id: 'b', isActive: false, deliveryCost: 0, returnCost: 0 },
+  ]
+  assert.match(paymentLineForOption(orderRow, items, packages, anchor)!.headline, /^Monthly payment: \$1,000\.00/)
+})
+
+test('paymentLineForOption: a packageId prices that option instead of the active one', () => {
+  const items = [optionItem({ packageId: 'a', rate: 1000 }), optionItem({ packageId: 'b', rate: 2000 })]
+  const packages = [
+    { id: 'a', isActive: true, deliveryCost: 0, returnCost: 0 },
+    { id: 'b', isActive: false, deliveryCost: 0, returnCost: 0 },
+  ]
+  assert.match(paymentLineForOption(orderRow, items, packages, anchor, 'b')!.headline, /^Monthly payment: \$2,000\.00/)
+})
+
+test('paymentLineForOption: an item with no package bills under every option', () => {
+  const items = [optionItem({ packageId: null, rate: 500 }), optionItem({ packageId: 'a', rate: 1000 }), optionItem({ packageId: 'b', rate: 2000 })]
+  const packages = [
+    { id: 'a', isActive: true, deliveryCost: 0, returnCost: 0 },
+    { id: 'b', isActive: false, deliveryCost: 0, returnCost: 0 },
+  ]
+  assert.match(paymentLineForOption(orderRow, items, packages, anchor, 'a')!.headline, /^Monthly payment: \$1,500\.00/)
+  assert.match(paymentLineForOption(orderRow, items, packages, anchor, 'b')!.headline, /^Monthly payment: \$2,500\.00/)
+})
+
+test("paymentLineForOption: a package's own delivery/return cost is used for that option, not another's", () => {
+  const items = [optionItem({ packageId: 'a' }), optionItem({ packageId: 'b' })]
+  const packages = [
+    { id: 'a', isActive: true, deliveryCost: 100, returnCost: 50 },
+    { id: 'b', isActive: false, deliveryCost: 0, returnCost: 0 },
+  ]
+  // Delivery/return only ride on a differing first invoice, so a term short
+  // enough that the whole thing is the "first" stretch shows the difference.
+  const withTerm = { ...orderRow, termMonths: 1 }
+  const a = paymentLineForOption(withTerm, items, packages, anchor, 'a')!
+  const b = paymentLineForOption(withTerm, items, packages, anchor, 'b')!
+  assert.notEqual(a.headline, b.headline)
+})
+
+test('paymentLineForOption: no packages at all prices the order\'s own items and shipping', () => {
+  const line = paymentLineForOption(orderRow, [optionItem({ packageId: null })], [], anchor)!
+  assert.match(line.headline, /^Monthly payment: \$1,000\.00/)
+})
+
+test('paymentLineForOption: a sale has no payment line, whichever option is asked for', () => {
+  const saleOrder = { ...orderRow, reservationType: 'SALE' }
+  assert.equal(paymentLineForOption(saleOrder, [optionItem()], [], anchor), null)
 })
