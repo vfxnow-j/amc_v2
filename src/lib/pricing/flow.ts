@@ -433,7 +433,14 @@ export function resolveFunding(
       .map((l) => ({ balance: num(l.balance), aprPct: num(l.aprPct), noteMonths: Math.round(num(l.monthsLeft)), label: (l as FlowLoan).label }))
       .filter((l) => l.balance > 0)
     financed = loans.reduce((s, l) => s + l.balance, 0)
-    aprPct = financed > 0 ? loans.reduce((s, l) => s + l.aprPct * l.balance, 0) / financed : 0
+    // v2: with exactly one loan the "weighted average" must stay its own rate,
+    // bit for bit — a balance-weighted average of one term can drift off the
+    // input in floating point (e.g. 17.3 * 0.95 / 17.3 !== 0.95).
+    aprPct = loans.length === 1
+      ? loans[0].aprPct
+      : financed > 0
+        ? loans.reduce((s, l) => s + l.aprPct * l.balance, 0) / financed
+        : 0
     noteMonths = loans.reduce((m, l) => Math.max(m, l.noteMonths), 0)
   } else if (P.mode === 'new' && F.mode !== 'cash') {
     aprPct = F.aprPct == null ? DEFAULT_APR[F.mode] : num(F.aprPct)
@@ -718,6 +725,13 @@ export type FlowEarlyReturn = {
  * that comes back, less what is still owed — so the two compare honestly. Comparing
  * an early exit against full-term profit would ignore the returned hardware and make
  * every exit look like a windfall.
+ *
+ * TODO(multi-loan): this prices a single note from `resolveFunding`'s summary
+ * figures (total financed, balance-weighted apr, longest term), while
+ * `q.cash.netPosition` costs each loan separately and sums them. That makes this
+ * function exact only when the order carries one loan; it has no callers yet, and
+ * it needs a per-loan pass — pricing each loan's own payoff at `at` and summing —
+ * before any screen uses it for a multi-lease order.
  */
 export function earlyReturn(
   q: FlowQuote,

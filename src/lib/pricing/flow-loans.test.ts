@@ -49,3 +49,21 @@ test('an empty loan list is owned stock', () => {
   const empty = quote({ ...base, procurement: { mode: 'stock_financed', loans: [] } })
   assert.equal(empty.economics.financeActual, owned.economics.financeActual)
 })
+
+test('a single loan keeps its own rate exactly, not a balance-weighted approximation', () => {
+  const one = { balance: 17.3, aprPct: 0.95, monthsLeft: 12 }
+  const single = quote({ ...base, procurement: { mode: 'stock_financed', loan: one } })
+  const listed = quote({ ...base, procurement: { mode: 'stock_financed', loans: [one] } })
+  assert.equal(listed.tail.aprPct, 0.95)
+  assert.deepEqual(listed.tail, single.tail)
+})
+
+test('a single loan with zero balance is owned stock: no note', () => {
+  const zero = { balance: 0, aprPct: 7, monthsLeft: 24 }
+  const owned = quote({ ...base, procurement: { mode: 'stock_owned' } })
+  const financed = quote({ ...base, procurement: { mode: 'stock_financed', loans: [zero] } })
+  assert.equal(financed.tail.noteMonths, 0)
+  assert.equal(financed.cash.notePayment, 0)
+  assert.deepEqual(financed.economics, owned.economics)
+  assert.deepEqual(financed.cash, owned.cash)
+})
