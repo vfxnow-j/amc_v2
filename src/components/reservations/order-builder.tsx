@@ -24,11 +24,30 @@ import {
   toDateInput,
 } from "@/lib/billing/calendar";
 import { PackagePicks, usePackageSearch } from "@/components/packages/package-picks";
+import {
+  getFlowBasesForAssets,
+  getFlowDefaults,
+  type FlowAssetBasis,
+} from "@/lib/actions/flow-settings";
+import { previewFlowDraftEconomics } from "@/lib/actions/flow-preview";
+import type { FlowDraftEconomics } from "@/lib/flow/draft-economics";
+import { applyFlowDefaults, type FlowPricingDefaults } from "@/lib/flow/defaults";
+import { addTermMonths } from "@/lib/flow/stored-money";
+import {
+  flowConfigFromSettings,
+  priceFlowLines,
+  type FlowPricedLines,
+} from "@/lib/pricing/flow-lines";
 
 const MONEY = new Intl.NumberFormat("en-US", {
   style: "currency",
   currency: "USD",
   maximumFractionDigits: 0,
+});
+/** Flow's figures are stored to the cent, so the preview shows cents. */
+const CENTS = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
 });
 // Read in UTC: the builder's dates are calendar days (lib/billing/calendar), and
 // formatting `new Date("2026-09-25")` in a Pacific browser printed Sep 24.
@@ -38,10 +57,17 @@ const DAY = new Intl.DateTimeFormat("en-US", {
   timeZone: "UTC",
 });
 
-/** A `YYYY-MM-DD` value as "Sep 25". */
-function dayLabel(value: string) {
+const DAY_YEAR = new Intl.DateTimeFormat("en-US", {
+  month: "short",
+  day: "numeric",
+  year: "numeric",
+  timeZone: "UTC",
+});
+
+/** A `YYYY-MM-DD` value as "Sep 25", or "Sep 25, 2028" when asked for the year. */
+function dayLabel(value: string, withYear = false) {
   const date = parseDateInput(value);
-  return date ? DAY.format(date) : value;
+  return date ? (withYear ? DAY_YEAR : DAY).format(date) : value;
 }
 
 const FIELD =
@@ -67,7 +93,7 @@ const DATE_LABELS: Record<ReservationType, { legend: string; start: string; end:
   RENTAL: { legend: "Rental window", start: "Out", end: "Back" },
   SALE: { legend: "Order date", start: "Ordered", end: null },
   RENT_TO_OWN: { legend: "Agreement term", start: "Starts", end: "Ends" },
-  FLOW: { legend: "Subscription term", start: "Starts", end: "Ends" },
+  FLOW: { legend: "Subscription start / end", start: "Starts", end: "Ends" },
   CLOUD: { legend: "Billing period", start: "Starts", end: "Renews" },
 };
 
@@ -81,14 +107,63 @@ const TYPE_NOTE: Record<ReservationType, string> = {
   CLOUD: "Recurring per billing period. No physical units unless you add some.",
 };
 
-/**
- * The types this builder can make. Flow is left out until its fields (term,
- * pricing, lease funding) are on the form; an order made here would carry none of them.
- */
-const BUILDER_TYPES = ORDER_TYPES.filter((type) => type !== "FLOW");
+/** The types this builder can make: all of them. */
+const BUILDER_TYPES = ORDER_TYPES;
 
 /** Terms offered on a rent-to-own, matching what the existing agreements use. */
 const RTO_TERMS = [3, 6, 12, 24, 36];
+
+/** Flow terms, as v1 offers them. The default, 24, is submitted, not just shown. */
+const FLOW_TERMS = [12, 24, 36, 48, 60];
+const FLOW_DEFAULT_TERM = 24;
+
+type FlowKnob =
+  | "marginPct"
+  | "financePct"
+  | "purchaseTaxPct"
+  | "recoverByMonth"
+  | "deprPct"
+  | "lifeMonths"
+  | "stepPct";
+
+/**
+ * The pricing assumptions a Flow order carries, with the ranges the server and
+ * v1's form accept. The step has no house default: blank means the schedule is
+ * shaped by the recover-by month instead.
+ */
+const FLOW_KNOBS: {
+  key: FlowKnob;
+  label: string;
+  min: number;
+  max: number;
+  whole?: boolean;
+}[] = [
+  { key: "marginPct", label: "Margin %", min: 0, max: 500 },
+  { key: "financePct", label: "Finance %", min: 0, max: 100 },
+  { key: "purchaseTaxPct", label: "Purchase tax %", min: 0, max: 100 },
+  { key: "recoverByMonth", label: "Recover by month", min: 1, max: 12, whole: true },
+  { key: "deprPct", label: "Depreciation %/yr", min: 0, max: 100 },
+  { key: "lifeMonths", label: "Life (months)", min: 1, max: 240, whole: true },
+  { key: "stepPct", label: "Step % from month 13", min: 1, max: 100 },
+];
+
+type FlowKnobText = Record<FlowKnob, string>;
+const BLANK_KNOBS: FlowKnobText = {
+  marginPct: "",
+  financePct: "",
+  purchaseTaxPct: "",
+  recoverByMonth: "",
+  deprPct: "",
+  lifeMonths: "",
+  stepPct: "",
+};
+
+/** A typed number, or undefined when the field is blank or not a number. */
+function typedNumber(text: string | undefined): number | undefined {
+  if (text == null || text.trim() === "") return undefined;
+  const n = Number(text);
+  return Number.isFinite(n) ? n : undefined;
+}
 
 type Client = { id: string; name: string; companyName: string | null };
 
@@ -96,6 +171,8 @@ type Line = DraftLine & {
   /** Units free across the whole window when the line was added or last checked. */
   free: number;
   freeFrom: string | null;
+  /** Flow only: the basis as typed. Blank prices off the asset's landed cost. */
+  basisText?: string;
 };
 
 /** A stored day, or a date from the server, as a date input value. */
@@ -137,8 +214,29 @@ export function OrderBuilder({
   const [projectName, setProjectName] = useState("");
   const [type, setType] = useState<ReservationType>("RENTAL");
   const [rtoTerm, setRtoTerm] = useState(24);
-  // A sale has no term, so its window is the one day it is ordered.
-  const end = type === "SALE" ? start : rangeEnd;
+  const isFlow = type === "FLOW";
+  // Flow: the term is real state from the start, so an untouched form submits 24
+  // months rather than nothing (v1 a33476a/c35a1f6).
+  const [flowTerm, setFlowTerm] = useState(FLOW_DEFAULT_TERM);
+  const [flowKnobs, setFlowKnobs] = useState<FlowKnobText>(BLANK_KNOBS);
+  const [flowTaxExempt, setFlowTaxExempt] = useState<boolean | null>(null);
+  const [flowDefaults, setFlowDefaults] = useState<FlowPricingDefaults | null>(null);
+  const [flowDefaultsError, setFlowDefaultsError] = useState("");
+  const [flowBases, setFlowBases] = useState<Record<string, FlowAssetBasis>>({});
+  const [flowBasesError, setFlowBasesError] = useState("");
+  const [flowEconomics, setFlowEconomics] = useState<{
+    key: string;
+    value: FlowDraftEconomics | null;
+  } | null>(null);
+  const basesAsked = useRef(new Set<string>());
+  const economicsTicket = useRef(0);
+  // A sale has no term, so its window is the one day it is ordered. A Flow
+  // order runs exactly its term, so its end follows from the start.
+  const flowEnd = (() => {
+    const day = parseDateInput(start);
+    return day ? toDateInput(addTermMonths(day, flowTerm)) : start;
+  })();
+  const end = type === "SALE" ? start : isFlow ? flowEnd : rangeEnd;
 
   const [client, setClient] = useState<Client | null>(initialClient);
   const [clientQuery, setClientQuery] = useState("");
@@ -212,6 +310,180 @@ export function OrderBuilder({
     setSubs((current) => ({ ...current, [line.assetId]: found }));
   }
 
+  /**
+   * Choosing Flow the first time seeds the pricing assumptions from the house
+   * defaults (Settings). They are real values in the fields, so what is shown is
+   * what is sent; a field the person clears goes as blank, and the server fills
+   * a blank from the same defaults.
+   */
+  function chooseType(option: ReservationType) {
+    setType(option);
+    if (option !== "FLOW" || flowDefaults) return;
+    setFlowDefaultsError("");
+    getFlowDefaults()
+      .then((d) => {
+        setFlowDefaults(d);
+        setFlowKnobs((current) => {
+          const seeded: FlowKnobText = { ...current };
+          const from: Partial<Record<FlowKnob, number>> = {
+            marginPct: d.marginPct,
+            financePct: d.financePct,
+            purchaseTaxPct: d.purchaseTaxPct,
+            recoverByMonth: d.recoverByMonth,
+            deprPct: d.deprPct,
+            lifeMonths: d.lifeMonths,
+          };
+          for (const [key, value] of Object.entries(from) as [FlowKnob, number][]) {
+            if (seeded[key] === "") seeded[key] = String(value);
+          }
+          return seeded;
+        });
+        setFlowTaxExempt((current) => current ?? d.taxExempt);
+      })
+      .catch(() => setFlowDefaultsError("The Flow pricing defaults couldn't be loaded."));
+  }
+
+  // Flow prices each line off its asset's landed cost, resolved on the server
+  // once per asset — the same resolveFlowBasis the order is stored with.
+  const missingBases = isFlow
+    ? [...new Set(lines.map((l) => l.assetId))].filter((id) => !(id in flowBases)).join(",")
+    : "";
+  useEffect(() => {
+    if (!missingBases) return;
+    const ids = missingBases.split(",").filter((id) => !basesAsked.current.has(id));
+    if (ids.length === 0) return;
+    ids.forEach((id) => basesAsked.current.add(id));
+    getFlowBasesForAssets(ids)
+      .then((found) => setFlowBases((current) => ({ ...current, ...found })))
+      .catch(() => {
+        ids.forEach((id) => basesAsked.current.delete(id));
+        setFlowBasesError("The landed cost of the new line couldn't be loaded.");
+      });
+  }, [missingBases]);
+
+  // The knobs as sent: a blank field goes as undefined for the server to fill.
+  const knobValues = {
+    marginPct: typedNumber(flowKnobs.marginPct),
+    financePct: typedNumber(flowKnobs.financePct),
+    purchaseTaxPct: typedNumber(flowKnobs.purchaseTaxPct),
+    taxExempt: flowTaxExempt ?? undefined,
+    recoverByMonth: typedNumber(flowKnobs.recoverByMonth),
+    deprPct: typedNumber(flowKnobs.deprPct),
+    lifeMonths: typedNumber(flowKnobs.lifeMonths),
+    stepPct:
+      typedNumber(flowKnobs.stepPct) == null
+        ? null
+        : Math.round(typedNumber(flowKnobs.stepPct)! * 100) / 100,
+  };
+  const knobProblem = FLOW_KNOBS.map(({ key, label, min, max, whole }) => {
+    const text = flowKnobs[key];
+    if (text.trim() === "") return null;
+    const n = typedNumber(text);
+    if (n == null || n < min || n > max || (whole && !Number.isInteger(n))) {
+      return `${label} must be ${whole ? "a whole number " : ""}between ${min} and ${max}.`;
+    }
+    return null;
+  }).find(Boolean);
+
+  /** A Flow line's basis as sent: the typed figure, to the cent, or undefined. */
+  function typedBasis(line: Line): number | undefined {
+    const n = typedNumber(line.basisText);
+    return n == null || n < 0 ? undefined : Math.round(n * 100) / 100;
+  }
+
+  // The client price, live, through the same pure call the server stores with.
+  // Blank knobs are filled from the defaults exactly as createReservation fills
+  // them, so the preview is the order that will be saved.
+  const flowConfig =
+    isFlow && flowDefaults
+      ? flowConfigFromSettings(
+          applyFlowDefaults(
+            {
+              flowTermMonths: flowTerm,
+              flowMarginPct: knobValues.marginPct ?? null,
+              flowFinancePct: knobValues.financePct ?? null,
+              flowPurchaseTaxPct: knobValues.purchaseTaxPct ?? null,
+              flowTaxExempt: knobValues.taxExempt ?? null,
+              flowRecoverByMonth: knobValues.recoverByMonth ?? null,
+              flowDeprPct: knobValues.deprPct ?? null,
+              flowLifeMonths: knobValues.lifeMonths ?? null,
+              flowStepPct: knobValues.stepPct,
+              flowPeriodsBilled: 0,
+            },
+            flowDefaults,
+          ),
+        )
+      : null;
+  const flowPriced =
+    flowConfig && lines.length > 0
+      ? priceFlowLines(
+          lines.map((line) => {
+            const trueCost = flowBases[line.assetId]?.basis ?? null;
+            const typed = typedBasis(line);
+            return {
+              name: line.name,
+              // The server floors the basis at true cost; priceFlowLines does too.
+              costBasis: typed ?? trueCost,
+              trueCost,
+              quantity: line.quantity,
+            };
+          }),
+          flowConfig,
+        )
+      : null;
+
+  const basesLoading = lines.some((l) => !(l.assetId in flowBases));
+  const incompleteLines = lines.filter((l) => {
+    const b = flowBases[l.assetId];
+    return b && (b.incomplete || !(b.basis > 0));
+  });
+  const flowProblem: string | null = !isFlow
+    ? null
+    : flowDefaultsError ||
+      (!flowDefaults
+        ? "Loading the Flow pricing defaults…"
+        : flowBasesError ||
+          (basesLoading
+            ? "Loading the landed cost of the gear…"
+            : incompleteLines.length > 0
+              ? `${incompleteLines.map((l) => l.name).join(", ")}: the landed cost is incomplete (some units carry no purchase price), so ${
+                  incompleteLines.length === 1 ? "it" : "they"
+                } can't be priced as Flow. Fix the unit costs first.`
+              : knobProblem ||
+                (lines.length > 0 && flowPriced && !flowPriced.ok ? flowPriced.problem : null)));
+
+  // The internal strip — hardware cost, lease balance, net cash, profit — needs
+  // unit costs and lease balances, so it comes from the server, on the same draft.
+  const economicsRequest =
+    isFlow && flowPriced?.ok && !flowProblem
+      ? {
+          termMonths: flowTerm,
+          knobs: knobValues,
+          lines: lines.map((line) => ({
+            assetId: line.assetId,
+            quantity: line.quantity,
+            costBasis: typedBasis(line) ?? null,
+          })),
+        }
+      : null;
+  const economicsKey = economicsRequest ? JSON.stringify(economicsRequest) : "";
+  useEffect(() => {
+    if (!economicsKey) return;
+    const ticket = ++economicsTicket.current;
+    const timer = setTimeout(() => {
+      previewFlowDraftEconomics(JSON.parse(economicsKey))
+        .then((value) => {
+          if (ticket === economicsTicket.current) setFlowEconomics({ key: economicsKey, value });
+        })
+        .catch(() => {
+          if (ticket === economicsTicket.current) setFlowEconomics({ key: economicsKey, value: null });
+        });
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [economicsKey]);
+  const economics =
+    flowEconomics && flowEconomics.key === economicsKey ? flowEconomics : null;
+
   function submit() {
     setError("");
     startTransition(async () => {
@@ -222,10 +494,14 @@ export function OrderBuilder({
         end,
         projectName,
         ...(type === "RENT_TO_OWN" ? { rtoTermMonths: rtoTerm } : {}),
-        lines: lines.map(({ free, freeFrom, ...line }) => {
+        ...(isFlow ? { flow: { termMonths: flowTerm, ...knobValues } } : {}),
+        lines: lines.map((full) => {
+          const { free, freeFrom, basisText, ...line } = full;
           void free;
           void freeFrom;
-          return line;
+          void basisText;
+          // Flow: the typed basis, or blank for the server to price off landed cost.
+          return isFlow ? { ...line, costBasis: typedBasis(full) } : line;
         }),
       });
       if (result.status === "error") setError(result.message);
@@ -242,8 +518,13 @@ export function OrderBuilder({
         <header className="flex items-center gap-2 px-4 pb-3">
           <h2 className="text-card-title">Equipment</h2>
           <span className="text-detail text-ink-muted">
-            Availability is checked across {dayLabel(start)}
-            {end === start ? "" : ` – ${dayLabel(end)}`}
+            {/* A window that crosses a year (a Flow term, a long rental) names
+                the years, or two years read as "Sep 26 – Sep 26". */}
+            Availability is checked across{" "}
+            {dayLabel(start, start.slice(0, 4) !== end.slice(0, 4))}
+            {end === start
+              ? ""
+              : ` – ${dayLabel(end, start.slice(0, 4) !== end.slice(0, 4))}`}
           </span>
         </header>
 
@@ -305,8 +586,9 @@ export function OrderBuilder({
                     >
                       {asset.free} of {asset.fleet} free
                     </span>
+                    {/* Flow never prices off the catalog rate. */}
                     <span className="text-right tabular-nums">
-                      {MONEY.format(asset.rate)}
+                      {isFlow ? "" : MONEY.format(asset.rate)}
                     </span>
                   </button>
                 </li>
@@ -327,7 +609,13 @@ export function OrderBuilder({
             const substitutes = subs[line.assetId] ?? [];
             return (
               <li key={`${line.assetId}-${index}`} className="rounded-bubble bg-row-alt p-2">
-                <div className="grid grid-cols-[1fr_64px_88px_88px_28px] items-center gap-2 px-1">
+                <div
+                  className={`grid items-center gap-2 px-1 ${
+                    isFlow
+                      ? "grid-cols-[1fr_64px_104px_96px_28px]"
+                      : "grid-cols-[1fr_64px_88px_88px_28px]"
+                  }`}
+                >
                   <span className="truncate font-bold">{line.name}</span>
                   <input
                     type="number"
@@ -343,14 +631,33 @@ export function OrderBuilder({
                     }
                     className="h-7 rounded-row border-0 bg-panel px-2 text-right text-detail tabular-nums outline-none"
                   />
-                  <span className="text-right text-detail tabular-nums text-ink-muted">
-                    {MONEY.format(line.rate)}
-                    <span className="text-ink-faint">
-                      /{line.pricingType.toLowerCase().slice(0, 2)}
+                  {isFlow ? (
+                    // Flow prices off the basis, not a rate: landed cost by
+                    // default, which may be raised but is floored at true cost.
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={line.basisText ?? (flowBases[line.assetId] ? String(flowBases[line.assetId].basis) : "")}
+                      placeholder={line.assetId in flowBases ? "Basis" : "Loading…"}
+                      aria-label={`Cost basis per unit of ${line.name}`}
+                      onChange={(event) => update(index, { basisText: event.target.value })}
+                      className="h-7 rounded-row border-0 bg-panel px-2 text-right text-detail tabular-nums outline-none"
+                    />
+                  ) : (
+                    <span className="text-right text-detail tabular-nums text-ink-muted">
+                      {MONEY.format(line.rate)}
+                      <span className="text-ink-faint">
+                        /{line.pricingType.toLowerCase().slice(0, 2)}
+                      </span>
                     </span>
-                  </span>
+                  )}
                   <span className="text-right font-bold tabular-nums">
-                    {MONEY.format(line.rate * line.quantity)}
+                    {isFlow
+                      ? flowPriced?.ok
+                        ? CENTS.format(flowPriced.subtotals[index] ?? 0)
+                        : "—"
+                      : MONEY.format(line.rate * line.quantity)}
                   </span>
                   <button
                     type="button"
@@ -363,6 +670,38 @@ export function OrderBuilder({
                     <X className="size-3" aria-hidden />
                   </button>
                 </div>
+
+                {isFlow ? (
+                  <p className="mt-1 px-1 text-detail text-ink-muted">
+                    {(() => {
+                      const b = flowBases[line.assetId];
+                      if (!b) return "Loading the landed cost…";
+                      if (b.incomplete || !(b.basis > 0)) {
+                        return (
+                          <span className="text-destructive">
+                            Landed cost incomplete — {b.costedUnits} of {b.consideredUnits} units carry
+                            a cost. Fix the unit costs first.
+                          </span>
+                        );
+                      }
+                      const typed = typedBasis(line);
+                      const floored = typed != null && typed < b.basis;
+                      return (
+                        <>
+                          True cost {CENTS.format(b.basis)}
+                          {flowPriced?.ok
+                            ? ` · ${CENTS.format(flowPriced.rates[index] ?? 0)} contract a unit`
+                            : ""}
+                          {floored ? (
+                            <span className="text-accent-text">
+                              {" "}· below true cost, so it prices at {CENTS.format(b.basis)}
+                            </span>
+                          ) : null}
+                        </>
+                      );
+                    })()}
+                  </p>
+                ) : null}
 
                 {missing > 0 && !line.overbooked ? (
                   <div className="mt-2 rounded-well bg-accent-tint p-2">
@@ -485,7 +824,7 @@ export function OrderBuilder({
                   type="button"
                   role="radio"
                   aria-checked={selected}
-                  onClick={() => setType(option)}
+                  onClick={() => chooseType(option)}
                   className={`rounded-well px-3 py-2 text-pill transition-colors ${
                     selected
                       ? "bg-accent-tint text-accent-on-tint"
@@ -629,12 +968,18 @@ export function OrderBuilder({
                 >
                   {DATE_LABELS[type].end}
                 </label>
+                {/* A Flow order runs exactly its term, so its end is not typed. */}
                 <input
                   id="end"
                   type="date"
-                  value={rangeEnd}
-                  onChange={(event) => setEnd(event.target.value)}
-                  className={FIELD}
+                  value={isFlow ? flowEnd : rangeEnd}
+                  readOnly={isFlow}
+                  aria-readonly={isFlow}
+                  title={isFlow ? "The start plus the term" : undefined}
+                  onChange={(event) => {
+                    if (!isFlow) setEnd(event.target.value);
+                  }}
+                  className={`${FIELD} ${isFlow ? "text-ink-muted" : ""}`}
                 />
               </div>
             ) : null}
@@ -669,6 +1014,77 @@ export function OrderBuilder({
             </div>
           ) : null}
 
+          {/* Flow's own fields, laid out like the rent-to-own term. The term is
+              always sent; the assumptions are the house defaults, overridable. */}
+          {isFlow ? (
+            <div className="mb-3">
+              <label className={LABEL} htmlFor="flow-term">
+                Term
+              </label>
+              <select
+                id="flow-term"
+                value={flowTerm}
+                onChange={(event) => setFlowTerm(Number(event.target.value))}
+                className={FIELD}
+              >
+                {FLOW_TERMS.map((months) => (
+                  <option key={months} value={months}>
+                    {months} months
+                  </option>
+                ))}
+              </select>
+              <p className="mt-[6px] text-detail text-ink-muted">
+                The gear comes back at the end. A 12-month term bills level; longer
+                terms recover the hardware in year one, then step down.
+              </p>
+
+              <details className="mt-2 rounded-well bg-sunken px-3 py-2">
+                <summary className="cursor-pointer text-detail font-bold text-ink">
+                  Pricing assumptions
+                </summary>
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  {FLOW_KNOBS.map(({ key, label, min, max, whole }) => (
+                    <div key={key}>
+                      <label
+                        className="mb-[6px] block text-detail text-ink-muted"
+                        htmlFor={`flow-${key}`}
+                      >
+                        {label}
+                      </label>
+                      <input
+                        id={`flow-${key}`}
+                        type="number"
+                        min={min}
+                        max={max}
+                        step={whole ? 1 : "0.01"}
+                        value={flowKnobs[key]}
+                        placeholder={key === "stepPct" ? "Off" : flowDefaults ? "Default" : "Loading…"}
+                        onChange={(event) =>
+                          setFlowKnobs((current) => ({ ...current, [key]: event.target.value }))
+                        }
+                        className="h-8 w-full rounded-row border-0 bg-panel px-2 text-right text-detail tabular-nums text-ink outline-none"
+                      />
+                    </div>
+                  ))}
+                  <label className="col-span-2 flex items-center gap-2 text-detail text-ink">
+                    <input
+                      type="checkbox"
+                      checked={flowTaxExempt ?? false}
+                      onChange={(event) => setFlowTaxExempt(event.target.checked)}
+                    />
+                    Exempt from purchase tax
+                  </label>
+                </div>
+                <p className="mt-2 text-detail text-ink-muted">
+                  Purchase tax is what we&rsquo;d pay buying the gear, not the
+                  client&rsquo;s sales tax. Leave the step blank to shape the
+                  schedule by the recover-by month. A cleared field takes the house
+                  default.
+                </p>
+              </details>
+            </div>
+          ) : null}
+
           <label className={LABEL} htmlFor="project">
             Project
           </label>
@@ -682,26 +1098,38 @@ export function OrderBuilder({
         </section>
 
         <section className="rounded-card bg-panel px-4 py-[14px] shadow-sm">
-          <div className="flex items-baseline justify-between">
-            {/* A sale bills once; the other three bill per period. Calling the
-                same number "Per period" on a sale overstated it by the length
-                of the window. */}
-            <span className="text-card-title">
-              {type === "SALE" ? "Order total" : "Per period"}
-            </span>
-            <span className="text-page-title text-[22px] tabular-nums">
-              {MONEY.format(total)}
-            </span>
-          </div>
-          <p className="mt-1 text-detail text-ink-muted">
-            {lines.length === 0
-              ? "Nothing added yet"
-              : `${lines.length} ${lines.length === 1 ? "line" : "lines"} · ${
-                  type === "SALE"
-                    ? "billed once when the order is approved"
-                    : "the record prices the full term"
-                }`}
-          </p>
+          {isFlow ? (
+            <FlowPreview
+              priced={flowPriced?.ok ? flowPriced : null}
+              lineCount={lines.length}
+              problem={flowProblem}
+              economics={economics?.value ?? null}
+              economicsPending={!!economicsKey && !economics}
+            />
+          ) : (
+            <>
+            <div className="flex items-baseline justify-between">
+              {/* A sale bills once; the other three bill per period. Calling the
+                  same number "Per period" on a sale overstated it by the length
+                  of the window. */}
+              <span className="text-card-title">
+                {type === "SALE" ? "Order total" : "Per period"}
+              </span>
+              <span className="text-page-title text-[22px] tabular-nums">
+                {MONEY.format(total)}
+              </span>
+            </div>
+            <p className="mt-1 text-detail text-ink-muted">
+              {lines.length === 0
+                ? "Nothing added yet"
+                : `${lines.length} ${lines.length === 1 ? "line" : "lines"} · ${
+                    type === "SALE"
+                      ? "billed once when the order is approved"
+                      : "the record prices the full term"
+                  }`}
+            </p>
+            </>
+          )}
 
           {error ? (
             <Notice tone="error" className="mt-3">
@@ -720,7 +1148,13 @@ export function OrderBuilder({
           <button
             type="button"
             onClick={submit}
-            disabled={busy || !client || lines.length === 0 || unresolved.length > 0}
+            disabled={
+              busy ||
+              !client ||
+              lines.length === 0 ||
+              unresolved.length > 0 ||
+              (isFlow && !!flowProblem)
+            }
             className="mt-3 h-10 w-full rounded-pill bg-accent-solid px-4 text-pill text-accent-on-solid transition-colors hover:bg-accent-800 disabled:opacity-50"
           >
             {busy ? "Creating…" : `Create draft ${TYPE_LABEL[type].toLowerCase()}`}
@@ -732,5 +1166,101 @@ export function OrderBuilder({
         </section>
       </aside>
     </div>
+  );
+}
+
+/**
+ * The Flow order's live preview: what the client pays in month one, when it
+ * steps down and to what, and the contract — then, below a rule, the internal
+ * strip, which is staff-only and never reaches a client surface: what the gear
+ * cost us, what it still owes on its leases, month one's net cash after the
+ * lease payments, and the profit.
+ */
+function FlowPreview({
+  priced,
+  lineCount,
+  problem,
+  economics,
+  economicsPending,
+}: {
+  priced: FlowPricedLines | null;
+  lineCount: number;
+  problem: string | null;
+  economics: FlowDraftEconomics | null;
+  economicsPending: boolean;
+}) {
+  const schedule = priced?.result.schedule;
+  const stepMonth = schedule && schedule.steps.length > 1 ? schedule.steps[1] : null;
+  const internal: [string, number | undefined][] = [
+    ["Hardware cost", economics?.hardware],
+    ["Lease balance on the gear", economics?.leaseBalance],
+    ["Monthly net cash", economics?.monthlyNet],
+    ["Profit", economics?.profit],
+  ];
+  return (
+    <>
+      <div className="flex items-baseline justify-between">
+        <span className="text-card-title">Month 1</span>
+        <span className="text-page-title text-[22px] tabular-nums">
+          {priced ? CENTS.format(priced.monthlyNow) : "—"}
+        </span>
+      </div>
+      {priced ? (
+        <dl className="mt-2 grid grid-cols-[1fr_auto] gap-y-1 text-detail">
+          <dt className="text-ink-muted">
+            {stepMonth ? `Steps down in month ${stepMonth} to` : "Level for the whole term"}
+          </dt>
+          <dd className="text-right tabular-nums">
+            {stepMonth ? `${CENTS.format(priced.result.rateForMonth(stepMonth))}/mo` : ""}
+          </dd>
+          <dt className="text-ink-muted">Contract value</dt>
+          <dd className="text-right font-bold tabular-nums">
+            {CENTS.format(priced.contractValue)}
+          </dd>
+        </dl>
+      ) : (
+        <p className="mt-1 text-detail text-ink-muted">
+          {lineCount === 0 ? "Nothing added yet" : (problem ?? "Pricing…")}
+        </p>
+      )}
+      {priced && priced.flooredLines > 0 ? (
+        <p className="mt-2 text-detail text-accent-text">
+          {priced.flooredLines} {priced.flooredLines === 1 ? "line was" : "lines were"} priced
+          below what the gear cost us, so {priced.flooredLines === 1 ? "it is" : "they are"} raised
+          to true cost.
+        </p>
+      ) : null}
+      {priced && problem ? (
+        <p className="mt-2 text-detail text-destructive">{problem}</p>
+      ) : null}
+
+      {priced ? (
+        <div className="mt-3 rounded-well bg-sunken px-3 py-2">
+          <p className="mb-1 text-micro uppercase text-ink-muted">
+            Internal · never shown to the client
+          </p>
+          <dl className="grid grid-cols-[1fr_auto] gap-y-1 text-detail">
+            {internal.map(([label, value]) => (
+              <div key={label} className="contents">
+                <dt className="text-ink-muted">{label}</dt>
+                <dd
+                  className={`text-right tabular-nums ${
+                    value != null && value < 0 ? "text-destructive" : ""
+                  }`}
+                >
+                  {value != null ? CENTS.format(value) : economicsPending ? "…" : "—"}
+                </dd>
+              </div>
+            ))}
+          </dl>
+          {economics && economics.assumedUnits > 0 ? (
+            <p className="mt-1 text-micro text-ink-faint">
+              About {economics.assumedUnits} {economics.assumedUnits === 1 ? "unit sits" : "units sit"} on
+              a lease with no recorded terms; its balance is assumed.
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+    </>
   );
 }

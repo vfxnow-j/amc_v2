@@ -145,11 +145,6 @@ export async function createOrder(
     return { status: "error", message: "Choose a client for this order." };
   }
   const isFlow = input.type === "FLOW";
-  // Flow needs its term and pricing on the order, which this form doesn't collect
-  // yet. Task 8 lifts this; everything below already handles a Flow order.
-  if (isFlow) {
-    return { status: "error", message: "Flow orders can't be built here yet." };
-  }
   if (input.lines.length === 0) {
     return {
       status: "error",
@@ -219,7 +214,9 @@ export async function createOrder(
       assetId: line.assetId,
       quantity: line.quantity,
       rate: line.rate,
-      pricingType: line.pricingType as PricingType,
+      // A Flow line bills monthly from the order's schedule; its catalog pricing
+      // type means nothing there.
+      pricingType: (isFlow ? "MONTHLY" : line.pricingType) as PricingType,
       ...(isFlow && line.costBasis != null ? { costBasis: line.costBasis } : {}),
     })),
   };
