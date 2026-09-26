@@ -4,16 +4,19 @@
  *
  * Which units a line's funding comes from:
  * - the units assigned to it (still out on the order), as themselves;
- * - for any quantity not yet assigned, the average over the asset's HELD units —
- *   owned-outright units count as zero, so the average is the debt a typical unit
- *   of that asset carries.
+ * - for any quantity not yet assigned, an even share of the asset's unassigned
+ *   pool: its HELD units not assigned to any line of this order (owned-outright
+ *   units count as zero). A unit's debt is counted once — assigned units never
+ *   feed the average — and the lines sharing an asset together draw at most the
+ *   pool's size from it, in line order. Quantity beyond the pool is not gear we
+ *   hold on a lease, so it carries no lease exposure.
  *
  * Economics only: the client's price never reads any of this. Pure.
  */
 import { interestOver, type FlowLoan } from '@/lib/pricing/flow'
 import { FLOW_LEASE_ASSUMPTION, type Assumption, type UnitFunding } from '@/lib/pricing/lease-funding'
 
-type NumLike = number | string | { toString(): string } | null | undefined
+export type NumLike = number | string | { toString(): string } | null | undefined
 
 const toNum = (v: NumLike): number | null => {
   if (v == null || v === '') return null
@@ -67,7 +70,16 @@ export type LineFunding = {
   leases: { leaseId: string; label: string; assumed: boolean }[]
 }
 
-export type OrderFunding = { loans: FlowLoan[]; lines: LineFunding[]; assumedCount: number }
+export type OrderFunding = {
+  loans: FlowLoan[]
+  lines: LineFunding[]
+  /**
+   * Approximate: ≈ units on leases with assumed terms. Assigned units count
+   * exactly; an averaged draw counts ceil(drawn × the pool's assumed fraction)
+   * per line, so it can round up.
+   */
+  assumedCount: number
+}
 
 type LeaseSlice = { leaseId: string; label: string; assumed: boolean; aprPct: number; monthsLeft: number; balance: number; payment: number; interest: number }
 
@@ -85,7 +97,7 @@ function add(into: Map<string, LeaseSlice>, f: UnitFunding, weight: number, term
 
 /**
  * @param funding     each held unit's part of its lease (lease-funding.ts unitFunding)
- * @param heldByAsset every held unit id per asset, leased or not, for the average
+ * @param heldByAsset every held unit id per asset, leased or not; the unassigned ones form the pool
  * @param termMonths  the order's term, for interest over the term
  */
 export function groupLineFunding(
@@ -98,6 +110,21 @@ export function groupLineFunding(
   const loans = new Map<string, LeaseSlice>()
   let assumedUnits = 0
   const out: LineFunding[] = []
+
+  // Every unit assigned anywhere on the order is counted as itself, never in an average.
+  const assignedAnywhere = new Set<string>()
+  for (const line of lines) if (line.assetId) for (const id of line.assignedUnitIds) assignedAnywhere.add(id)
+  // Per asset: the unassigned held units, and how many of them lines have not yet drawn.
+  const pools = new Map<string, { ids: string[]; left: number }>()
+  const poolFor = (assetId: string) => {
+    let p = pools.get(assetId)
+    if (!p) {
+      const ids = (heldByAsset.get(assetId) ?? []).filter((id) => !assignedAnywhere.has(id))
+      p = { ids, left: ids.length }
+      pools.set(assetId, p)
+    }
+    return p
+  }
 
   for (const line of lines) {
     const qty = Math.max(0, Math.round(Number(line.quantity) || 0))
@@ -114,17 +141,19 @@ export function groupLineFunding(
       if (f.assumed) assumedUnits += 1
     }
     const rest = Math.max(0, qty - assigned.length)
-    const held = heldByAsset.get(line.assetId) ?? []
-    if (rest > 0 && held.length > 0) {
-      const w = rest / held.length
+    const pool = poolFor(line.assetId)
+    const take = Math.min(rest, pool.left)
+    if (take > 0) {
+      pool.left -= take
+      const w = take / pool.ids.length
       let assumedHeld = 0
-      for (const id of held) {
+      for (const id of pool.ids) {
         const f = funding.get(id)
         if (!f) continue
         add(slices, f, w, T)
         if (f.assumed) assumedHeld += 1
       }
-      if (assumedHeld > 0) assumedUnits += Math.ceil(rest * (assumedHeld / held.length))
+      if (assumedHeld > 0) assumedUnits += Math.ceil(take * (assumedHeld / pool.ids.length))
     }
 
     let balance = 0, pmt = 0, interest = 0

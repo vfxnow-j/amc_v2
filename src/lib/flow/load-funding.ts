@@ -17,13 +17,14 @@ import {
   type HeldUnit,
   type LeaseTerms,
 } from '@/lib/pricing/lease-funding'
-import { groupLineFunding, orderAssumption, unitCost, type OrderFunding } from './funding'
+import { groupLineFunding, orderAssumption, unitCost, type NumLike, type OrderFunding } from './funding'
 
 export type { LineFunding, OrderFunding } from './funding'
 
 type Db = Pick<PrismaClient, 'lease' | 'assetUnit' | 'reservationItemUnit'>
 
 /** A unit we still hold: not sold or retired by status, and no retirement date. */
+// Deliberately ignores `soldAt`: a reacquired unit is AVAILABLE with soldAt still set.
 export const HELD_UNIT_WHERE: Prisma.AssetUnitWhereInput = {
   status: { notIn: ['SOLD', 'RETIRED'] },
   retiredAt: null,
@@ -57,7 +58,7 @@ export async function loadLeasedHeldUnits(db: Pick<PrismaClient, 'assetUnit'>): 
 
 export async function loadFlowFunding(
   db: Db,
-  order: { id: string; flowTermMonths: number | null; flowAssumedAprPct: unknown; flowAssumedNoteMonths: number | null },
+  order: { id: string; flowTermMonths: number | null; flowAssumedAprPct: NumLike; flowAssumedNoteMonths: number | null },
   items: { id: string; assetId: string | null; quantity: number }[],
   asOf: Date = new Date(),
   fallback: Assumption = FLOW_LEASE_ASSUMPTION,
@@ -76,7 +77,7 @@ export async function loadFlowFunding(
   ])
 
   const assume = orderAssumption(
-    { flowAssumedAprPct: order.flowAssumedAprPct as Parameters<typeof orderAssumption>[0]['flowAssumedAprPct'], flowAssumedNoteMonths: order.flowAssumedNoteMonths },
+    { flowAssumedAprPct: order.flowAssumedAprPct, flowAssumedNoteMonths: order.flowAssumedNoteMonths },
     fallback,
   )
   const funding = unitFunding(leases, leasedHeld, asOf, assume)

@@ -56,12 +56,52 @@ test('no units assigned: each line unit carries the average over the asset\'s he
   assert.ok(Math.abs(line.interestOverTerm - expected) < 0.01)
 })
 
-test('partly assigned: assigned units as themselves, the rest on the average', () => {
-  const funding = new Map([['h1', f('h1', 'A', 1000, 40)], ['h2', f('h2', 'A', 0, 0)]])
+test('partly assigned: assigned units as themselves, the rest over the unassigned pool only', () => {
+  // h1 leased $1,000, h2 owned outright. h1 is assigned, so the remaining unit
+  // averages over h2 alone: the line carries h1's $1,000 once, not $1,500.
+  const funding = new Map([['h1', f('h1', 'A', 1000, 40)]])
   const held = new Map([['X', ['h1', 'h2']]])
-  const r = groupLineFunding([{ itemId: 'i1', assetId: 'X', quantity: 3, assignedUnitIds: ['h1'] }], funding, held, 24)
-  assert.equal(r.lines[0].units, 3)
-  assert.equal(r.lines[0].balance, 2000) // 1000 + 2 × 500
+  const r = groupLineFunding([{ itemId: 'i1', assetId: 'X', quantity: 2, assignedUnitIds: ['h1'] }], funding, held, 24)
+  assert.equal(r.lines[0].units, 2)
+  assert.equal(r.lines[0].balance, 1000)
+  assert.equal(r.lines[0].payment, 40)
+  assert.deepEqual(r.loans, [{ balance: 1000, aprPct: 5.55, monthsLeft: 30, label: 'L-A' }])
+})
+
+test('two lines sharing an asset: a unit assigned on one never feeds the other\'s average', () => {
+  const funding = new Map([['h1', f('h1', 'A', 1000, 40)], ['h2', f('h2', 'A', 200, 8)], ['h3', f('h3', 'A', 100, 4)]])
+  const held = new Map([['X', ['h1', 'h2', 'h3']]])
+  const r = groupLineFunding([
+    { itemId: 'a', assetId: 'X', quantity: 1, assignedUnitIds: ['h1'] },
+    { itemId: 'b', assetId: 'X', quantity: 1, assignedUnitIds: [] },
+  ], funding, held, 24)
+  assert.equal(r.lines[0].balance, 1000)
+  assert.equal(r.lines[1].balance, 150) // (200 + 100) / 2, h1 excluded
+  assert.deepEqual(r.loans, [{ balance: 1150, aprPct: 5.55, monthsLeft: 30, label: 'L-A' }])
+})
+
+test('ordering more than the unassigned pool draws the pool\'s debt once, no more', () => {
+  const funding = new Map([['h1', f('h1', 'A', 900, 30)], ['h2', f('h2', 'A', 600, 20)], ['h3', f('h3', 'B', 300, 10)]])
+  const held = new Map([['X', ['h1', 'h2', 'h3']]])
+  const r = groupLineFunding([{ itemId: 'i1', assetId: 'X', quantity: 5, assignedUnitIds: [] }], funding, held, 24)
+  assert.equal(r.lines[0].units, 5)
+  assert.equal(r.lines[0].balance, 1800) // the whole pool, not 5/3 of it (3000)
+  assert.equal(r.lines[0].payment, 60)
+  const total = r.loans.reduce((a, l) => a + l.balance, 0)
+  assert.equal(total, 1800)
+})
+
+test('two lines of one asset totalling more than the pool together stay within it', () => {
+  const funding = new Map([['h1', f('h1', 'A', 900, 30)], ['h2', f('h2', 'A', 600, 20)], ['h3', f('h3', 'B', 300, 10)]])
+  const held = new Map([['X', ['h1', 'h2', 'h3']]])
+  const r = groupLineFunding([
+    { itemId: 'a', assetId: 'X', quantity: 2, assignedUnitIds: [] },
+    { itemId: 'b', assetId: 'X', quantity: 2, assignedUnitIds: [] },
+  ], funding, held, 24)
+  assert.equal(r.lines[0].balance, 1200) // 2 of 3 pool units: 1800 × 2/3
+  assert.equal(r.lines[1].balance, 600) // the last pool unit; its second unit is beyond the pool
+  assert.ok(r.lines[0].balance + r.lines[1].balance <= 1800)
+  assert.equal(r.loans.reduce((a, l) => a + l.balance, 0), 1800)
 })
 
 test('the same lease on two lines merges into one loan', () => {
