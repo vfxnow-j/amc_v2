@@ -9,6 +9,7 @@
 import { prisma } from '@/lib/prisma'
 import { computeReservationFinancials } from '@/lib/pricing/financials'
 import { flowQuoteForOrder } from '@/lib/pricing/flow-quote-view'
+import type { FlowClientQuote } from '@/lib/pricing/flow-client-quote'
 import {
   mergeFlowTermsSettings,
   renderFlowTerms,
@@ -23,17 +24,28 @@ export async function loadFlowTermsSettings(): Promise<FlowTermsSettings> {
   return mergeFlowTermsSettings(row?.value)
 }
 
-async function renderLive(reservationId: string): Promise<RenderedFlowTerms | null> {
-  const reservation = await prisma.reservation.findUnique({
-    where: { id: reservationId },
-    include: {
-      packages: {
-        include: { items: { include: { asset: { include: { category: true } } }, orderBy: { sortOrder: 'asc' } } },
-      },
-      items: { include: { asset: { include: { category: true } } }, orderBy: { sortOrder: 'asc' } },
-    },
-  })
-  if (!reservation || reservation.reservationType !== 'FLOW' || !reservation.flowTermMonths) return null
+const FLOW_QUOTE_INCLUDE = {
+  packages: {
+    include: { items: { include: { asset: { include: { category: true } } }, orderBy: { sortOrder: 'asc' } } },
+  },
+  items: { include: { asset: { include: { category: true } } }, orderBy: { sortOrder: 'asc' } },
+} as const
+
+/**
+ * The client-safe Flow quote for a stored order, priced from its stored knobs and
+ * lines exactly as the terms are (flowQuoteForOrder), with the extras (discount,
+ * tax, delivery, return) from the same derived financials the order page shows.
+ * Null when the order is missing or not a Flow order. `problem` is set, and the
+ * quote infeasible, when the order cannot be put in front of a client.
+ */
+export async function flowClientQuoteForReservation(reservationId: string): Promise<{
+  quote: FlowClientQuote
+  problem?: string
+  reservation: NonNullable<Awaited<ReturnType<typeof loadForQuote>>>
+  items: NonNullable<Awaited<ReturnType<typeof loadForQuote>>>['items']
+} | null> {
+  const reservation = await loadForQuote(reservationId)
+  if (!reservation || reservation.reservationType !== 'FLOW') return null
   const activePackage = reservation.packages.find((p) => p.isActive)
   const items = activePackage ? activePackage.items : reservation.items
   const financials = computeReservationFinancials({
@@ -49,7 +61,7 @@ async function renderLive(reservationId: string): Promise<RenderedFlowTerms | nu
     rentalCreditAmount: reservation.rentalCreditAmount,
   })
   // Priced from the order's stored knobs alone, exactly as the repricer does
-  // (lib/flow/defaults.ts storedFlowConfig), so the terms quote the stored price:
+  // (lib/flow/defaults.ts storedFlowConfig), so the quote is the stored price:
   // a legacy null knob takes the engine default, never the live settings row.
   const { quote, problem } = flowQuoteForOrder(reservation, items, {
     discountAmount: financials.discountAmount,
@@ -57,10 +69,33 @@ async function renderLive(reservationId: string): Promise<RenderedFlowTerms | nu
     deliveryCost: financials.deliveryCost,
     returnCost: financials.returnCost,
   })
-  if (problem || !quote.feasible) return null
+  if (!problem && !reservation.flowTermMonths) {
+    return { quote, problem: 'This Flow order has no term yet.', reservation, items }
+  }
+  return { quote, problem: problem ?? (quote.feasible ? undefined : 'This Flow schedule cannot be quoted.'), reservation, items }
+}
+
+function loadForQuote(reservationId: string) {
+  return prisma.reservation.findUnique({ where: { id: reservationId }, include: FLOW_QUOTE_INCLUDE })
+}
+
+/**
+ * Why a Flow order cannot be quoted to its client, or null when it can. Every
+ * client-quote path (link, send, preview, signed PDF) gates on this one answer.
+ */
+export async function flowQuoteProblem(reservationId: string): Promise<string | null> {
+  const state = await flowClientQuoteForReservation(reservationId)
+  if (!state) return 'Not a Flow order.'
+  return state.problem ?? null
+}
+
+async function renderLive(reservationId: string): Promise<RenderedFlowTerms | null> {
+  const state = await flowClientQuoteForReservation(reservationId)
+  if (!state || state.problem || !state.quote.feasible) return null
+  const { reservation, quote } = state
   const settings = await loadFlowTermsSettings()
   return renderFlowTerms(settings, {
-    termMonths: reservation.flowTermMonths,
+    termMonths: reservation.flowTermMonths!,
     startDate: reservation.flowStartDate ?? reservation.startDate,
     endDate: reservation.endDate,
     extensionPct: reservation.flowExtensionPct == null ? null : Number(reservation.flowExtensionPct),
