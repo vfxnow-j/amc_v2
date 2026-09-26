@@ -7,6 +7,8 @@ import {
   denyQuote,
   requestQuoteChanges,
 } from "@/lib/actions/quote-tokens";
+import type { FlowClientQuote } from "@/lib/pricing/flow-client-quote";
+import type { RenderedFlowTerms } from "@/lib/pricing/flow-terms";
 
 // react-signature-canvas touches `document` at import, so it can only be
 // loaded in the browser. The type is loose because the package ships its own
@@ -88,6 +90,17 @@ export type QuoteData = {
   rtoBuyoutPrice: number | null;
   packages?: QuotePackage[];
   paymentLine: { headline: string; notes: string[] } | null;
+  /** Flow only — the client payment view: tiers, totals, the schedule. Never a cost. */
+  flow?: FlowClientQuote;
+  /** Flow only — the subscription terms the client agrees to (frozen once approved). */
+  flowTerms?: RenderedFlowTerms;
+  /** Flow only — the gear, names and quantities only (no line prices). */
+  flowGear?: FlowGearCategory[];
+};
+
+export type FlowGearCategory = {
+  category: string;
+  items: { id: string; name: string; spec?: string; quantity: number; isComponent?: boolean }[];
 };
 
 const money = (value: number) =>
@@ -128,6 +141,8 @@ const METHOD_LABEL: Record<string, string> = {
   SMALL_PACKAGE: "Small package",
   COURIER: "Courier",
 };
+
+const GENERAL_TERMS_URL = "https://vfxnow.com/terms";
 
 type Answer = "approved" | "changes" | "declined";
 
@@ -181,7 +196,10 @@ export function QuotePortal({
   const [error, setError] = useState("");
   const [busy, startTransition] = useTransition();
 
-  const hasPackages = !!quote.packages && quote.packages.length > 1;
+  // A Flow quote is its payment schedule: no options to switch between and no
+  // quantities to change — it is approved as quoted (approveQuote enforces it).
+  const flow = quote.reservationType === "FLOW" ? quote.flow : undefined;
+  const hasPackages = !flow && !!quote.packages && quote.packages.length > 1;
   const [selectedPackageId, setSelectedPackageId] = useState(
     () => quote.packages?.find((option) => option.isActive)?.id ?? "",
   );
@@ -220,7 +238,11 @@ export function QuotePortal({
     <div className="flex flex-col gap-4">
       <Header quote={quote} total={shown.total} />
 
-      {hasPackages ? (
+      {flow ? (
+        <FlowBody quote={quote} flow={flow} />
+      ) : null}
+
+      {!flow && hasPackages ? (
         <section className="rounded-2xl bg-white p-5 shadow-sm">
           <h2 className="text-sm font-bold tracking-tight">Choose an option</h2>
           <p className="mt-1 text-xs text-[#71717a]">
@@ -257,11 +279,11 @@ export function QuotePortal({
         </section>
       ) : null}
 
-      <Lines categories={shown.categories} />
+      {flow ? null : <Lines categories={shown.categories} />}
 
-      <Totals quote={quote} shown={shown} />
+      {flow ? null : <Totals quote={quote} shown={shown} />}
 
-      {shown.paymentLine ? (
+      {!flow && shown.paymentLine ? (
         <section className="rounded-2xl bg-white p-5 shadow-sm">
           <p className="text-sm font-semibold">{shown.paymentLine.headline}</p>
           {shown.paymentLine.notes.map((note) => (
@@ -270,7 +292,7 @@ export function QuotePortal({
         </section>
       ) : null}
 
-      {quote.rtoTermMonths || quote.rtoMonthlyPayment ? (
+      {!flow && (quote.rtoTermMonths || quote.rtoMonthlyPayment) ? (
         <section className="rounded-2xl bg-white p-5 shadow-sm">
           <h2 className="text-sm font-bold tracking-tight">Rent-to-own terms</h2>
           <dl className="mt-3 grid grid-cols-3 gap-3 text-sm">
@@ -326,6 +348,8 @@ export function QuotePortal({
           </p>
         </section>
       ) : null}
+
+      {flow && quote.flowTerms ? <FlowTermsBlock terms={quote.flowTerms} /> : null}
 
       {error ? (
         <p role="alert" className="rounded-xl bg-[#fef2f2] px-4 py-3 text-sm text-[#b91c1c]">
@@ -385,8 +409,9 @@ export function QuotePortal({
       ) : panel === "approve" ? (
         <ApprovePanel
           busy={busy}
+          flowTermsUrl={flow ? (quote.flowTerms?.generalTermsUrl ?? GENERAL_TERMS_URL) : undefined}
           onBack={() => setPanel(null)}
-          onSubmit={(signerName, signature) =>
+          onSubmit={(signerName, signature, autopayMethod) =>
             startTransition(async () => {
               setError("");
               try {
@@ -396,6 +421,7 @@ export function QuotePortal({
                   signature,
                   undefined,
                   hasPackages ? selectedPackageId : undefined,
+                  flow && autopayMethod ? { method: autopayMethod } : undefined,
                 );
                 setAnswer("approved");
               } catch (problem) {
@@ -450,6 +476,9 @@ function Header({ quote, total }: { quote: QuoteData; total: number }) {
           <h1 className="mt-1 text-2xl font-bold tracking-tight">
             {quote.companyName || quote.clientName}
           </h1>
+          {quote.reservationType === "FLOW" ? (
+            <p className="mt-1 text-base font-semibold">Flow Subscription</p>
+          ) : null}
           <p className="mt-1 text-sm text-[#71717a]">
             {quote.projectName ? `${quote.projectName} · ` : ""}
             {/* A sale has no term — just the day it is ordered. */}
@@ -463,7 +492,9 @@ function Header({ quote, total }: { quote: QuoteData; total: number }) {
           <p className="mt-1 text-xs text-[#71717a]">
             {quote.reservationType === "SALE"
               ? "A one-time purchase."
-              : (CYCLE_TERM[quote.billingCycleType] ?? "")}
+              : quote.reservationType === "FLOW" && quote.flow
+                ? `Total over term · Monthly (Flow, ${quote.flow.termMonths} months)`
+                : (CYCLE_TERM[quote.billingCycleType] ?? "")}
           </p>
         </div>
       </div>
@@ -589,6 +620,183 @@ function Detail({ label, children }: { label: string; children: React.ReactNode 
 }
 
 /**
+ * The body of a Flow quote (ported from v1's quote page, in this page's styling):
+ * what the client pays each month, the gear without prices, the totals, and the
+ * whole schedule with the month a new rate starts marked.
+ */
+function FlowBody({ quote, flow }: { quote: QuoteData; flow: FlowClientQuote }) {
+  const gear = (quote.flowGear ?? []).flatMap((group) => group.items);
+  return (
+    <>
+      <section className="rounded-2xl bg-white p-5 shadow-sm">
+        <h2 className="text-sm font-bold tracking-tight">Your monthly payment</h2>
+        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+          {flow.tiers.map((tier) => (
+            <div key={tier.fromMonth} className="rounded-xl border border-[#e4e4e7] bg-[#fafafa] p-4">
+              <p className="text-xs uppercase tracking-wide text-[#a1a1aa]">
+                {tier.fromMonth === tier.toMonth
+                  ? `Month ${tier.fromMonth}`
+                  : `Months ${tier.fromMonth}–${tier.toMonth}`}
+              </p>
+              <p className="mt-1 text-2xl font-bold tabular-nums">
+                {money(tier.payment)}
+                <span className="text-sm font-normal text-[#71717a]">/mo</span>
+              </p>
+              {tier.tax > 0 ? (
+                <p className="text-xs text-[#71717a]">+ {money(tier.tax)} tax</p>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="overflow-hidden rounded-2xl bg-white shadow-sm">
+        <p className="bg-[#fafafa] px-5 py-2 text-xs font-semibold uppercase tracking-wide text-[#71717a]">
+          Equipment included
+        </p>
+        {gear.length === 0 ? (
+          <p className="px-5 py-3 text-sm text-[#71717a]">No equipment listed.</p>
+        ) : (
+          <ul>
+            {gear.map((item) => (
+              <li
+                key={item.id}
+                className={`grid grid-cols-[1fr_auto] items-baseline gap-3 px-5 py-3 text-sm ${
+                  item.isComponent ? "bg-[#fcfcfd]" : ""
+                }`}
+              >
+                <span className={item.isComponent ? "pl-4 text-[#52525b]" : "font-medium"}>
+                  {item.isComponent ? "↳ " : ""}
+                  {item.name}
+                  {item.spec ? (
+                    <span className="mt-0.5 block text-xs font-normal text-[#71717a]">{item.spec}</span>
+                  ) : null}
+                </span>
+                <span className="tabular-nums text-[#52525b]">×{item.quantity}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="rounded-2xl bg-white p-5 shadow-sm">
+        <dl className="ml-auto flex max-w-sm flex-col gap-2 text-sm">
+          <Row label={`Subscription (${flow.termMonths} mo)`} value={money(flow.totals.contract)} />
+          {flow.totals.discount > 0 ? (
+            <Row label="Discount" value={`−${money(flow.totals.discount)}`} />
+          ) : null}
+          {flow.totals.tax > 0 ? (
+            <Row label={`Tax (${quote.taxRate}%)`} value={money(flow.totals.tax)} />
+          ) : null}
+          {flow.oneTime.map((charge) => (
+            <Row
+              key={charge.label}
+              label={`${charge.label} (one-time, first invoice)`}
+              value={money(charge.amount)}
+            />
+          ))}
+          <div className="mt-1 flex items-baseline justify-between border-t border-[#e4e4e7] pt-2">
+            <dt className="text-base font-bold">Total over term</dt>
+            <dd className="text-base font-bold tabular-nums">{money(flow.totals.total)}</dd>
+          </div>
+        </dl>
+      </section>
+
+      <section className="overflow-hidden rounded-2xl bg-white shadow-sm">
+        <h2 className="px-5 pt-5 text-sm font-bold tracking-tight">Payment schedule</h2>
+        <div className="overflow-x-auto px-5 py-3">
+          <table className="w-full text-sm tabular-nums">
+            <thead>
+              <tr className="border-b border-[#e4e4e7] text-left text-xs uppercase tracking-wide text-[#a1a1aa]">
+                <th className="pb-2 pr-4 font-semibold">Month</th>
+                <th className="pb-2 pr-4 text-right font-semibold">Payment</th>
+                {flow.totals.tax > 0 ? <th className="pb-2 pr-4 text-right font-semibold">Tax</th> : null}
+                <th className="pb-2 pr-4 text-right font-semibold">Total</th>
+                <th className="pb-2 text-right font-semibold">Remaining</th>
+              </tr>
+            </thead>
+            <tbody>
+              {flow.rows.map((row, index) => {
+                const step = index > 0 && flow.tiers.some((tier) => tier.fromMonth === row.month);
+                return (
+                  <tr
+                    key={row.month}
+                    className={`border-b border-[#f4f4f5] last:border-0 ${step ? "border-t-2 border-t-[#2563eb]" : ""}`}
+                  >
+                    <td className="py-2 pr-4 text-[#71717a]">
+                      {row.month}
+                      {step ? (
+                        <span className="ml-2 rounded bg-[#eff6ff] px-1.5 py-0.5 text-[10px] font-semibold uppercase text-[#1d4ed8]">
+                          New rate
+                        </span>
+                      ) : null}
+                    </td>
+                    <td className="py-2 pr-4 text-right">{money(row.payment)}</td>
+                    {flow.totals.tax > 0 ? (
+                      <td className="py-2 pr-4 text-right text-[#71717a]">{money(row.tax)}</td>
+                    ) : null}
+                    <td className="py-2 pr-4 text-right font-medium">{money(row.total)}</td>
+                    <td className="py-2 text-right text-[#71717a]">{money(row.remaining)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <p className="border-t border-[#f4f4f5] px-5 py-3 text-xs text-[#71717a]">
+          Equipment remains the property of VFXNow and is returned at the end of the term.
+        </p>
+      </section>
+    </>
+  );
+}
+
+/** The Flow Subscription Terms the client is agreeing to — read before signing. */
+function FlowTermsBlock({ terms }: { terms: RenderedFlowTerms }) {
+  return (
+    <section className="flex flex-col gap-3 rounded-2xl bg-white p-5 shadow-sm">
+      <div>
+        <h2 className="text-sm font-bold tracking-tight">Flow Subscription Terms</h2>
+        <p className="mt-1 text-xs text-[#71717a]">
+          Addendum to the{" "}
+          <a href={terms.generalTermsUrl} target="_blank" rel="noopener noreferrer" className="underline">
+            VFXnow Rental Terms &amp; Conditions
+          </a>{" "}
+          · version {terms.version}
+        </p>
+      </div>
+      <ol className="list-decimal space-y-2 pl-4 text-xs leading-relaxed text-[#52525b]">
+        {terms.clauses.map((clause, index) => (
+          <li key={index}>
+            <span className="font-semibold text-[#18181b]">{clause.title}.</span> {clause.body}
+          </li>
+        ))}
+      </ol>
+      {terms.cancellationExamples.length > 0 ? (
+        <table className="self-start text-xs text-[#52525b]">
+          <caption className="pb-1 text-left font-semibold text-[#18181b]">
+            Early cancellation — examples (pre-tax)
+          </caption>
+          <tbody>
+            {terms.cancellationExamples.map((example) => (
+              <tr key={example.afterMonth}>
+                <td className="pr-6">After month {example.afterMonth}</td>
+                <td className="tabular-nums">{money(example.fee)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : null}
+      <p className="text-xs text-[#52525b]">
+        Extension after the term:{" "}
+        <span className="font-semibold">{money(terms.extension.monthly)}/month</span>, month-to-month (
+        {terms.extension.pct}% of your final payment of {money(terms.extension.finalMonthly)}).
+      </p>
+    </section>
+  );
+}
+
+/**
  * Approving is a signature, so it asks for one.
  *
  * The name and the drawn mark are both required and the terms box is not
@@ -598,24 +806,32 @@ function Detail({ label, children }: { label: string; children: React.ReactNode 
  */
 function ApprovePanel({
   busy,
+  flowTermsUrl,
   onBack,
   onSubmit,
 }: {
   busy: boolean;
+  /** Set for a Flow quote: the General Terms its terms amend, and autopay is required. */
+  flowTermsUrl?: string;
   onBack: () => void;
-  onSubmit: (signerName: string, signature: string) => void;
+  onSubmit: (signerName: string, signature: string, autopayMethod?: "ACH" | "CARD") => void;
 }) {
+  const isFlow = flowTermsUrl !== undefined;
   const [signerName, setSignerName] = useState("");
   const [agreed, setAgreed] = useState(false);
   const [empty, setEmpty] = useState(true);
+  const [autopayAuthorized, setAutopayAuthorized] = useState(false);
+  const [autopayMethod, setAutopayMethod] = useState<"ACH" | "CARD" | "">("");
+  const flowReady = !isFlow || (autopayAuthorized && autopayMethod !== "");
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const canvas = useRef<any>(null);
 
   function submit() {
     const pad = canvas.current;
     if (!pad || pad.isEmpty?.()) return;
+    if (!flowReady) return;
     const signature = (pad.getTrimmedCanvas?.() ?? pad.getCanvas()).toDataURL("image/png");
-    onSubmit(signerName.trim(), signature);
+    onSubmit(signerName.trim(), signature, isFlow && autopayMethod ? autopayMethod : undefined);
   }
 
   return (
@@ -661,17 +877,68 @@ function ApprovePanel({
           onChange={(event) => setAgreed(event.target.checked)}
           className="mt-[3px] size-4"
         />
-        <span className="text-sm text-[#3f3f46]">
-          I am authorized to accept this quote on behalf of the company named
-          above, and agree to the rental terms and conditions.
-        </span>
+        {isFlow ? (
+          <span className="text-sm text-[#3f3f46]">
+            I am authorized to accept this quote on behalf of the company named
+            above, and agree to the Flow Subscription Terms above and the{" "}
+            <a
+              href={flowTermsUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-medium text-[#18181b] underline"
+            >
+              VFXnow Rental Terms &amp; Conditions
+            </a>{" "}
+            they amend.
+          </span>
+        ) : (
+          <span className="text-sm text-[#3f3f46]">
+            I am authorized to accept this quote on behalf of the company named
+            above, and agree to the rental terms and conditions.
+          </span>
+        )}
       </label>
+
+      {isFlow ? (
+        <div className="flex flex-col gap-2 rounded-lg border border-[#e4e4e7] p-3">
+          <label className="flex cursor-pointer items-start gap-3">
+            <input
+              type="checkbox"
+              name="autopayAuthorized"
+              checked={autopayAuthorized}
+              onChange={(event) => setAutopayAuthorized(event.target.checked)}
+              className="mt-[3px] size-4"
+            />
+            <span className="text-sm text-[#3f3f46]">
+              I authorize VFXnow to charge my payment method automatically each
+              month for this subscription.
+            </span>
+          </label>
+          <div className="flex gap-4 pl-7 text-sm text-[#3f3f46]" role="radiogroup" aria-label="Autopay method">
+            {(["ACH", "CARD"] as const).map((method) => (
+              <label key={method} className="flex cursor-pointer items-center gap-2">
+                <input
+                  type="radio"
+                  name="autopayMethod"
+                  value={method}
+                  checked={autopayMethod === method}
+                  onChange={() => setAutopayMethod(method)}
+                />
+                {method === "ACH" ? "Bank (ACH)" : "Card"}
+              </label>
+            ))}
+          </div>
+          <p className="pl-7 text-xs text-[#71717a]">
+            VFXnow will contact you to set up the payment details.
+          </p>
+        </div>
+      ) : null}
 
       <div className="flex gap-3">
         <button
           type="button"
           onClick={submit}
-          disabled={busy || !signerName.trim() || !agreed || empty}
+          disabled={busy || !signerName.trim() || !agreed || empty || !flowReady}
           className="flex-1 rounded-xl bg-[#16a34a] px-6 py-2.5 text-sm font-semibold text-white hover:bg-[#15803d] disabled:opacity-50"
         >
           {busy ? "Submitting…" : "Confirm approval"}

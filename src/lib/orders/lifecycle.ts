@@ -150,11 +150,19 @@ const MOVES: Record<ReservationStatus, MoveSpec[]> = {
   LOST: [],
 };
 
-export function movesFor(status: ReservationStatus, type: ReservationType): MoveSpec[] {
-  // A Flow order has no client quote yet (createQuoteLink refuses one), so it
-  // is not offered a send. It is approved by hand until the Flow quote exists.
+/**
+ * `flowQuotable`: a Flow order is only offered a send once its payment schedule
+ * prices (flowQuoteProblem in lib/flow-terms-server — the same gate
+ * createQuoteLink and sendOrderQuote apply on the server). Until then it is
+ * approved by hand. Ignored for every other type.
+ */
+export function movesFor(
+  status: ReservationStatus,
+  type: ReservationType,
+  flowQuotable = false,
+): MoveSpec[] {
   const moves = (MOVES[status] ?? [])
-    .filter((spec) => !(type === "FLOW" && spec.move === "send-quote"))
+    .filter((spec) => !(type === "FLOW" && !flowQuotable && spec.move === "send-quote"))
     .map((spec, _, kept) =>
       type === "FLOW" && spec.move === "approve" && !kept.some((other) => other.primary)
         ? { ...spec, primary: true }

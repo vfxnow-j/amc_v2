@@ -2,6 +2,7 @@ import { Card, CardEmpty } from "@/components/record/record-card";
 import { OrderActions } from "@/components/orders/order-actions";
 import { STATUS_LABEL } from "@/lib/reservations/status";
 import { movesFor } from "@/lib/orders/lifecycle";
+import { flowQuoteProblem } from "@/lib/flow-terms-server";
 import { getFloorStaff, getOrderLifecycle } from "@/lib/queries/order-lifecycle";
 import type { ReservationType } from "@/generated/prisma/client";
 
@@ -26,11 +27,16 @@ export async function OrderActionBar({
   id: string;
   type: ReservationType;
 }) {
-  const [order, staff] = await Promise.all([getOrderLifecycle(id), getFloorStaff()]);
+  const [order, staff, flowProblem] = await Promise.all([
+    getOrderLifecycle(id),
+    getFloorStaff(),
+    type === "FLOW" ? flowQuoteProblem(id) : Promise.resolve(null),
+  ]);
   if (!order) return null;
 
   const { billing } = order;
-  const moves = movesFor(order.status, type);
+  const flowQuotable = type === "FLOW" && flowProblem === null;
+  const moves = movesFor(order.status, type, flowQuotable);
 
   if (moves.length === 0) {
     return (
@@ -51,6 +57,7 @@ export async function OrderActionBar({
           id={id}
           status={order.status}
           type={type}
+          flowQuotable={flowQuotable}
           clientEmail={order.client.email}
           clientPaymentTerms={order.client.paymentTerms}
           staff={staff}

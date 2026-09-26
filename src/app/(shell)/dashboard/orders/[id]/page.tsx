@@ -29,6 +29,7 @@ import { FlowTermsCard } from "@/components/orders/flow/flow-terms-card";
 import { FlowScheduleCard } from "@/components/orders/flow/flow-schedule-card";
 import { FlowEconomicsCard } from "@/components/orders/flow/flow-economics-card";
 import { getFlowRecord } from "@/lib/queries/flow-record";
+import { flowQuoteProblem } from "@/lib/flow-terms-server";
 import { OrderDocumentsCard } from "@/components/orders/documents-card";
 import { ShippingCard } from "@/components/orders/shipping-card";
 import { ConversionCard } from "@/components/tracker/conversion-card";
@@ -199,6 +200,9 @@ export default async function OrderRecordPage({
   const isFlow = header.type === "FLOW";
   // Cached per request: the three Flow cards below read the same record.
   const flowRecord = isFlow ? await getFlowRecord(id) : null;
+  // A Flow order has a client quote once its schedule prices — the same gate
+  // the link, the send and the signed PDF apply (flowQuoteProblem).
+  const flowQuotable = isFlow ? (await flowQuoteProblem(id)) === null : false;
   const hasUnits = progress.ordered > 0;
   const unitsOut = hasUnits ? await unitsOutOn(header.id) : [];
   // A fixed-term rental that is out: its return date is real, so it can run
@@ -232,9 +236,9 @@ export default async function OrderRecordPage({
                 before it is sent, the live page once it is, what their link
                 says after they answer. A preview: no link is issued and nothing
                 is marked viewed (app/quote/preview). */}
-            {/* Flow has no client quote yet (it comes with the Flow quote), so
-                there is nothing priced to preview. */}
-            {isFlow ? null : (
+            {/* A Flow order whose schedule cannot be priced has no client
+                quote to preview. */}
+            {isFlow && !flowQuotable ? null : (
             <a
               href={`/quote/preview/${header.id}`}
               target="_blank"
@@ -444,7 +448,7 @@ export default async function OrderRecordPage({
               quote is the document that says the client agreed to those
               numbers. */}
           <Suspense fallback={<CardSkeleton title="Documents" rows={3} />}>
-            <OrderDocumentsCard id={id} status={header.status} />
+            <OrderDocumentsCard id={id} status={header.status} flowQuote={flowQuotable} />
           </Suspense>
 
           <Suspense fallback={<CardSkeleton title="Activity" rows={5} />}>

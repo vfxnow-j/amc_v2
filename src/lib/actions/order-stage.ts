@@ -5,6 +5,7 @@ import { addDays } from "date-fns";
 import { prisma } from "@/lib/prisma";
 import { recurringFor } from "@/lib/orders/recurring";
 import { FLOW_NOT_INVOICED } from "@/lib/orders/types";
+import { flowQuoteProblem } from "@/lib/flow-terms-server";
 import { speedApplies, type ShippingSpeed } from "@/lib/orders/shipping";
 import { handoverShortfall, shortfallMessage, type MissingLine } from "@/lib/orders/handover";
 import { parseDateInput } from "@/lib/billing/calendar";
@@ -166,11 +167,15 @@ export async function sendOrderQuote(
   const auth = await requireEditor();
   if (!auth.authorized) return { status: "error", message: auth.error ?? "Unauthorized" };
 
-  // No client quote exists for Flow yet (see generateQuoteToken); refuse before
-  // the stage moves on a send that could carry no link.
+  // A Flow order is quoted by its payment schedule, so it can only be sent once
+  // that schedule prices (the same gate generateQuoteToken applies). Refused
+  // here, before the stage moves on a send that could carry no link.
   const flow = await prisma.reservation.findUnique({ where: { id }, select: { reservationType: true } });
   if (flow?.reservationType === "FLOW") {
-    return { status: "error", message: "Flow orders don't have a client quote yet." };
+    const problem = await flowQuoteProblem(id);
+    if (problem) {
+      return { status: "error", message: `This Flow order can't be quoted to the client yet: ${problem}` };
+    }
   }
 
   const hold = await held(id, "sending it", "Send the quote to the client");

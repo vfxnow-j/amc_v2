@@ -12,6 +12,9 @@ import { portalQuoteHold, quoteGate } from '@/lib/approvals/core'
 import { lineTitle } from '@/lib/quotes/line-title'
 import { paymentLineForOption } from '@/lib/billing/payment-schedule'
 import { getBillingAnchor } from '@/lib/settings/business'
+import { flowQuotePayload } from '@/lib/pricing/flow-client-payload'
+import { buildFlowTermsSnapshot, flowQuoteProblem, flowTermsForReservation } from '@/lib/flow-terms-server'
+import { checkFlowApproval } from '@/lib/flow/approval'
 
 const TOKEN_EXPIRY_DAYS = 30
 
@@ -27,12 +30,12 @@ export async function generateQuoteToken(reservationId: string) {
   })
 
   if (!reservation) throw new Error('Reservation not found')
-  // The client quote page renders rental, sale and rent-to-own pricing; a Flow
-  // line's rate is its whole-term contract value and would read as a monthly
-  // price (v1 7bb38b1). This is the only place a QuoteToken is minted, so no link
-  // can exist for a Flow order until its quote is built.
+  // A Flow order's client quote is its payment schedule (buildQuote below), so a
+  // link can only exist once that schedule can be priced. This is the only place
+  // a QuoteToken is minted, so every link and every send passes this gate.
   if (reservation.reservationType === 'FLOW') {
-    throw new Error("Flow orders don't have a client quote yet.")
+    const problem = await flowQuoteProblem(reservationId)
+    if (problem) throw new Error(`This Flow order can't be quoted to the client yet: ${problem}`)
   }
   const allowedStatuses = ['DRAFT', 'REVISION', 'QUOTE_SENT', 'APPROVED']
   if (!allowedStatuses.includes(reservation.status)) {
@@ -347,6 +350,10 @@ async function buildQuote(
   const clientDelivery = activeFinancials.deliveryCost
   const clientReturn = activeFinancials.returnCost
 
+  if (reservation.reservationType === 'FLOW') {
+    return buildFlowQuote(reservation, activeItems as QuoteReservation['items'], activeFinancials, issuedAt, tokenExpiresAt)
+  }
+
   return serialize({
     reservationNumber: reservation.reservationNumber,
     reservationType: reservation.reservationType,
@@ -394,6 +401,37 @@ async function buildQuote(
 }
 
 /**
+ * The client's view of a Flow order (ported from v1 buildQuote's FLOW branch):
+ * the payment schedule, the gear with quantities only, and the terms they agree
+ * to — the frozen snapshot once approved, else a live render. Shaped by the pure
+ * flowQuotePayload, which the client-safe test exercises.
+ */
+async function buildFlowQuote(
+  reservation: QuoteReservation,
+  activeItems: QuoteReservation['items'],
+  financials: ReturnType<typeof computeReservationFinancials>,
+  issuedAt: Date | null,
+  tokenExpiresAt: Date | null,
+) {
+  const terms = await flowTermsForReservation(reservation.id)
+  const payload = flowQuotePayload({
+    order: reservation,
+    lines: activeItems,
+    extras: {
+      discountAmount: financials.discountAmount,
+      taxRate: financials.taxRate,
+      deliveryCost: financials.deliveryCost,
+      returnCost: financials.returnCost,
+    },
+    terms,
+    issuedAt,
+    tokenExpiresAt,
+  })
+  if ('error' in payload) return { error: payload.error }
+  return serialize(payload)
+}
+
+/**
  * Approve a quote — confirms the reservation and records signature (NO AUTH).
  */
 export async function approveQuote(
@@ -401,7 +439,8 @@ export async function approveQuote(
   signerName: string,
   signatureDataUrl: string,
   quantityChanges?: Array<{ itemId: string; newQuantity: number }>,
-  selectedPackageId?: string
+  selectedPackageId?: string,
+  autopay?: { method: 'ACH' | 'CARD' },
 ) {
   const quoteToken = await prisma.quoteToken.findUnique({
     where: { token },
@@ -430,6 +469,17 @@ export async function approveQuote(
   if (quoteToken.expiresAt < new Date()) throw new Error('Quote link expired')
   if (quoteToken.usedAt) throw new Error('Quote already responded to')
 
+  // The signature is drawn on the page and arrives as a PNG data URL. It is put
+  // straight into the signed PDF, whose renderer would fetch a remote URL, so
+  // anything else from this public endpoint is refused.
+  if (
+    typeof signatureDataUrl !== 'string' ||
+    signatureDataUrl.length > 2_000_000 ||
+    !/^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(signatureDataUrl)
+  ) {
+    throw new Error('Sign in the box to approve.')
+  }
+
   const { reservation } = quoteToken
 
   if (reservation.status !== 'DRAFT' && reservation.status !== 'QUOTE_SENT') {
@@ -440,6 +490,31 @@ export async function approveQuote(
   // cannot be accepted until the new figure is approved and sent again.
   const portalHold = await portalQuoteHold(reservation.id)
   if (portalHold) throw new Error(portalHold)
+
+  // Flow (v1): approved as quoted, with autopay authorized, and the terms the
+  // client agreed to frozen onto the order. The terms are rendered here from the
+  // current settings — never taken from the browser — and built before the
+  // transaction opens, because the render reads through the global client.
+  let flowApproval: {
+    snapshot: Awaited<ReturnType<typeof buildFlowTermsSnapshot>>
+    autopayMethod: 'ACH' | 'CARD'
+    signerName: string
+  } | null = null
+  if (reservation.reservationType === 'FLOW') {
+    const check = checkFlowApproval({
+      signerName,
+      quantityChanges,
+      selectedPackageId,
+      activePackageId: reservation.packages.find((p) => p.isActive)?.id ?? null,
+      autopayMethod: autopay && typeof autopay === 'object' ? (autopay as { method?: unknown }).method : undefined,
+    })
+    if (!check.ok) throw new Error(check.error)
+    const snapshot = await buildFlowTermsSnapshot(reservation.id)
+    flowApproval = { snapshot, autopayMethod: check.autopayMethod, signerName: check.signerName }
+    // Nothing below may re-rate a Flow line with rental maths.
+    quantityChanges = undefined
+    selectedPackageId = undefined
+  }
 
   await prisma.$transaction(async (tx) => {
     // Switch active package if client selected a different one
@@ -514,6 +589,13 @@ export async function approveQuote(
         confirmedAt: new Date(),
         actionRequired: false,
         actionRequiredNote: null,
+        ...(flowApproval ? {
+          flowTermsSnapshot: flowApproval.snapshot as unknown as Prisma.InputJsonValue,
+          flowTermsVersion: flowApproval.snapshot.version,
+          flowAutopayMethod: flowApproval.autopayMethod,
+          flowAutopayAuthorizedBy: flowApproval.signerName,
+          flowAutopayAuthorizedAt: new Date(),
+        } : {}),
       },
     })
 

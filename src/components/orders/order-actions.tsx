@@ -52,6 +52,8 @@ export type OrderActionsProps = {
   id: string;
   status: ReservationStatus;
   type: ReservationType;
+  /** Flow only: its schedule prices, so it can be quoted to the client. */
+  flowQuotable?: boolean;
   clientEmail: string | null;
   clientPaymentTerms: number;
   staff: { id: string; name: string }[];
@@ -84,7 +86,7 @@ export function OrderActions(props: OrderActionsProps) {
   const [notReady, setNotReady] = useState<{ move: "activate" | "ship"; missing: MissingLine[] } | null>(null);
   const [busy, startTransition] = useTransition();
 
-  const moves = movesFor(props.status, props.type);
+  const moves = movesFor(props.status, props.type, props.flowQuotable);
 
   /** Every dialog commits through here, so they all behave the same way. */
   function run(work: () => Promise<StageOutcome>) {

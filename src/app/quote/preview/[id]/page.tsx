@@ -62,6 +62,28 @@ export default async function QuotePreviewPage({ params }: Params) {
     notFound();
   }
 
+  // A Flow order whose schedule cannot be priced has no client quote to show
+  // (buildQuote answers with an error rather than a half-priced page).
+  if ("error" in result.quote && result.quote.error) {
+    return (
+      <div className="flex flex-col gap-4">
+        <div className="rounded-2xl bg-white p-10 text-center shadow-sm">
+          <h1 className="text-2xl font-bold tracking-tight">No client quote yet</h1>
+          <p className="mx-auto mt-2 max-w-prose text-sm text-[#71717a]">
+            This order&apos;s schedule cannot be priced yet, so there is nothing to show the client. Fix
+            the term or the lines on the order, then preview again.
+          </p>
+          <Link
+            href={`/dashboard/orders/${id}`}
+            className="mt-4 inline-block text-sm font-semibold underline-offset-2 hover:underline"
+          >
+            ← Back to the order
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   const quote = result.quote as unknown as QuoteData;
   const stage = STAGE_FOR[quote.status] ?? "draft";
   const expired =
