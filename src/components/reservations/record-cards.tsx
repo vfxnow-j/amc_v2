@@ -4,6 +4,7 @@ import { RemoveLine } from "@/components/orders/remove-line";
 import { AddLine } from "@/components/orders/add-line";
 import { ConfigureLine } from "@/components/orders/configure-line";
 import { LineEditor } from "@/components/orders/line-editor";
+import { FlowLineEditor } from "@/components/orders/flow/flow-line-editor";
 import {
   getReservationActivity,
   getReservationLines,
@@ -25,6 +26,11 @@ const STAMP = new Intl.DateTimeFormat("en-US", {
   hour: "numeric",
   minute: "2-digit",
 });
+
+/** A Flow line's contract spread over the term — what it averages a month. */
+function flowMonthly(subtotal: number, termMonths: number | null): number | null {
+  return termMonths && termMonths > 0 ? Math.round((subtotal / termMonths) * 100) / 100 : null;
+}
 
 /** Where a unit has got to on this order. One vocabulary, used everywhere. */
 export function unitState(unit: RecordUnit): {
@@ -50,8 +56,15 @@ export async function LinesCard({
   editable = false,
   window,
   option,
+  flow,
 }: {
   id: string;
+  /**
+   * A Flow order: each line is priced from its cost basis, not a rate, and
+   * bills monthly from the schedule — so the rate cell shows the basis (the
+   * pencil edits it) and the line's monthly average, with no pricing type.
+   */
+  flow?: { termMonths: number | null; basisLock: string | null };
   /** Show and add to one quote option; its name heads the card when there are several. */
   option?: { id: string; name: string; several: boolean };
   /** Whether lines can still be changed — false once the order is closed. */
@@ -128,7 +141,36 @@ export async function LinesCard({
                   </span>
                 ) : null}
               </span>
-              {editable ? (
+              {flow ? (
+                editable ? (
+                  <FlowLineEditor
+                    reservationId={id}
+                    itemId={line.id}
+                    quantity={line.quantity}
+                    costBasis={line.costBasis}
+                    trueCost={line.trueCost}
+                    monthly={flowMonthly(line.subtotal, flow.termMonths)}
+                    basisLock={flow.basisLock}
+                  />
+                ) : (
+                  <>
+                    <span className="text-right tabular-nums text-ink-muted">
+                      ×{line.quantity}
+                    </span>
+                    <span className="flex flex-col items-end tabular-nums text-ink-muted">
+                      <span>
+                        <span className="text-micro text-ink-faint">basis </span>
+                        {line.costBasis == null ? "—" : MONEY.format(line.costBasis)}
+                      </span>
+                      {flowMonthly(line.subtotal, flow.termMonths) != null ? (
+                        <span className="text-micro text-ink-faint">
+                          ≈ {MONEY.format(flowMonthly(line.subtotal, flow.termMonths) ?? 0)}/mo avg
+                        </span>
+                      ) : null}
+                    </span>
+                  </>
+                )
+              ) : editable ? (
                 <LineEditor
                   reservationId={id}
                   itemId={line.id}

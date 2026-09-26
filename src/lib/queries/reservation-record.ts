@@ -171,6 +171,9 @@ export type RecordLine = {
   pricingType: string;
   subtotal: number;
   isOneTime: boolean;
+  /** Flow: the per-unit pricing basis, and what one unit cost us. Null elsewhere. */
+  costBasis: number | null;
+  trueCost: number | null;
   packageName: string | null;
   units: RecordUnit[];
   /** Ordered quantity not yet covered by an assigned or checked-out unit. */
@@ -221,6 +224,8 @@ export async function getReservationLines(
       pricingType: true,
       subtotal: true,
       isOneTime: true,
+      costBasis: true,
+      trueCost: true,
       assetId: true,
       asset: {
         select: {
@@ -326,6 +331,8 @@ export async function getReservationLines(
       pricingType: item.pricingType,
       subtotal: Number(item.subtotal),
       isOneTime: item.isOneTime,
+      costBasis: item.costBasis == null ? null : Number(item.costBasis),
+      trueCost: item.trueCost == null ? null : Number(item.trueCost),
       packageName: item.package?.name ?? null,
       units,
       // Only asset-backed lines have units to assign; a service line is never

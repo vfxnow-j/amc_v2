@@ -151,7 +151,15 @@ const MOVES: Record<ReservationStatus, MoveSpec[]> = {
 };
 
 export function movesFor(status: ReservationStatus, type: ReservationType): MoveSpec[] {
-  const moves = MOVES[status] ?? [];
+  // A Flow order has no client quote yet (createQuoteLink refuses one), so it
+  // is not offered a send. It is approved by hand until the Flow quote exists.
+  const moves = (MOVES[status] ?? [])
+    .filter((spec) => !(type === "FLOW" && spec.move === "send-quote"))
+    .map((spec, _, kept) =>
+      type === "FLOW" && spec.move === "approve" && !kept.some((other) => other.primary)
+        ? { ...spec, primary: true }
+        : spec,
+    );
   // A sale is never shipped back and never "completed" by return — it is done
   // when it is paid. `markShipped` still applies (the kit leaves the building),
   // so only the wording changes.

@@ -164,6 +164,9 @@ export async function OrderBillingCard({
           {CYCLE_LABEL[billing.cycleType]}
           {when ? <span className="block text-micro text-ink-faint">{when}</span> : null}
         </Field>
+        {/* Flow is billed from its schedule, which invoicing does not read yet —
+            so it has no next invoice to show, only its status (the empty state). */}
+        {type === "FLOW" ? null : (
         <Field label="Next invoice">
           {billing.notBilled ? (
             <Unset>Never</Unset>
@@ -182,6 +185,7 @@ export async function OrderBillingCard({
             <Unset>Not scheduled</Unset>
           )}
         </Field>
+        )}
         <Field label="Discount">
           {billing.discountType && billing.discountValue > 0 ? (
             <>
@@ -255,7 +259,9 @@ export async function OrderBillingCard({
       {/* What the terms have produced. */}
       {invoiced.rows.length === 0 ? (
         <CardEmpty>
-          {billing.notBilled
+          {type === "FLOW"
+            ? "Flow invoicing isn't wired yet — this order is billed from its schedule once it is. Nothing has been raised, and the billing run skips it."
+            : billing.notBilled
             ? "Marked not billed, so the billing run skips it entirely. It still tracks units, location and revenue — it just never raises an invoice."
             : onCycle && !billing.nextBillingDate
               ? "This order recurs but has no next billing date, so the billing run will not pick it up. Save its terms again to schedule one."
