@@ -13,6 +13,7 @@ import { pricingTypeLabels, allDeliveryMethodLabels } from '@/lib/types'
 import { formatTermLength, formatTermNote } from '@/lib/pricing/periods'
 import { computeReservationFinancials } from '@/lib/pricing/financials'
 import { lineTitle } from '@/lib/quotes/line-title'
+import { paymentLineForOrder } from '@/lib/billing/order-payment-schedule'
 
 // In standalone mode process.cwd() resolves to .next/standalone/ which gets
 // wiped on every rebuild. Use a stable project-root path for persistent storage.
@@ -406,6 +407,7 @@ export async function generateSignedQuoteDocument(
     })
 
     const { QuotePDF } = await import('@/components/documents/quote-pdf')
+    const payment = await paymentLineForOrder(reservation.id)
 
     const quoteData = {
       entityType: 'RESERVATION' as const,
@@ -461,6 +463,7 @@ export async function generateSignedQuoteDocument(
       returnTrackingNumber: reservation.returnTrackingNumber || undefined,
       total: financials.total,
       notes: reservation.notes || undefined,
+      paymentLine: payment ?? undefined,
     }
 
     const logoDataUri = await getServerLogoDataUri()

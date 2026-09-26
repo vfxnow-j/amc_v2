@@ -82,6 +82,8 @@ export type OrderDetailData = {
   rtoBuyoutPrice?: number
   rtoInstallmentsPaid?: number
   rtoStartDate?: string
+  /** "Monthly payment: $X + tax = $Y × N months · Term total $Z", and first/final invoice notes. */
+  paymentLine?: { headline: string; notes: string[] }
 }
 
 type Props = {

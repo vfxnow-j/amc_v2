@@ -317,6 +317,15 @@ export function QuotePDF({ data, logoDataUri, signatureDataUrl, signerName, sign
           )
         })()}
 
+        {data.paymentLine && (
+          <View style={{ marginTop: 12, backgroundColor: '#f9fafb', padding: 10, borderRadius: 4 }} wrap={false}>
+            <Text style={{ fontSize: 10, fontFamily: 'Helvetica-Bold', color: '#111827' }}>{data.paymentLine.headline}</Text>
+            {data.paymentLine.notes.map((note, i) => (
+              <Text key={i} style={{ fontSize: 8, color: '#6b7280', marginTop: 2 }}>{note}</Text>
+            ))}
+          </View>
+        )}
+
         {/* Delivery & Return — keep together */}
         {hasDeliveryInfo && (
           <View style={{ marginBottom: 16 }} wrap={false}>

@@ -85,6 +85,7 @@ export type QuoteData = {
   rtoMonthlyPayment: number | null;
   rtoBuyoutPrice: number | null;
   packages?: QuotePackage[];
+  paymentLine: { headline: string; notes: string[] } | null;
 };
 
 const money = (value: number) =>
@@ -253,6 +254,15 @@ export function QuotePortal({
       <Lines categories={shown.categories} />
 
       <Totals quote={quote} shown={shown} />
+
+      {quote.paymentLine ? (
+        <section className="rounded-2xl bg-white p-5 shadow-sm">
+          <p className="text-sm font-semibold">{quote.paymentLine.headline}</p>
+          {quote.paymentLine.notes.map((note) => (
+            <p key={note} className="mt-1 text-xs text-[#71717a]">{note}</p>
+          ))}
+        </section>
+      ) : null}
 
       {quote.rtoTermMonths || quote.rtoMonthlyPayment ? (
         <section className="rounded-2xl bg-white p-5 shadow-sm">

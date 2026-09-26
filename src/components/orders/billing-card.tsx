@@ -11,6 +11,7 @@ import {
   WEEKDAY_LABEL,
 } from "@/lib/billing/calendar";
 import { getBillingAnchor } from "@/lib/settings/business";
+import { paymentLineForOrder } from "@/lib/billing/order-payment-schedule";
 import { dealFor } from "@/lib/orders/deal";
 import {
   EditBillingTerms,
@@ -105,6 +106,7 @@ export async function OrderBillingCard({
   // The day is the business's (Settings → Business), not the order's stored
   // `billingCycleDay`, which the billing run no longer reads for these cycles.
   const anchor = await getBillingAnchor();
+  const payment = await paymentLineForOrder(id);
   // A recurring order whose next invoice date is already behind today was
   // never rolled on — v1's billing run skips orders its flag calls
   // non-recurring. Say how many periods that is rather than print a stale date.
@@ -206,6 +208,14 @@ export async function OrderBillingCard({
           )}
         </Field>
         <Field label={deal.recurring ? "Per cycle" : "Order value"}>{moneyExact(billing.total)}</Field>
+        {payment ? (
+          <Field label="Payment">
+            {payment.headline}
+            {payment.notes.map((note) => (
+              <span key={note} className="block text-micro text-ink-faint">{note}</span>
+            ))}
+          </Field>
+        ) : null}
         {deal.recurring ? (
           <Field label="Deal">
             {deal.dealRevenue !== null ? (

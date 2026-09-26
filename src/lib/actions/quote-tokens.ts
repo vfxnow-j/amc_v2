@@ -10,6 +10,7 @@ import { computeReservationFinancials, deriveItemAmount } from '@/lib/pricing/fi
 import crypto from 'crypto'
 import { portalQuoteHold, quoteGate } from '@/lib/approvals/core'
 import { lineTitle } from '@/lib/quotes/line-title'
+import { paymentLineForOrder } from '@/lib/billing/order-payment-schedule'
 
 const TOKEN_EXPIRY_DAYS = 30
 
@@ -372,6 +373,7 @@ async function buildQuote(
     rtoBuyoutPrice: reservation.rtoBuyoutPrice ? Number(reservation.rtoBuyoutPrice) : null,
     // Multi-package data
     packages: packages.length > 1 ? packages : undefined,
+    paymentLine: await paymentLineForOrder(reservation.id),
   })
 }
 
