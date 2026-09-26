@@ -39,7 +39,7 @@ import { carryFlowLine, matchFlowLines } from '@/lib/flow/line-carry'
 import { loadFlowDefaults } from '@/lib/flow/order-inputs'
 import { duplicateOrderTx, duplicateTargetType } from '@/lib/orders/duplicate'
 import { repriceFlowTx } from '@/lib/flow/reprice'
-import { buildFlowTermsSnapshot } from '@/lib/flow-terms-server'
+import { buildFlowTermsSnapshot, flowTermsForReservation, loadFlowTermsSettings } from '@/lib/flow-terms-server'
 import { addTermMonths, flowCreateLineCost, flowSnapshotLineCost } from '@/lib/flow/stored-money'
 // Transaction client type for passing prisma tx to helpers
 type TxClient = Omit<typeof prisma, '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'>
@@ -563,7 +563,19 @@ export async function getReservation(id: string) {
     },
   })
 
-  return serialize(reservation)
+  // Flow orders only (v1): the subscription terms addendum — the frozen snapshot
+  // once approved, otherwise a live render — and the settings' extension default.
+  const isFlow = reservation?.reservationType === 'FLOW'
+  const flowTerms = isFlow
+    ? await flowTermsForReservation(id).catch((e) => {
+        console.error('Flow terms unavailable for', id, e)
+        return null
+      })
+    : null
+  const flowExtensionDefaultPct = isFlow ? (await loadFlowTermsSettings()).extensionPct : undefined
+
+  const serialized = serialize(reservation)
+  return serialized ? { ...serialized, flowTerms: flowTerms ?? undefined, flowExtensionDefaultPct } : serialized
 }
 
 export async function createReservation(input: ReservationFormData) {
