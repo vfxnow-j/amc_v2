@@ -1,5 +1,9 @@
 import { prisma } from '@/lib/prisma'
 import { addDays, addMonths } from 'date-fns'
+import { flowConfigFromSettings, priceFlowLines } from '@/lib/pricing/flow-lines'
+import { applyFlowDefaults } from '@/lib/flow/defaults'
+import { loadFlowDefaults } from '@/lib/flow/order-inputs'
+import { flowAccrualInWindow } from '@/lib/flow/accrual'
 
 /**
  * Earned (accrual-basis) revenue for a time window.
@@ -15,8 +19,17 @@ import { addDays, addMonths } from 'date-fns'
  *    billing period. A monthly order active 6 months has earned 6× its cycle
  *    amount even if only one invoice was ever cut.
  *  - sales: completed SALE orders, recognized at completion.
+ *
+ * FLOW is recurring too, but its `total` is the WHOLE contract and its rate steps
+ * at each anniversary, so it accrues the schedule's rate for each elapsed month of
+ * the term (lib/flow/accrual, v1 cb456d2) rather than total × cycles. The
+ * schedule is rebuilt from the stored lines and the order's pricing knobs (blank
+ * ones filled from the house defaults, as the order page does). It depends on
+ * neither the lease funding nor the gear's age, so those are not loaded.
  */
 export type ReservationTypeKey = 'RENTAL' | 'SALE' | 'RENT_TO_OWN' | 'FLOW' | 'CLOUD'
+
+type FlowLine = Parameters<typeof priceFlowLines>[0][number]
 
 export type EarnedRevenueBreakdown = {
   total: number
@@ -76,6 +89,7 @@ export async function getEarnedRevenue(from: Date, to: Date): Promise<EarnedReve
         notBilled: false,
       },
       select: {
+        id: true,
         total: true,
         reservationType: true,
         billingCycleType: true,
@@ -84,6 +98,19 @@ export async function getEarnedRevenue(from: Date, to: Date): Promise<EarnedReve
         recurrenceEndDate: true,
         completedAt: true,
         status: true,
+        // Flow only — the schedule is rebuilt from these and the lines.
+        flowStartDate: true,
+        flowMonthlyPayment: true,
+        flowTermMonths: true,
+        flowStepPct: true,
+        flowMarginPct: true,
+        flowFinancePct: true,
+        flowPurchaseTaxPct: true,
+        flowTaxExempt: true,
+        flowRecoverByMonth: true,
+        flowDeprPct: true,
+        flowLifeMonths: true,
+        flowPeriodsBilled: true,
       },
     }),
     // Sales recognized at completion.
@@ -114,6 +141,28 @@ export async function getEarnedRevenue(from: Date, to: Date): Promise<EarnedReve
   const sales = Number(salesAgg._sum.total ?? 0)
   addType('SALE', sales)
 
+  // Flow lines (active package only — the one the stored totals are priced off),
+  // and the house defaults their blank knobs fall back to.
+  const flowIds = recurringOrders.filter((r) => r.reservationType === 'FLOW').map((r) => r.id)
+  const flowLinesByOrder = new Map<string, FlowLine[]>()
+  const flowDefaults = flowIds.length ? await loadFlowDefaults(prisma) : null
+  if (flowIds.length) {
+    const flowItems = await prisma.reservationItem.findMany({
+      where: {
+        reservationId: { in: flowIds },
+        parentId: null,
+        OR: [{ packageId: null }, { package: { is: { isActive: true } } }],
+      },
+      select: { reservationId: true, description: true, costBasis: true, trueCost: true, quantity: true, flowAddedAtMonth: true },
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+    })
+    for (const i of flowItems) {
+      const list = flowLinesByOrder.get(i.reservationId) || []
+      list.push({ name: i.description, costBasis: i.costBasis, trueCost: i.trueCost, quantity: i.quantity, addedAtMonth: i.flowAddedAtMonth })
+      flowLinesByOrder.set(i.reservationId, list)
+    }
+  }
+
   let recurring = 0
   for (const r of recurringOrders) {
     // For recurring orders, `endDate` is only the FIRST period's end — the
@@ -123,6 +172,24 @@ export async function getEarnedRevenue(from: Date, to: Date): Promise<EarnedReve
     if (r.recurrenceEndDate) candidates.push(new Date(r.recurrenceEndDate).getTime())
     if (r.status === 'COMPLETED' && r.completedAt) candidates.push(new Date(r.completedAt).getTime())
     const effectiveEnd = new Date(Math.min(...candidates))
+
+    if (r.reservationType === 'FLOW') {
+      const config = flowDefaults ? flowConfigFromSettings(applyFlowDefaults(r, flowDefaults)) : null
+      const start = new Date(r.flowStartDate ?? r.startDate)
+      let amount = 0
+      if (config) {
+        const priced = priceFlowLines(flowLinesByOrder.get(r.id) || [], config)
+        // A stored Flow order is always priceable (the server refuses to save one
+        // that is not); if it somehow is not, fall back to the stored payment.
+        const rateForMonth = priced.ok
+          ? priced.result.rateForMonth
+          : () => Number(r.flowMonthlyPayment ?? 0)
+        amount = flowAccrualInWindow({ start, effectiveEnd, from, to, termMonths: config.termMonths, rateForMonth })
+      }
+      recurring += amount
+      addType(r.reservationType, amount)
+      continue
+    }
 
     const cycles = cyclesInWindow({
       start: new Date(r.startDate),

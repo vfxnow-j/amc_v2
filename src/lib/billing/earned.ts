@@ -45,8 +45,9 @@
  *
  * Everything that does not recur keeps its checkout charge, which already
  * covers the whole term: a one-time rental, a sale, a rent-to-own (its charge
- * is full value; installments are the financing, not the earning), and an
- * order marked not billed.
+ * is full value; installments are the financing, not the earning), a Flow
+ * order (its line rate is the whole-term contract value), and an order marked
+ * not billed.
  *
  * No server-only imports, so the rule can be checked on its own.
  */
@@ -185,7 +186,10 @@ export function earnedRevenue(
     !order ||
     !order.isRecurring ||
     order.notBilled ||
-    order.reservationType === "RENT_TO_OWN"
+    order.reservationType === "RENT_TO_OWN" ||
+    // A Flow line's rate is its whole-term contract value, so it must never be
+    // multiplied per period; the checkout keeps its own charge (v1 7bb38b1).
+    order.reservationType === "FLOW"
   ) {
     return charge;
   }

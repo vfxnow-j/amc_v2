@@ -97,6 +97,7 @@ export async function OrderBillingCard({
     totalCost: billing.totalCost,
     termMonths: billing.termMonths,
     rtoTermMonths: billing.rtoTermMonths,
+    flowTermMonths: billing.flowTermMonths,
   });
 
   const recurring = billing.cycleType !== "ONE_TIME" && billing.isRecurring;
@@ -210,7 +211,10 @@ export async function OrderBillingCard({
             </>
           )}
         </Field>
-        <Field label={deal.recurring ? "Per cycle" : "Order value"}>{moneyExact(billing.total)}</Field>
+        {/* A Flow order's total is its whole-term contract, never one cycle. */}
+        <Field label={type === "FLOW" ? "Contract value" : deal.recurring ? "Per cycle" : "Order value"}>
+          {moneyExact(billing.total)}
+        </Field>
         {payment ? (
           <Field label="Payment">
             {payment.headline}
@@ -223,9 +227,10 @@ export async function OrderBillingCard({
           <Field label="Deal">
             {deal.dealRevenue !== null ? (
               <>
-                {deal.months}-month deal · {moneyExact(deal.dealRevenue)}
+                {deal.months ? `${deal.months}-month deal · ` : ""}
+                {moneyExact(deal.dealRevenue)}
                 <span className="block text-micro text-ink-faint">
-                  {moneyExact(deal.perMonth ?? 0)}/mo after discount, before tax
+                  {moneyExact(deal.perMonth ?? 0)}/mo{type === "FLOW" ? " on average" : ""} after discount, before tax
                   {deal.margin !== null
                     ? ` · margin ${moneyExact(deal.margin)} after ${moneyExact(deal.cost ?? 0)} cost`
                     : ""}

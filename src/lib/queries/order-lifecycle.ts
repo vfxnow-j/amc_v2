@@ -57,6 +57,7 @@ export type OrderLifecycle = {
     totalCost: number | null;
     termMonths: number | null;
     rtoTermMonths: number | null;
+    flowTermMonths: number | null;
   };
   /**
    * Everything raised against the order, and the totals over it.
@@ -176,6 +177,7 @@ export async function getOrderLifecycle(
         totalCost: true,
         termMonths: true,
         rtoTermMonths: true,
+        flowTermMonths: true,
       },
     }),
     prisma.invoice.findMany({
@@ -252,6 +254,7 @@ export async function getOrderLifecycle(
       totalCost: order.totalCost === null ? null : Number(order.totalCost),
       termMonths: order.termMonths,
       rtoTermMonths: order.rtoTermMonths,
+      flowTermMonths: order.flowTermMonths,
     },
     invoiced: {
       // Void and canceled invoices carry a total nobody is waiting for, so they

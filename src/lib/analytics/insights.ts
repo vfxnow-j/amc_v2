@@ -256,6 +256,7 @@ async function generateInsights(
           discountAmount: true,
           termMonths: true,
           rtoTermMonths: true,
+          flowTermMonths: true,
           client: { select: { name: true } },
         },
       }),
@@ -738,6 +739,7 @@ async function generateInsights(
           totalCost: r.totalCost === null ? null : Number(r.totalCost),
           termMonths: r.termMonths,
           rtoTermMonths: r.rtoTermMonths,
+          flowTermMonths: r.flowTermMonths,
         }),
       }))
 

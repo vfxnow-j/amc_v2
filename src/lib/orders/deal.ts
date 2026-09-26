@@ -14,6 +14,11 @@ import type { BillingCycleType, ReservationType } from "@/generated/prisma/clien
  * says so (`dealRevenue` null) and gives the months it takes to cover the cost
  * instead, rather than guessing a length.
  *
+ * A Flow order is the exception: its lines are priced at their whole-term
+ * contract value, so its subtotal is already the deal, over `flowTermMonths`.
+ * Its per-month figure is that deal spread evenly over the term — an average,
+ * since the real schedule steps down after each anniversary.
+ *
  * Cost is taken as one-time: `totalCost` is item cost basis plus shipping,
  * sub-rental and hardware, none of which recur per period in this schema.
  */
@@ -28,6 +33,7 @@ export type DealInput = {
   totalCost: number | null;
   termMonths: number | null;
   rtoTermMonths?: number | null;
+  flowTermMonths?: number | null;
 };
 
 export type Deal = {
@@ -64,6 +70,21 @@ function periodsPerMonth(cycle: BillingCycleType): number | null {
 export function dealFor(input: DealInput): Deal {
   const period = Math.max(0, input.subtotal - input.discountAmount);
   const cost = input.totalCost;
+
+  if (input.type === "FLOW") {
+    const months = input.flowTermMonths && input.flowTermMonths > 0 ? input.flowTermMonths : null;
+    const perMonth = months ? period / months : null;
+    return {
+      recurring: true,
+      perMonth,
+      months,
+      dealRevenue: period,
+      cost,
+      margin: cost === null ? null : period - cost,
+      paybackMonths: cost && cost > 0 && perMonth && perMonth > 0 ? cost / perMonth : null,
+    };
+  }
+
   const perPeriod = periodsPerMonth(input.cycleType);
   const recurring = input.isRecurring && input.cycleType !== "ONE_TIME" && perPeriod !== null;
 

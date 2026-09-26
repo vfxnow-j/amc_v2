@@ -12,11 +12,17 @@ import { prisma } from "@/lib/prisma";
 
 export type ContractKind = "order" | "lease";
 
+/**
+ * The order types that are contracts: a sale, a rent-to-own, and a Flow
+ * subscription — each a term commercial deal with a contract value.
+ */
+const CONTRACT_TYPES: ("SALE" | "RENT_TO_OWN" | "FLOW")[] = ["SALE", "RENT_TO_OWN", "FLOW"];
+
 /** Which of the two a contract id belongs to, or null if neither. */
 export async function getContractKind(id: string): Promise<ContractKind | null> {
   const [order, lease] = await Promise.all([
     prisma.reservation.count({
-      where: { id, reservationType: { in: ["SALE", "RENT_TO_OWN"] } },
+      where: { id, reservationType: { in: CONTRACT_TYPES } },
     }),
     prisma.lease.count({ where: { id } }),
   ]);
@@ -25,11 +31,11 @@ export async function getContractKind(id: string): Promise<ContractKind | null> 
   return null;
 }
 
-/* ── Sales and rent-to-own ──────────────────────────────────────────────── */
+/* ── Sales, rent-to-own and Flow ───────────────────────────────────────── */
 
 export async function getContractOrder(id: string) {
   const order = await prisma.reservation.findFirst({
-    where: { id, reservationType: { in: ["SALE", "RENT_TO_OWN"] } },
+    where: { id, reservationType: { in: CONTRACT_TYPES } },
     select: {
       id: true,
       reservationNumber: true,
