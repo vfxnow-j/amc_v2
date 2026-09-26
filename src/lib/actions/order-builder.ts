@@ -8,6 +8,7 @@ import type { ReservationType } from "@/generated/prisma/client";
 import type { PricingType } from "@/lib/types";
 import { intendedDay, parseDateInput } from "@/lib/billing/calendar";
 import { addTermMonths } from "@/lib/flow/stored-money";
+import { isFlowTerm, FLOW_TERMS_MESSAGE } from "@/lib/flow/terms";
 import {
   findSubstitutes,
   searchAssetsForWindow,
@@ -154,10 +155,13 @@ export async function createOrder(
 
   // Calendar days at noon UTC (lib/billing/calendar). `new Date("YYYY-MM-DD")`
   // stored UTC midnight, which every Pacific screen then showed a day early.
-  const flowTerm = isFlow ? Math.round(Number(input.flow?.termMonths) || 0) : 0;
-  if (isFlow && flowTerm <= 0) {
-    return { status: "error", message: "Choose the Flow term in months." };
+  // The term must be one of the offered lengths — not merely positive — since it
+  // drives O(termMonths) loops through the Flow pricing engine.
+  const rawFlowTerm = Math.round(Number(input.flow?.termMonths) || 0);
+  if (isFlow && !isFlowTerm(rawFlowTerm)) {
+    return { status: "error", message: FLOW_TERMS_MESSAGE };
   }
+  const flowTerm = isFlow ? rawFlowTerm : 0;
   const start = parseDateInput(input.start);
   const requestedEnd = parseDateInput(input.end);
   if (!start || (input.type !== "SALE" && !isFlow && !requestedEnd)) {

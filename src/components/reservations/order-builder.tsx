@@ -32,6 +32,8 @@ import {
 import { previewFlowDraftEconomics } from "@/lib/actions/flow-preview";
 import type { FlowDraftEconomics } from "@/lib/flow/draft-economics";
 import { applyFlowDefaults, type FlowPricingDefaults } from "@/lib/flow/defaults";
+import { FLOW_TERMS } from "@/lib/flow/terms";
+import { FLOW_KNOB_BOUNDS, type FlowKnobKey } from "@/lib/flow/knob-bounds";
 import { addTermMonths } from "@/lib/flow/stored-money";
 import {
   flowConfigFromSettings,
@@ -113,39 +115,26 @@ const BUILDER_TYPES = ORDER_TYPES;
 /** Terms offered on a rent-to-own, matching what the existing agreements use. */
 const RTO_TERMS = [3, 6, 12, 24, 36];
 
-/** Flow terms, as v1 offers them. The default, 24, is submitted, not just shown. */
-const FLOW_TERMS = [12, 24, 36, 48, 60];
+/**
+ * Flow terms, as v1 offers them. The default, 24, is submitted, not just shown.
+ * FLOW_TERMS is the same array the server checks a term against (lib/flow/terms) —
+ * the builder never offers a length the server would refuse, and vice versa.
+ */
 const FLOW_DEFAULT_TERM = 24;
 
-type FlowKnob =
-  | "marginPct"
-  | "financePct"
-  | "purchaseTaxPct"
-  | "recoverByMonth"
-  | "deprPct"
-  | "lifeMonths"
-  | "stepPct";
+type FlowKnob = FlowKnobKey;
 
-/**
- * The pricing assumptions a Flow order carries, with the ranges the server and
- * v1's form accept. The step has no house default: blank means the schedule is
- * shaped by the recover-by month instead.
- */
-const FLOW_KNOBS: {
-  key: FlowKnob;
-  label: string;
-  min: number;
-  max: number;
-  whole?: boolean;
-}[] = [
-  { key: "marginPct", label: "Margin %", min: 0, max: 500 },
-  { key: "financePct", label: "Finance %", min: 0, max: 100 },
-  { key: "purchaseTaxPct", label: "Purchase tax %", min: 0, max: 100 },
-  { key: "recoverByMonth", label: "Recover by month", min: 1, max: 12, whole: true },
-  { key: "deprPct", label: "Depreciation %/yr", min: 0, max: 100 },
-  { key: "lifeMonths", label: "Life (months)", min: 1, max: 240, whole: true },
-  { key: "stepPct", label: "Step % from month 13", min: 1, max: 100 },
+/** The knob rows, in display order, each carrying the shared bounds. */
+const FLOW_KNOB_ORDER: FlowKnob[] = [
+  "marginPct",
+  "financePct",
+  "purchaseTaxPct",
+  "recoverByMonth",
+  "deprPct",
+  "lifeMonths",
+  "stepPct",
 ];
+const FLOW_KNOBS = FLOW_KNOB_ORDER.map((key) => ({ key, ...FLOW_KNOB_BOUNDS[key] }));
 
 type FlowKnobText = Record<FlowKnob, string>;
 const BLANK_KNOBS: FlowKnobText = {
@@ -468,10 +457,12 @@ export function OrderBuilder({
       : null;
   const economicsKey = economicsRequest ? JSON.stringify(economicsRequest) : "";
   useEffect(() => {
-    if (!economicsKey) return;
+    if (!economicsKey || !economicsRequest) return;
     const ticket = ++economicsTicket.current;
     const timer = setTimeout(() => {
-      previewFlowDraftEconomics(JSON.parse(economicsKey))
+      // economicsRequest is already the object economicsKey was stringified from —
+      // no need to round-trip it back through JSON to get it again.
+      previewFlowDraftEconomics(economicsRequest)
         .then((value) => {
           if (ticket === economicsTicket.current) setFlowEconomics({ key: economicsKey, value });
         })
@@ -480,6 +471,9 @@ export function OrderBuilder({
         });
     }, 300);
     return () => clearTimeout(timer);
+    // economicsKey is economicsRequest's content, so it alone decides when this
+    // reruns; re-running on every economicsRequest identity would break the debounce.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [economicsKey]);
   const economics =
     flowEconomics && flowEconomics.key === economicsKey ? flowEconomics : null;

@@ -34,6 +34,7 @@ import { CHECKOUT_LINE_WHERE, pickScanLine, unitChargeFor } from '@/lib/checkout
 import { calculateReservationTotals, sanitizeMarginPercent } from '@/lib/pricing/reservation-totals'
 import { loadFlowBases } from '@/lib/flow/load-bases'
 import { applyFlowDefaults } from '@/lib/flow/defaults'
+import { assertFlowTerm } from '@/lib/flow/terms'
 import { carryFlowLine, matchFlowLines } from '@/lib/flow/line-carry'
 import { loadFlowDefaults } from '@/lib/flow/order-inputs'
 import { duplicateOrderTx, duplicateTargetType } from '@/lib/orders/duplicate'
@@ -575,8 +576,9 @@ export async function createReservation(input: ReservationFormData) {
   // nothing downstream can read a "deliver by" as a term or a return.
   const startDate = intendedDay(input.startDate)
   const isFlow = input.reservationType === 'FLOW'
-  const flowTerm = isFlow && input.flowTermMonths && input.flowTermMonths > 0 ? Math.round(input.flowTermMonths) : null
-  if (isFlow && !flowTerm) throw new Error('A Flow order needs a term before it can be priced.')
+  // Not merely "positive": termMonths drives O(termMonths) loops through the Flow
+  // pricing engine, so it must be one of the lengths the builder offers.
+  const flowTerm = isFlow ? assertFlowTerm(Math.round(Number(input.flowTermMonths) || 0)) : null
   const data: ReservationFormData = {
     ...input,
     startDate,
@@ -1330,9 +1332,8 @@ export async function updateReservation(id: string, input: Partial<ReservationFo
       }
     } else if (effectiveType === 'FLOW') {
       if (data.flowTermMonths !== undefined) {
-        const term = Math.round(Number(data.flowTermMonths) || 0)
-        if (term <= 0) throw new Error('A Flow order needs a term before it can be priced.')
-        updateData.flowTermMonths = term
+        // Not merely "positive": the same O(termMonths) engine loops as createReservation.
+        updateData.flowTermMonths = assertFlowTerm(Math.round(Number(data.flowTermMonths) || 0))
       }
       if (data.flowMarginPct !== undefined) updateData.flowMarginPct = data.flowMarginPct
       if (data.flowFinancePct !== undefined) updateData.flowFinancePct = data.flowFinancePct

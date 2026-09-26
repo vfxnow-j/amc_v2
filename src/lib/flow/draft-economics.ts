@@ -21,10 +21,14 @@ import type { PrismaClient } from '@/generated/prisma/client'
 import { flowConfigFromSettings } from '@/lib/pricing/flow-lines'
 import { flowOrder, type FlowOrderLine } from '@/lib/pricing/flow-order'
 import { FLOW_LEASE_ASSUMPTION } from '@/lib/pricing/lease-funding'
-import { applyFlowDefaults } from './defaults'
+import type { FlowBasis } from '@/lib/pricing/flow-basis'
+import { applyFlowDefaults, type FlowPricingDefaults } from './defaults'
+import type { OrderFunding } from './funding'
+import { flowKnobsProblem } from './knob-bounds'
 import { loadFlowBases } from './load-bases'
 import { loadFlowFunding } from './load-funding'
 import { loadFlowDefaults } from './order-inputs'
+import { isFlowTerm } from './terms'
 
 type Db = Pick<PrismaClient, 'setting' | 'assetUnit' | 'lease' | 'reservationItemUnit'>
 
@@ -61,29 +65,35 @@ const finite = (v: unknown): number | undefined => {
   return Number.isFinite(n) ? n : undefined
 }
 
-/** Null when the draft cannot be priced: no term, no lines, or gear without a full landed cost. */
-export async function flowDraftEconomics(
-  db: Db,
+export type FlowDraftResolvedLine = { assetId: string; quantity: number; costBasis: number | null }
+
+/**
+ * The pure half of flowDraftEconomics: given the term, the order's raw knobs, its
+ * lines, the gear's already-loaded landed cost (loadFlowBases), its already-loaded
+ * lease funding (loadFlowFunding) and the house pricing defaults (loadFlowDefaults),
+ * price the draft. No Prisma, no clock — everything it needs is a parameter, so it
+ * is testable without a database.
+ *
+ * A blank knob resolves to `defaults` exactly as applyFlowDefaults fills a blank
+ * knob when an order is born, so the preview matches what createReservation would
+ * store. Funding shapes leaseBalance and monthlyNet only — the client's price
+ * (hardware, profit, marginOnContract) never reads it.
+ *
+ * Null when the knobs can't be resolved to a config, or a line's gear has no basis
+ * in `bases` or its landed cost is incomplete (nothing costed, so it can't be
+ * priced as Flow).
+ */
+export function computeFlowDraftEconomics(
   termMonths: number,
   knobs: FlowDraftKnobs,
-  draft: FlowDraftLine[],
-  asOf: Date = new Date(),
-): Promise<FlowDraftEconomics | null> {
-  const term = Math.round(Number(termMonths) || 0)
-  const lines = (draft || [])
-    .filter((l) => l && typeof l.assetId === 'string' && l.assetId)
-    .slice(0, 200)
-    .map((l) => ({
-      assetId: l.assetId,
-      quantity: Math.max(1, Math.round(Number(l.quantity) || 1)),
-      costBasis: finite(l.costBasis) ?? null,
-    }))
-  if (term <= 0 || !lines.length) return null
-
-  const defaults = await loadFlowDefaults(db)
+  lines: FlowDraftResolvedLine[],
+  bases: Record<string, FlowBasis>,
+  funding: OrderFunding,
+  defaults: FlowPricingDefaults,
+): FlowDraftEconomics | null {
   const filled = applyFlowDefaults(
     {
-      flowTermMonths: term,
+      flowTermMonths: termMonths,
       flowMarginPct: finite(knobs.marginPct) ?? null,
       flowFinancePct: finite(knobs.financePct) ?? null,
       flowPurchaseTaxPct: finite(knobs.purchaseTaxPct) ?? null,
@@ -98,7 +108,6 @@ export async function flowDraftEconomics(
   const config = flowConfigFromSettings(filled)
   if (!config) return null
 
-  const bases = await loadFlowBases(db, lines.map((l) => l.assetId), asOf)
   const orderLines: FlowOrderLine[] = []
   let ageWeighted = 0
   let ageUnits = 0
@@ -116,14 +125,6 @@ export async function flowDraftEconomics(
     }
   }
 
-  const funding = await loadFlowFunding(
-    db,
-    { id: 'draft', flowTermMonths: term, flowAssumedAprPct: null, flowAssumedNoteMonths: null },
-    lines.map((l, i) => ({ id: `draft-${i}`, assetId: l.assetId, quantity: l.quantity })),
-    asOf,
-    { aprPct: defaults.assumedAprPct, noteMonths: FLOW_LEASE_ASSUMPTION.noteMonths },
-  )
-
   const result = flowOrder(orderLines, {
     ...config,
     monthsInService: ageUnits ? Math.round(ageWeighted / ageUnits) : 0,
@@ -138,4 +139,57 @@ export async function flowDraftEconomics(
     marginOnContract: e.marginOnContract,
     assumedUnits: funding.assumedCount,
   }
+}
+
+/** Null when the draft cannot be priced: no term, no lines, or gear without a full landed cost. */
+export async function flowDraftEconomics(
+  db: Db,
+  termMonths: number,
+  knobs: FlowDraftKnobs,
+  draft: FlowDraftLine[],
+  asOf: Date = new Date(),
+): Promise<FlowDraftEconomics | null> {
+  // Not merely "positive": termMonths drives O(termMonths) loops through the Flow
+  // pricing engine (lib/pricing/flow.ts), so it must be one of the offered terms.
+  if (!isFlowTerm(termMonths)) return null
+  const term = termMonths
+  const lines = (draft || [])
+    .filter((l) => l && typeof l.assetId === 'string' && l.assetId)
+    .slice(0, 200)
+    .map((l) => ({
+      assetId: l.assetId,
+      // Bounded above too: a draft line's quantity is typed by hand, not looked up.
+      quantity: Math.min(999, Math.max(1, Math.round(Number(l.quantity) || 1))),
+      costBasis: (() => {
+        const n = finite(l.costBasis)
+        return n != null && n >= 0 ? n : null
+      })(),
+    }))
+  if (!lines.length) return null
+
+  if (
+    flowKnobsProblem({
+      marginPct: finite(knobs.marginPct) ?? null,
+      financePct: finite(knobs.financePct) ?? null,
+      purchaseTaxPct: finite(knobs.purchaseTaxPct) ?? null,
+      recoverByMonth: finite(knobs.recoverByMonth) ?? null,
+      deprPct: finite(knobs.deprPct) ?? null,
+      lifeMonths: finite(knobs.lifeMonths) ?? null,
+      stepPct: finite(knobs.stepPct) ?? null,
+    })
+  ) {
+    return null
+  }
+
+  const defaults = await loadFlowDefaults(db)
+  const bases = await loadFlowBases(db, lines.map((l) => l.assetId), asOf)
+  const funding = await loadFlowFunding(
+    db,
+    { id: 'draft', flowTermMonths: term, flowAssumedAprPct: null, flowAssumedNoteMonths: null },
+    lines.map((l, i) => ({ id: `draft-${i}`, assetId: l.assetId, quantity: l.quantity })),
+    asOf,
+    { aprPct: defaults.assumedAprPct, noteMonths: FLOW_LEASE_ASSUMPTION.noteMonths },
+  )
+
+  return computeFlowDraftEconomics(term, knobs, lines, bases, funding, defaults)
 }
