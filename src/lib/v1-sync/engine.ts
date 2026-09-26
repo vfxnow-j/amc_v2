@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
 import {
   deletedPredicate,
+  displacedPredicate,
   enumKeepPredicates,
   heldFromEnumsSql,
   heldFromParentSql,
@@ -422,6 +423,7 @@ export async function syncFromV1(options: {
 
       const join = pk.map((c) => `p.${q(c)} = s.${q(c)}`).join(" and ");
       const deleted = deletedPredicate({ table, stage, join, pk });
+      const tableUniques = uniques.filter((u) => u.table === table && u.cols.every((c) => shared.includes(c)));
       const updatable = shared.filter((c) => !pk.includes(c) && !rule.v2OwnedOnUpdate?.includes(c));
       const differs = updatable.length
         ? `(${updatable.map((c) => `p.${q(c)}`).join(", ")}) is distinct from (${updatable.map((c) => `s.${q(c)}`).join(", ")})`
@@ -438,12 +440,11 @@ export async function syncFromV1(options: {
                and not exists (select 1 from v1_link.origin o where o.tbl = '${table}' and o.key = ${keyOf("p")})
                and not exists (select 1 from ${held} h where h.key = ${keyOf("p")})) as kept,
            ${
-             uniques.filter((u) => u.table === table && u.cols.every((c) => shared.includes(c))).length
-               ? `(select count(distinct ${keyOf("p")}) from public.${q(table)} p join ${stage} s on (${uniques
-                   .filter((u) => u.table === table && u.cols.every((c) => shared.includes(c)))
-                   .map((u) => `(${u.cols.map((c) => `p.${q(c)} = s.${q(c)}`).join(" and ")})`)
-                   .join(" or ")}) where not (${join})
-                   and not exists (select 1 from ${stage} s2 where ${pk.map((c) => `s2.${q(c)} = p.${q(c)}`).join(" and ")}))`
+             tableUniques.length
+               ? `(select count(distinct ${keyOf("p")}) from public.${q(table)} p
+                   where ${tableUniques
+                     .map((u) => `(${displacedPredicate({ table, stage, join, pk, uniqueCols: u.cols })})`)
+                     .join(" or ")})`
                : "0"
            } as displaced`,
       );
@@ -463,13 +464,12 @@ export async function syncFromV1(options: {
       if (diff.deleted) {
         await tx.$executeRawUnsafe(`delete from public.${q(table)} p where ${deleted}`);
       }
-      // A v2-only row holding a unique value v1 now uses: v1 wins.
-      for (const unique of uniques.filter((u) => u.table === table && u.cols.every((c) => shared.includes(c)))) {
+      // A v2-only row holding a unique value v1 now uses: v1 wins. A held
+      // (skipped) row is never evicted this way, matching the count above.
+      for (const unique of tableUniques) {
         await tx.$executeRawUnsafe(
-          `delete from public.${q(table)} p using ${stage} s
-            where ${unique.cols.map((c) => `p.${q(c)} = s.${q(c)}`).join(" and ")}
-              and not (${join})
-              and not exists (select 1 from ${stage} s2 where ${pk.map((c) => `s2.${q(c)} = p.${q(c)}`).join(" and ")})`,
+          `delete from public.${q(table)} p
+            where ${displacedPredicate({ table, stage, join, pk, uniqueCols: unique.cols })}`,
         );
       }
       if (diff.updated && updatable.length) {

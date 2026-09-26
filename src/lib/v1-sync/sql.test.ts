@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   deletedPredicate,
+  displacedPredicate,
   enumKeepPredicates,
   heldFromEnumsSql,
   heldFromParentSql,
@@ -64,6 +65,37 @@ test("a skipped (held) row is never counted or deleted as v1-deleted", () => {
   assert.match(pred, /not exists \(select 1 from "s_reservations" s where p\."id" = s\."id"\)/);
   assert.match(pred, /o\.tbl = 'reservations' and o\.key = p\."id"::text/);
   assert.match(pred, /and not exists \(select 1 from "h_reservations" h where h\.key = p\."id"::text\)/);
+});
+
+test("a held row cannot be displaced by a staged row reusing its unique value", () => {
+  const pred = displacedPredicate({
+    table: "reservations",
+    stage: `"s_reservations"`,
+    join: `p."id" = s."id"`,
+    pk: ["id"],
+    uniqueCols: ["reservationNumber"],
+  });
+  // Matches some staged row on the unique value, under a different key.
+  assert.match(
+    pred,
+    /exists \(select 1 from "s_reservations" s where p\."reservationNumber" = s\."reservationNumber" and not \(p\."id" = s\."id"\)\)/,
+  );
+  // p's own key was not itself restaged (an ordinary update, not a displacement).
+  assert.match(pred, /not exists \(select 1 from "s_reservations" s2 where s2\."id" = p\."id"\)/);
+  // A held row is excluded, since v1 still has it under this same skipped key.
+  assert.match(pred, /and not exists \(select 1 from "h_reservations" h where h\.key = p\."id"::text\)/);
+});
+
+test("displacedPredicate supports a composite unique constraint", () => {
+  const pred = displacedPredicate({
+    table: "t",
+    stage: `"s_t"`,
+    join: `p."A" = s."A" and p."B" = s."B"`,
+    pk: ["A", "B"],
+    uniqueCols: ["code"],
+  });
+  assert.match(pred, /p\."code" = s\."code" and not \(p\."A" = s\."A" and p\."B" = s\."B"\)/);
+  assert.match(pred, /s2\."A" = p\."A" and s2\."B" = p\."B"/);
 });
 
 test("a held key stays in the origin ledger", () => {

@@ -110,6 +110,32 @@ export function deletedPredicate(opts: { table: string; stage: string; join: str
       and not exists (select 1 from ${heldTable(opts.table)} h where h.key = ${keyOf(opts.pk, "p")})`;
 }
 
+/**
+ * A v2-only row that a staged v1 row has displaced on one unique constraint:
+ * some staged row now holds the same unique value under a different primary
+ * key, `p` itself was not restaged (so this isn't an ordinary update), and
+ * `p` is not held. A held row is a v1 row this run skipped — it was never
+ * staged, so it would otherwise look displaced by whatever staged row reused
+ * its unique value, and get deleted (with its children cascading) even
+ * though v1 still has it. Used for both the displaced count and the
+ * displaced delete so they can't drift apart.
+ */
+export function displacedPredicate(opts: {
+  table: string;
+  stage: string;
+  join: string;
+  pk: string[];
+  uniqueCols: string[];
+}): string {
+  const matchesUnique = opts.uniqueCols.map((c) => `p.${q(c)} = s.${q(c)}`).join(" and ");
+  const notRestaged = `not exists (select 1 from ${opts.stage} s2 where ${opts.pk
+    .map((c) => `s2.${q(c)} = p.${q(c)}`)
+    .join(" and ")})`;
+  return `exists (select 1 from ${opts.stage} s where ${matchesUnique} and not (${opts.join}))
+      and ${notRestaged}
+      and not exists (select 1 from ${heldTable(opts.table)} h where h.key = ${keyOf(opts.pk, "p")})`;
+}
+
 /** Ledger keys to forget: v1 no longer has them. A held key is kept, since v1 still does. */
 export function ledgerPrunePredicate(opts: { table: string; stage: string; pk: string[] }): string {
   return `o.tbl = ${lit(opts.table)}
