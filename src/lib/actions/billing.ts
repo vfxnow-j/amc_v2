@@ -7,7 +7,7 @@ import { addDays } from 'date-fns'
 import { calculateNextBillingDate, generateInvoiceNumber, getBillingPeriod } from '@/lib/utils/billing'
 import type { BillingCycleType } from '@/lib/types'
 import { addDays as addCalendarDays, anchorAfter, billedPeriods, intendedDay, isAnchoredCycle } from '@/lib/billing/calendar'
-import { cycleInvoice, cycleTermsFor, toCycleLine } from '@/lib/billing/cycle-invoice'
+import { CYCLE_ORDER_INCLUDE, cycleInvoice, cycleTermsForOrder, toCycleLine } from '@/lib/billing/cycle-invoice'
 import { termEnd } from '@/lib/billing/payment-schedule'
 import { formatPeriodCount, roundMoney } from '@/lib/pricing/periods'
 import { getBillingAnchor } from '@/lib/settings/business'
@@ -36,12 +36,7 @@ export async function runBillingCycle(): Promise<BillingRunResult> {
     },
     include: {
       client: true,
-      // Only the quote option the client went ahead with bills.
-      items: {
-        where: { OR: [{ packageId: null }, { package: { isActive: true } }] },
-        include: { asset: true },
-      },
-      packages: { where: { isActive: true }, select: { deliveryCost: true, returnCost: true } },
+      ...CYCLE_ORDER_INCLUDE,
     },
   })
 
@@ -57,7 +52,13 @@ export async function runBillingCycle(): Promise<BillingRunResult> {
       ? termEnd(reservation.startDate, reservation.termMonths)
       : null
     if (termStop && reservation.nextBillingDate && intendedDay(reservation.nextBillingDate).getTime() >= termStop.getTime()) {
-      await prisma.reservation.update({ where: { id: reservation.id }, data: { nextBillingDate: null } })
+      try {
+        await prisma.reservation.update({ where: { id: reservation.id }, data: { nextBillingDate: null } })
+      } catch (error) {
+        result.errors.push(
+          `Reservation ${reservation.reservationNumber}: ${error instanceof Error ? error.message : 'Unknown error'}`
+        )
+      }
       continue
     }
 
@@ -119,11 +120,7 @@ export async function runBillingCycle(): Promise<BillingRunResult> {
             lines: reservation.items.map(toCycleLine),
             share,
             first: priorInvoices === 0,
-            terms: cycleTermsFor({
-              ...reservation,
-              deliveryCost: reservation.packages[0]?.deliveryCost ?? reservation.deliveryCost,
-              returnCost: reservation.packages[0]?.returnCost ?? reservation.returnCost,
-            }),
+            terms: cycleTermsForOrder(reservation),
             shareNote: Math.abs(share - 1) < 0.0005 ? '' : ` × ${formatPeriodCount(share)}`,
           })
           invoiceItems = priced.items

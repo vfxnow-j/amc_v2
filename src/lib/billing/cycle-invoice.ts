@@ -151,3 +151,65 @@ export function cycleTermsFor(order: {
     returnCost: applyShippingMargin(Number(order.returnCost) || 0, marginType, margin),
   }
 }
+
+/**
+ * Only the quote option the client went ahead with bills: an item with no
+ * package is always in scope; an item that belongs to a package bills only
+ * while that package is the active (chosen) one. The billing run, the manual
+ * first invoice and the read-only check all price the same scope, so this is
+ * the one prisma `items` shape all three include. Plain object — no prisma
+ * import — so this file stays pure.
+ */
+export const CHOSEN_OPTION_ITEMS = {
+  where: { OR: [{ packageId: null }, { package: { isActive: true } }] },
+  include: { asset: true },
+}
+
+/** The active package's shipping override, when the order has one. */
+export const ACTIVE_PACKAGE_SHIPPING = {
+  where: { isActive: true },
+  select: { deliveryCost: true, returnCost: true },
+}
+
+/** The one `include` shape every cycle-pricing query needs. */
+export const CYCLE_ORDER_INCLUDE = {
+  items: CHOSEN_OPTION_ITEMS,
+  packages: ACTIVE_PACKAGE_SHIPPING,
+}
+
+/** An item that isn't scoped to a quote option, or whose package is the chosen one. */
+export function isChosenOptionItem(item: {
+  packageId: string | null
+  package?: { isActive: boolean | null } | null
+}): boolean {
+  return item.packageId === null || !!item.package?.isActive
+}
+
+/** Narrows an order's full item list to the ones {@link isChosenOptionItem} bills. */
+export function scopeChosenItems<T extends { packageId: string | null; package?: { isActive: boolean | null } | null }>(
+  items: T[]
+): T[] {
+  return items.filter(isChosenOptionItem)
+}
+
+/**
+ * {@link cycleTermsFor}, with the active package's delivery/return cost
+ * (when the order has one) overriding the order's own — the fallback every
+ * cycle-pricing call site needs, in one place.
+ */
+export function cycleTermsForOrder(order: {
+  discountType: string | null
+  discountValue: unknown
+  taxRate: unknown
+  deliveryCost: unknown
+  returnCost: unknown
+  shippingMarginType?: string | null
+  shippingMargin?: unknown
+  packages: { deliveryCost: unknown; returnCost: unknown }[]
+}): CycleTerms {
+  return cycleTermsFor({
+    ...order,
+    deliveryCost: order.packages[0]?.deliveryCost ?? order.deliveryCost,
+    returnCost: order.packages[0]?.returnCost ?? order.returnCost,
+  })
+}

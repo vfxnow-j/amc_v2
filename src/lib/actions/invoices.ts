@@ -9,7 +9,7 @@ import type { InvoiceStatus } from '@/lib/types'
 import { firstInvoiceStretch, stretchLabel } from '@/lib/billing/calendar'
 import { formatPeriodCount, roundMoney } from '@/lib/pricing/periods'
 import { getBillingAnchor } from '@/lib/settings/business'
-import { cycleInvoice, cycleTermsFor, toCycleLine } from '@/lib/billing/cycle-invoice'
+import { CYCLE_ORDER_INCLUDE, cycleInvoice, cycleTermsForOrder, toCycleLine } from '@/lib/billing/cycle-invoice'
 import { nextNumber } from '@/lib/numbering/next'
 
 export type InvoiceFormData = {
@@ -180,7 +180,8 @@ export async function createInvoice(data: InvoiceFormData) {
 
   const taxRate = data.taxRate || 0
   const taxAmount = data.taxAmount ?? subtotal * (taxRate / 100)
-  const total = subtotal + taxAmount
+  subtotal = roundMoney(subtotal)
+  const total = roundMoney(subtotal + taxAmount)
 
   const invoice = await prisma.invoice.create({
     data: {
@@ -485,14 +486,7 @@ export async function createInvoiceFromReservation(reservationId: string, dueDat
     where: { id: reservationId },
     include: {
       client: true,
-      // Only the quote option the client went ahead with bills.
-      items: {
-        where: { OR: [{ packageId: null }, { package: { isActive: true } }] },
-        include: {
-          asset: true,
-        },
-      },
-      packages: { where: { isActive: true }, select: { deliveryCost: true, returnCost: true } },
+      ...CYCLE_ORDER_INCLUDE,
     },
   })
 
@@ -524,14 +518,7 @@ export async function createInvoiceFromReservation(reservationId: string, dueDat
       lines: reservation.items.map(toCycleLine),
       share: stretch?.periods ?? 1,
       first: priorInvoices === 0,
-      terms: {
-        ...cycleTermsFor({
-          ...reservation,
-          deliveryCost: reservation.packages[0]?.deliveryCost ?? reservation.deliveryCost,
-          returnCost: reservation.packages[0]?.returnCost ?? reservation.returnCost,
-        }),
-        taxRate: effectiveTaxRate,
-      },
+      terms: { ...cycleTermsForOrder(reservation), taxRate: effectiveTaxRate },
       shareNote: stretchNote,
     })
     return createInvoice({

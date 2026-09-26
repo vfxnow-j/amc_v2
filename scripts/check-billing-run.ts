@@ -13,7 +13,7 @@
 import "dotenv/config";
 import { prisma } from "@/lib/prisma";
 import { anchorAfter, billedPeriods, intendedDay, isAnchoredCycle, toDateInput } from "@/lib/billing/calendar";
-import { cycleInvoice, cycleTermsFor, toCycleLine } from "@/lib/billing/cycle-invoice";
+import { ACTIVE_PACKAGE_SHIPPING, cycleInvoice, cycleTermsForOrder, scopeChosenItems, toCycleLine } from "@/lib/billing/cycle-invoice";
 import { termEnd } from "@/lib/billing/payment-schedule";
 import { roundMoney } from "@/lib/pricing/periods";
 import { BILLING_ANCHOR_KEY, parseBillingAnchor } from "@/lib/settings/business";
@@ -38,8 +38,11 @@ async function main() {
           reservationType: { in: ["RENTAL", "CLOUD"] },
         },
         include: {
+          // Unfiltered, unlike CHOSEN_OPTION_ITEMS — the latent counts below need
+          // to see items an inactive package left unbilled, not just the scope
+          // that actually prices.
           items: { include: { asset: true, package: { select: { isActive: true } } } },
-          packages: { where: { isActive: true }, select: { deliveryCost: true, returnCost: true } },
+          packages: ACTIVE_PACKAGE_SHIPPING,
         },
         orderBy: { reservationNumber: "asc" },
       });
@@ -88,16 +91,12 @@ async function main() {
           const share = isAnchoredCycle(cycle) && stretchEnd ? billedPeriods(billingDate, stretchEnd, cycle, anchor) : 1;
           const prior = await tx.invoice.count({ where: { reservationId: r.id, status: { notIn: ["VOID", "CANCELLED"] } } });
           const first = prior === 0;
-          const scoped = r.items.filter((i) => i.packageId === null || i.package?.isActive);
+          const scoped = scopeChosenItems(r.items);
           const priced = cycleInvoice({
             lines: scoped.map(toCycleLine),
             share,
             first,
-            terms: cycleTermsFor({
-              ...r,
-              deliveryCost: r.packages[0]?.deliveryCost ?? r.deliveryCost,
-              returnCost: r.packages[0]?.returnCost ?? r.returnCost,
-            }),
+            terms: cycleTermsForOrder(r),
           });
           newTotal = priced.total;
           if (priced.discount > 0) causes.push("discount");

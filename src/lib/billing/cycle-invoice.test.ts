@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { cycleInvoice, cycleTermsFor, type CycleLine, type CycleTerms } from './cycle-invoice'
+import { cycleInvoice, cycleTermsFor, cycleTermsForOrder, type CycleLine, type CycleTerms } from './cycle-invoice'
 
 const line = (over: Partial<CycleLine> = {}): CycleLine => ({
   description: 'Lenovo P620', assetId: 'a1', rate: 1000, quantity: 1, pricingType: 'MONTHLY',
@@ -76,4 +76,31 @@ test('shareNote labels recurring lines only', () => {
 test('cycleTermsFor applies the shipping margin', () => {
   const t = cycleTermsFor({ discountType: null, discountValue: null, taxRate: '9.5', deliveryCost: '100', returnCost: '100', shippingMarginType: 'PERCENTAGE', shippingMargin: 20 })
   assert.deepEqual(t, { discountType: null, discountValue: 0, taxRate: 9.5, deliveryCost: 120, returnCost: 120 })
+})
+
+const order = (over: Record<string, unknown> = {}) => ({
+  discountType: null, discountValue: 0, taxRate: 10, deliveryCost: 50, returnCost: 25,
+  packages: [] as { deliveryCost: unknown; returnCost: unknown }[], ...over,
+})
+
+test("cycleTermsForOrder: the active package's shipping wins over the order's own", () => {
+  const t = cycleTermsForOrder(order({ packages: [{ deliveryCost: 200, returnCost: 100 }] }))
+  assert.equal(t.deliveryCost, 200)
+  assert.equal(t.returnCost, 100)
+})
+
+test('cycleTermsForOrder: falls back to the order\'s own costs with no active package', () => {
+  const t = cycleTermsForOrder(order())
+  assert.equal(t.deliveryCost, 50)
+  assert.equal(t.returnCost, 25)
+})
+
+test('cycleTermsForOrder: the shipping margin still applies on top of the package override', () => {
+  const t = cycleTermsForOrder(order({
+    packages: [{ deliveryCost: 100, returnCost: 100 }],
+    shippingMarginType: 'PERCENTAGE',
+    shippingMargin: 20,
+  }))
+  assert.equal(t.deliveryCost, 120)
+  assert.equal(t.returnCost, 120)
 })
