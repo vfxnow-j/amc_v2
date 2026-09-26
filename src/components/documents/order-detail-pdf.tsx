@@ -28,6 +28,8 @@ export type OrderDetailData = {
   // Items
   items: {
     description: string
+    /** The line's own description, printed small under the asset name (see lib/quotes/line-title). */
+    spec?: string
     quantity: number
     pricingType?: string
     rate: number
@@ -223,6 +225,11 @@ export function OrderDetailPDF({ data, logoDataUri }: Props) {
                           <Text style={s.tableCell}>
                             {item.isComponent ? `     ↳ ${item.description}` : item.description}
                           </Text>
+                          {item.spec && (
+                            <Text style={{ fontSize: 8, color: '#6b7280', marginTop: 2, ...(item.isComponent ? { paddingLeft: 18 } : {}) }}>
+                              {item.spec}
+                            </Text>
+                          )}
                           {/* How the amount was reached when the term isn't a whole
                               number of billing periods (e.g. a 6-week monthly rental). */}
                           {item.termNote && (

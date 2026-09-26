@@ -20,6 +20,8 @@ const SignatureCanvas = dynamic(() => import("react-signature-canvas") as any, {
 export type QuoteItem = {
   id: string;
   name: string;
+  /** The line's own description, shown small under the name. */
+  spec?: string;
   quantity: number;
   pricingType: string;
   rate: number;
@@ -495,6 +497,9 @@ function Lines({ categories }: { categories: QuoteCategory[] }) {
                       ? " · included"
                       : ` · ${money(item.rate)}${RATE_SUFFIX[item.pricingType] ?? ""}`}
                   </span>
+                  {item.spec && (
+                    <span className="mt-0.5 block text-xs font-normal text-[#71717a]">{item.spec}</span>
+                  )}
                 </span>
                 <span className="tabular-nums">
                   {item.includedInParent

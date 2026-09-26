@@ -9,6 +9,7 @@ import { computeItemSubtotal } from '@/lib/pricing/periods'
 import { computeReservationFinancials, deriveItemAmount } from '@/lib/pricing/financials'
 import crypto from 'crypto'
 import { portalQuoteHold, quoteGate } from '@/lib/approvals/core'
+import { lineTitle } from '@/lib/quotes/line-title'
 
 const TOKEN_EXPIRY_DAYS = 30
 
@@ -188,7 +189,7 @@ async function buildQuote(
   // Helper: group items by category. Components (parentId set) stay attached to
   // their parent's display group — the UI renders them indented beneath the parent.
   type QuoteItem = {
-    id: string; name: string; quantity: number; pricingType: string;
+    id: string; name: string; spec?: string; quantity: number; pricingType: string;
     rate: number; subtotal: number; assetId: string | null; availableUnits: number; isOneTime: boolean;
     parentId?: string | null; isComponent?: boolean; configuredTotal?: number;
     // Part of the base price: shown as specification, charged nothing.
@@ -221,7 +222,7 @@ async function buildQuote(
       }
       return {
         id: item.id,
-        name: item.description || item.asset?.name || 'Ad-hoc item',
+        ...(() => { const { title, spec } = lineTitle(item); return { name: title, spec } })(),
         quantity: item.quantity,
         pricingType: item.pricingType,
         rate: Number(item.rate),

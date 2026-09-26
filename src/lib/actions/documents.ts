@@ -12,6 +12,7 @@ import type { DocumentType, PricingType } from '@/lib/types'
 import { pricingTypeLabels, allDeliveryMethodLabels } from '@/lib/types'
 import { formatTermLength, formatTermNote } from '@/lib/pricing/periods'
 import { computeReservationFinancials } from '@/lib/pricing/financials'
+import { lineTitle } from '@/lib/quotes/line-title'
 
 // In standalone mode process.cwd() resolves to .next/standalone/ which gets
 // wiped on every rebuild. Use a stable project-root path for persistent storage.
@@ -429,15 +430,19 @@ export async function generateSignedQuoteDocument(
       termLength: reservation.reservationType !== 'SALE'
         ? formatTermLength(reservation.startDate, reservation.endDate)
         : undefined,
-      items: items.map((item, index) => ({
-        description: item.asset?.name || item.description || 'Ad-hoc item',
-        quantity: item.quantity || 1,
-        pricingType: pricingTypeLabels[(item.pricingType as PricingType) || 'DAILY'] || item.pricingType,
-        rate: Number(item.rate) || 0,
-        amount: financials.itemAmounts[index],
-        category: item.asset?.category?.name || (item as any).category || undefined,
-        termNote: formatTermNote(item, reservation),
-      })),
+      items: items.map((item, index) => {
+        const { title, spec } = lineTitle(item)
+        return {
+          description: title,
+          spec,
+          quantity: item.quantity || 1,
+          pricingType: pricingTypeLabels[(item.pricingType as PricingType) || 'DAILY'] || item.pricingType,
+          rate: Number(item.rate) || 0,
+          amount: financials.itemAmounts[index],
+          category: item.asset?.category?.name || (item as any).category || undefined,
+          termNote: formatTermNote(item, reservation),
+        }
+      }),
       subtotal: financials.itemsSubtotal,
       discountAmount: financials.discountAmount || undefined,
       taxRate: financials.taxRate || undefined,
