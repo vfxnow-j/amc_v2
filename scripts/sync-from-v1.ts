@@ -43,6 +43,14 @@ function print(report: SyncReport) {
   if (report.unmapped.length) {
     console.log(`\nv1 columns v2 has no field for (not brought across): ${report.unmapped.join(", ")}`);
   }
+  for (const s of report.skipped) {
+    console.log(
+      s.parent
+        ? `skipped (its ${s.parent} row is skipped, via ${s.column} — kept as-is here, not deleted): ${s.rows} ${s.table}`
+        : `skipped (v2 has no ${s.column} "${s.value}" yet — kept as-is here, not deleted): ${s.rows} ${s.table}`,
+    );
+  }
+  for (const i of report.ignored) console.log(`not brought, by decision: ${i.column} — ${i.reason}`);
   for (const o of report.orphans) {
     console.log(`orphans: ${o.rows} ${o.table} via ${o.constraint} → ${o.action}`);
   }

@@ -1,5 +1,18 @@
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
+import {
+  deletedPredicate,
+  enumKeepPredicates,
+  heldFromEnumsSql,
+  heldFromParentSql,
+  heldTable,
+  keyOf as keyExpr,
+  ledgerPrunePredicate,
+  q,
+  stageWhere,
+  unknownEnumValuesSql,
+  type EnumColumn,
+} from "./sql";
 
 /**
  * Bring v1's data into v2 as a diff — v1 wins, v2's schema is never touched.
@@ -34,6 +47,14 @@ import type { Prisma } from "@/generated/prisma/client";
  * then every foreign key is checked, and a row left pointing at nothing is
  * handled the way its constraint says — cascade deletes, set-null nulls, and
  * restrict is reported and fails the run rather than committing a broken link.
+ *
+ * **A v1 value v2 cannot hold is skipped, never deleted.** v1's enum columns
+ * are read as text and cast into v2's types on the way in. A row holding a
+ * value v2's enum lacks (v1's FLOW orders, 2026-09-26) is left out of the stage
+ * and reported; so is every row whose foreign key points at a skipped row (the
+ * lines, packages and quote links of a skipped order). Their keys go in a
+ * per-table held set, and neither the delete nor the ledger pruning touches a
+ * held key — a skipped row stays exactly as it is in v2 until v2 can hold it.
  */
 
 type Tx = Prisma.TransactionClient;
@@ -51,6 +72,14 @@ const EXCLUDED_TABLES = new Set([
   "email_tokens",
   "api_keys",
 ]);
+
+/** v1 columns v2 does not carry on purpose — reported as decisions, not surprises. */
+const IGNORED_COLUMNS: Record<string, string> = {
+  "reservations.billsFromSchedule":
+    "v2 derives it: every rental that bills on a cycle recurs, and the term is termMonths (owner, 2026-09-26)",
+  "asset_units.reacquiredAt": "owner, 2026-09-17: data only, no v2 column unless asked",
+  "asset_units.reacquiredNotes": "owner, 2026-09-17: data only, no v2 column unless asked",
+};
 
 /** v2's calendar-day convention (lib/billing/calendar.ts `intendedDay`), in SQL. */
 function calendarDay(column: string): string {
@@ -89,7 +118,7 @@ const TABLE_RULES: Record<string, TableRule> = {
       // each read its first month's end as a missed return.
       isRecurring: `case
         when r."reservationType" = 'SALE' then false
-        when r."reservationType" = 'RENT_TO_OWN' then true
+        when r."reservationType" in ('RENT_TO_OWN', 'FLOW') then true
         else r."billingCycleType" <> 'ONE_TIME'
       end`,
     },
@@ -152,11 +181,17 @@ export type SyncReport = {
   tables: TableDiff[];
   /** v1 columns v2 has no field for yet — a decision, not an error. */
   unmapped: string[];
+  /** v1 columns v2 leaves out on purpose, with the decision behind each. */
+  ignored: { column: string; reason: string }[];
+  /**
+   * v1 rows not brought this run and kept as they are in v2 (never deleted):
+   * the row holds an enum `value` in `column` that v2 lacks, or — when `parent`
+   * is set — its foreign key `column` points at a row of `parent` that was skipped.
+   */
+  skipped: { table: string; column: string; value: string; rows: number; parent?: string }[];
   /** Rows left pointing at a deleted parent, and what was done about them. */
   orphans: { constraint: string; table: string; rows: number; action: string }[];
 };
-
-const q = (name: string) => `"${name.replace(/"/g, '""')}"`;
 
 async function rows<T>(tx: Tx, sql: string): Promise<T[]> {
   return tx.$queryRawUnsafe<T[]>(sql);
@@ -167,6 +202,52 @@ async function relink(tx: Tx) {
   await tx.$executeRawUnsafe(`drop schema if exists v1_remote cascade`);
   await tx.$executeRawUnsafe(`create schema v1_remote`);
   await tx.$executeRawUnsafe(`import foreign schema public from server v1 into v1_remote`);
+
+  // v1's enum columns come across declared as v2's enum types, so one v1 value
+  // v2 doesn't have (FLOW, 2026-09-26) fails the fetch and aborts everything.
+  // Read them as text; the stage casts each into v2's type, and rows holding a
+  // value v2 lacks are skipped and reported instead.
+  const enumCols = await rows<{ table: string; column: string; isArray: boolean }>(
+    tx,
+    `select c.relname as table, a.attname as column, (t.typcategory = 'A') as "isArray"
+       from pg_attribute a
+       join pg_class c on c.oid = a.attrelid
+       join pg_type t on t.oid = a.atttypid
+       left join pg_type el on el.oid = t.typelem
+      where c.relnamespace = 'v1_remote'::regnamespace and a.attnum > 0 and not a.attisdropped
+        and (t.typtype = 'e' or el.typtype = 'e')`,
+  );
+  for (const e of enumCols) {
+    await tx.$executeRawUnsafe(
+      `alter foreign table v1_remote.${q(e.table)} alter column ${q(e.column)} type ${e.isArray ? "text[]" : "text"}`,
+    );
+  }
+}
+
+type ForeignKey = {
+  name: string;
+  child: string;
+  parent: string;
+  childCols: string[];
+  parentCols: string[];
+  onDelete: string;
+};
+
+/** v2's foreign keys, with their columns in order and their on-delete action. */
+async function foreignKeys(tx: Tx): Promise<ForeignKey[]> {
+  return rows<ForeignKey>(
+    tx,
+    `select con.conname as name, ch.relname as child, pa.relname as parent,
+            array(select a.attname from unnest(con.conkey) with ordinality k(n, o)
+                    join pg_attribute a on a.attrelid = con.conrelid and a.attnum = k.n order by k.o)::text[] as "childCols",
+            array(select a.attname from unnest(con.confkey) with ordinality k(n, o)
+                    join pg_attribute a on a.attrelid = con.confrelid and a.attnum = k.n order by k.o)::text[] as "parentCols",
+            con.confdeltype::text as "onDelete"
+       from pg_constraint con
+       join pg_class ch on ch.oid = con.conrelid
+       join pg_class pa on pa.oid = con.confrelid
+      where con.contype = 'f' and con.connamespace = 'public'::regnamespace`,
+  );
 }
 
 export async function syncFromV1(options: {
@@ -181,6 +262,8 @@ export async function syncFromV1(options: {
     ms: 0,
     tables: [],
     unmapped: [],
+    ignored: [],
+    skipped: [],
     orphans: [],
   };
 
@@ -204,6 +287,19 @@ export async function syncFromV1(options: {
     const colsOf = (schema: string, table: string) =>
       columns.filter((c) => c.schema === schema && c.table === table).map((c) => c.column);
 
+    const v2Enums = await rows<EnumColumn>(
+      tx,
+      `select c.relname as table, a.attname as column,
+              coalesce(el.typname, t.typname) as type, (t.typcategory = 'A') as "isArray",
+              array(select e.enumlabel from pg_enum e where e.enumtypid = coalesce(el.oid, t.oid) order by e.enumsortorder)::text[] as labels
+         from pg_attribute a
+         join pg_class c on c.oid = a.attrelid
+         join pg_type t on t.oid = a.atttypid
+         left join pg_type el on el.oid = t.typelem
+        where c.relnamespace = 'public'::regnamespace and c.relkind = 'r' and a.attnum > 0 and not a.attisdropped
+          and (t.typtype = 'e' or el.typtype = 'e')`,
+    );
+
     const v1Tables = [...new Set(columns.filter((c) => c.schema === "v1_remote").map((c) => c.table))];
     const v2Tables = new Set(columns.filter((c) => c.schema === "public").map((c) => c.table));
 
@@ -225,40 +321,107 @@ export async function syncFromV1(options: {
         where c.relnamespace = 'public'::regnamespace and i.indisunique and not i.indisprimary`,
     );
 
-    const tables = v1Tables
-      .filter((t) => v2Tables.has(t) && !EXCLUDED_TABLES.has(t))
-      .filter((t) => !options.only || options.only.includes(t))
-      .sort();
+    const syncable = v1Tables.filter((t) => v2Tables.has(t) && !EXCLUDED_TABLES.has(t)).sort();
+    const tables = syncable.filter((t) => !options.only || options.only.includes(t));
 
     for (const table of v1Tables) {
       if (!v2Tables.has(table) || EXCLUDED_TABLES.has(table)) continue;
       const v2Cols = new Set(colsOf("public", table));
       for (const column of colsOf("v1_remote", table)) {
-        if (!v2Cols.has(column)) report.unmapped.push(`${table}.${column}`);
+        if (v2Cols.has(column)) continue;
+        const reason = IGNORED_COLUMNS[`${table}.${column}`];
+        if (reason) report.ignored.push({ column: `${table}.${column}`, reason });
+        else report.unmapped.push(`${table}.${column}`);
       }
     }
 
+    const pkOf = (table: string) => primaryKeys.filter((p) => p.table === table).map((p) => p.column);
+    const sharedOf = (table: string) => {
+      const v2Cols = new Set(colsOf("public", table));
+      return colsOf("v1_remote", table).filter((c) => v2Cols.has(c));
+    };
+    const enumsOf = (table: string) => {
+      const shared = sharedOf(table);
+      return v2Enums.filter((e) => e.table === table && shared.includes(e.column));
+    };
+
+    // Pre-pass, before any table is staged: which v1 rows this run skips. A row
+    // holding an enum value v2 lacks is held, and so is any row whose foreign
+    // key points at a held row, down every chain — otherwise the lines of a
+    // skipped order would be inserted pointing at nothing, then cascade away.
+    // Every syncable table gets a held set (even under --only), so a child
+    // staged alone still sees its parent's.
+    let grew = new Set<string>();
+    for (const table of syncable) {
+      const pk = pkOf(table);
+      const enumsHere = enumsOf(table);
+      if (pk.some((c) => enumsHere.some((e) => e.column === c))) {
+        throw new Error(`${table}: a primary key column is an enum, so a skipped row has no key to hold`);
+      }
+      await tx.$executeRawUnsafe(`drop table if exists ${heldTable(table)}`);
+      await tx.$executeRawUnsafe(`create temp table ${heldTable(table)} (key text primary key) on commit drop`);
+      if (pk.length === 0 || enumsHere.length === 0) continue;
+      for (const e of enumsHere) {
+        const bad = await rows<{ value: string; n: bigint }>(tx, unknownEnumValuesSql(table, e));
+        for (const b of bad) report.skipped.push({ table, column: e.column, value: b.value, rows: Number(b.n) });
+      }
+      if (await tx.$executeRawUnsafe(heldFromEnumsSql(table, pk, enumKeepPredicates(enumsHere)))) grew.add(table);
+    }
+    const fks = (await foreignKeys(tx)).filter((fk) => {
+      const v1Child = colsOf("v1_remote", fk.child);
+      const v1Parent = colsOf("v1_remote", fk.parent);
+      return (
+        syncable.includes(fk.child) &&
+        syncable.includes(fk.parent) &&
+        pkOf(fk.child).length > 0 &&
+        pkOf(fk.parent).length > 0 &&
+        fk.childCols.every((c) => v1Child.includes(c)) &&
+        fk.parentCols.every((c) => v1Parent.includes(c))
+      );
+    });
+    for (let pass = 0; grew.size && pass < 20; pass++) {
+      const next = new Set<string>();
+      for (const fk of fks.filter((k) => grew.has(k.parent))) {
+        const added = await tx.$executeRawUnsafe(
+          heldFromParentSql({ ...fk, childPk: pkOf(fk.child), parentPk: pkOf(fk.parent) }),
+        );
+        if (added) {
+          report.skipped.push({ table: fk.child, column: fk.childCols.join(", "), value: "", rows: added, parent: fk.parent });
+          next.add(fk.child);
+        }
+      }
+      grew = next;
+    }
+    if (grew.size) throw new Error(`skipped rows still reaching further after 20 passes: ${[...grew].join(", ")}`);
+
     for (const table of tables) {
       const rule = TABLE_RULES[table] ?? {};
-      const v2Cols = new Set(colsOf("public", table));
-      const shared = colsOf("v1_remote", table).filter((c) => v2Cols.has(c));
-      const pk = primaryKeys.filter((p) => p.table === table).map((p) => p.column);
+      const shared = sharedOf(table);
+      const pk = pkOf(table);
       if (pk.length === 0) throw new Error(`${table} has no primary key to diff on`);
 
       const stage = q(`s_${table}`);
-      const keyOf = (alias: string) =>
-        pk.length === 1 ? `${alias}.${q(pk[0])}::text` : `concat_ws(':', ${pk.map((c) => `${alias}.${q(c)}::text`).join(", ")})`;
+      const held = heldTable(table);
+      const keyOf = (alias: string) => keyExpr(pk, alias);
+      const enumsHere = enumsOf(table);
+      // Enum columns arrive as text; each is cast into v2's type after its transform.
+      const castOf = (c: string) => {
+        const e = enumsHere.find((x) => x.column === c);
+        return e ? `::${q(e.type)}${e.isArray ? "[]" : ""}` : "";
+      };
       const select = shared
-        .map((c) => `${rule.transform?.[c] ?? `r.${q(c)}`} as ${q(c)}`)
+        .map((c) => `(${rule.transform?.[c] ?? `r.${q(c)}`})${castOf(c)} as ${q(c)}`)
         .join(", ");
 
       await tx.$executeRawUnsafe(`drop table if exists ${stage}`);
       await tx.$executeRawUnsafe(
         `create temp table ${stage} on commit drop as
-           select ${select} from v1_remote.${q(table)} r ${rule.where ? `where ${rule.where}` : ""}`,
+           select ${select} from v1_remote.${q(table)} r
+           ${stageWhere({ ruleWhere: rule.where, keep: enumKeepPredicates(enumsHere), table, pk })}`,
       );
 
       const join = pk.map((c) => `p.${q(c)} = s.${q(c)}`).join(" and ");
+      const deleted = deletedPredicate({ table, stage, join, pk });
       const updatable = shared.filter((c) => !pk.includes(c) && !rule.v2OwnedOnUpdate?.includes(c));
       const differs = updatable.length
         ? `(${updatable.map((c) => `p.${q(c)}`).join(", ")}) is distinct from (${updatable.map((c) => `s.${q(c)}`).join(", ")})`
@@ -269,12 +432,11 @@ export async function syncFromV1(options: {
         `select
            (select count(*) from ${stage} s where not exists (select 1 from public.${q(table)} p where ${join})) as ins,
            (select count(*) from ${stage} s join public.${q(table)} p on ${join} where ${differs}) as upd,
+           (select count(*) from public.${q(table)} p where ${deleted}) as del,
            (select count(*) from public.${q(table)} p
              where not exists (select 1 from ${stage} s where ${join})
-               and exists (select 1 from v1_link.origin o where o.tbl = '${table}' and o.key = ${keyOf("p")})) as del,
-           (select count(*) from public.${q(table)} p
-             where not exists (select 1 from ${stage} s where ${join})
-               and not exists (select 1 from v1_link.origin o where o.tbl = '${table}' and o.key = ${keyOf("p")})) as kept,
+               and not exists (select 1 from v1_link.origin o where o.tbl = '${table}' and o.key = ${keyOf("p")})
+               and not exists (select 1 from ${held} h where h.key = ${keyOf("p")})) as kept,
            ${
              uniques.filter((u) => u.table === table && u.cols.every((c) => shared.includes(c))).length
                ? `(select count(distinct ${keyOf("p")}) from public.${q(table)} p join ${stage} s on (${uniques
@@ -297,13 +459,9 @@ export async function syncFromV1(options: {
       report.tables.push(diff);
       if (!options.apply) continue;
 
-      // v1 deleted it: it goes here too.
+      // v1 deleted it: it goes here too. A held (skipped) row is not deleted.
       if (diff.deleted) {
-        await tx.$executeRawUnsafe(
-          `delete from public.${q(table)} p
-            where not exists (select 1 from ${stage} s where ${join})
-              and exists (select 1 from v1_link.origin o where o.tbl = '${table}' and o.key = ${keyOf("p")})`,
-        );
+        await tx.$executeRawUnsafe(`delete from public.${q(table)} p where ${deleted}`);
       }
       // A v2-only row holding a unique value v1 now uses: v1 wins.
       for (const unique of uniques.filter((u) => u.table === table && u.cols.every((c) => shared.includes(c)))) {
@@ -327,10 +485,7 @@ export async function syncFromV1(options: {
               where not exists (select 1 from public.${q(table)} p where ${join})`,
         );
       }
-      await tx.$executeRawUnsafe(
-        `delete from v1_link.origin o where o.tbl = '${table}'
-            and not exists (select 1 from ${stage} s where ${keyOf("s")} = o.key)`,
-      );
+      await tx.$executeRawUnsafe(`delete from v1_link.origin o where ${ledgerPrunePredicate({ table, stage, pk })}`);
       await tx.$executeRawUnsafe(
         `insert into v1_link.origin (tbl, key) select '${table}', ${keyOf("s")} from ${stage} s
             on conflict do nothing`,
@@ -383,26 +538,7 @@ async function recordRun(tx: Tx, report: SyncReport, ms: number) {
  * cascade can orphan the next table down.
  */
 async function resolveOrphans(tx: Tx, report: SyncReport) {
-  const keys = await rows<{
-    name: string;
-    child: string;
-    parent: string;
-    childCols: string[];
-    parentCols: string[];
-    onDelete: string;
-  }>(
-    tx,
-    `select con.conname as name, ch.relname as child, pa.relname as parent,
-            array(select a.attname from unnest(con.conkey) with ordinality k(n, o)
-                    join pg_attribute a on a.attrelid = con.conrelid and a.attnum = k.n order by k.o)::text[] as "childCols",
-            array(select a.attname from unnest(con.confkey) with ordinality k(n, o)
-                    join pg_attribute a on a.attrelid = con.confrelid and a.attnum = k.n order by k.o)::text[] as "parentCols",
-            con.confdeltype::text as "onDelete"
-       from pg_constraint con
-       join pg_class ch on ch.oid = con.conrelid
-       join pg_class pa on pa.oid = con.confrelid
-      where con.contype = 'f' and con.connamespace = 'public'::regnamespace`,
-  );
+  const keys = await foreignKeys(tx);
 
   for (let pass = 0; pass < 10; pass++) {
     let changed = false;
