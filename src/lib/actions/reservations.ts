@@ -3818,9 +3818,10 @@ export async function checkoutReservationItem(
         data: {
           quantity: nextQuantity,
           // 'no-charge' widens the line so the unit is tracked, but leaves the
-          // money alone — a swap, a spare, or a goodwill loan.
+          // money alone — a swap, a spare, or a goodwill loan. A part that's
+          // included in its parent's price stays at zero either way.
           ...(data.onOverScan === 'expand'
-            ? { subtotal: computeItemSubtotal(Number(item.rate), nextQuantity, periods) }
+            ? { subtotal: unitChargeFor(item, computeItemSubtotal(Number(item.rate), nextQuantity, periods)) }
             : {}),
         },
       })
@@ -3861,7 +3862,8 @@ export async function checkoutReservationItem(
     // Per-unit charge for this booking = rate × billing periods. Stored on the
     // checkout so the unit's earned revenue can be derived from it.
     const unitPeriods = calculatePeriodsSync(reservation.startDate, reservation.endDate, item.pricingType, reservation.isRecurring)
-    const unitCharge = computeItemSubtotal(Number(item.rate), 1, unitPeriods)
+    // A part that's included in its system's base price checks out at no charge.
+    const unitCharge = unitChargeFor(item, computeItemSubtotal(Number(item.rate), 1, unitPeriods))
 
     // Create checkout record linked to reservation (using assetUnitId)
     const checkout = await tx.checkout.create({
@@ -5498,9 +5500,10 @@ export async function swapReservationItemUnit(
 
     // --- Step 2: Check out the new unit ---
 
-    // Per-unit charge for this booking = rate × billing periods.
+    // Per-unit charge for this booking = rate × billing periods. A part
+    // included in its system's base price swaps in at no charge, same as checkout.
     const swapPeriods = calculatePeriodsSync(reservation.startDate, reservation.endDate, item.pricingType, reservation.isRecurring)
-    const swapUnitCharge = computeItemSubtotal(Number(item.rate), 1, swapPeriods)
+    const swapUnitCharge = unitChargeFor(item, computeItemSubtotal(Number(item.rate), 1, swapPeriods))
 
     // Create new checkout record
     const newCheckout = await tx.checkout.create({
