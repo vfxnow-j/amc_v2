@@ -426,6 +426,11 @@ export async function convertLeadToReservation(
 ) {
   const authResult = await requireEditor()
   if (!authResult.authorized) throw new Error(authResult.error)
+  // The type is checked at runtime: a caller isn't bound by the signature. A Flow
+  // order needs its term, knobs and priced lines, which a lead doesn't carry.
+  if ((reservationData.reservationType as string | undefined) === 'FLOW') {
+    throw new Error("A Flow order can't be created from a lead yet. Create it from the order builder.")
+  }
 
   const lead = await prisma.lead.findUnique({ where: { id: leadId } })
   if (!lead) throw new Error('Lead not found')

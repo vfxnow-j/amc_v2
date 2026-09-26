@@ -35,6 +35,7 @@ import { calculateReservationTotals } from '@/lib/pricing/reservation-totals'
 import { loadFlowBases } from '@/lib/flow/load-bases'
 import { repriceFlowTx } from '@/lib/flow/reprice'
 import { duplicateOrderTx } from '@/lib/orders/duplicate'
+import { buildFlowTermsSnapshot } from '@/lib/flow-terms-server'
 import { addTermMonths, flowCreateLineCost, flowSnapshotLineCost } from '@/lib/flow/stored-money'
 // Transaction client type for passing prisma tx to helpers
 type TxClient = Omit<typeof prisma, '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'>
@@ -181,6 +182,27 @@ async function maybeRecalcRto(tx: TxClient, reservationId: string, newTotal: num
         rtoBuyoutPrice: newTotal,
       },
     })
+  }
+}
+
+// Flow: every line change re-derives the whole order (v1's maybeRecalcFlow). A
+// no-op for other types; throws, rolling the caller's transaction back, when the
+// changed order can't be priced.
+async function maybeRecalcFlow(tx: Prisma.TransactionClient, reservationId: string): Promise<void> {
+  await repriceFlowTx(tx, reservationId)
+}
+
+// Flow's term lock (v1): its terms, bases and step can't change once anything has
+// been billed, or once the client has agreed (a revision request reopens them).
+function assertFlowTermsOpen(
+  r: { flowPeriodsBilled: number | null; flowTermsSnapshot: unknown },
+  what: 'terms' | 'pricing' | 'schedule',
+): void {
+  if ((r.flowPeriodsBilled ?? 0) > 0) {
+    throw new Error(`This Flow order has already been billed — its ${what} can no longer change.`)
+  }
+  if (r.flowTermsSnapshot != null) {
+    throw new Error("This Flow order's terms were agreed by the client — request a revision to change them.")
   }
 }
 
@@ -943,6 +965,16 @@ export async function updateReservation(id: string, input: Partial<ReservationFo
       throw new Error("An order can't be switched into or out of Flow. Create a new order instead.")
     }
 
+    // Flow's term and pricing knobs lock once the client has agreed or anything
+    // has been billed (v1). Lines stay editable; each save reprices the order.
+    const isFlowOrder = existingReservation.reservationType === 'FLOW'
+    if (isFlowOrder) {
+      const changesTerms = [data.flowTermMonths, data.flowMarginPct, data.flowFinancePct, data.flowPurchaseTaxPct,
+        data.flowTaxExempt, data.flowRecoverByMonth, data.flowDeprPct, data.flowLifeMonths, data.flowStepPct]
+        .some((x) => x !== undefined)
+      if (changesTerms) assertFlowTermsOpen(existingReservation, 'terms')
+    }
+
     // Find the active package (scope item operations to it)
     const activePackage = existingReservation.packages.find((p) => p.isActive)
 
@@ -997,8 +1029,20 @@ export async function updateReservation(id: string, input: Partial<ReservationFo
       const uidToDbId = new Map<string, string>()
       const isCloudUpdate = existingReservation.reservationType === 'CLOUD'
       const updateReservationType = existingReservation.reservationType
+      // Flow (v1): an asset line keeps the true cost already snapshotted for that
+      // asset on this order; the caller's value is not trusted. A new asset gets none
+      // here and repriceFlowTx snapshots it from the landed-cost basis.
+      const flowSnapshotByAsset = new Map<string, number>()
+      if (isFlowOrder) {
+        for (const existing of existingReservation.items) {
+          if (activePackage && existing.packageId !== activePackage.id) continue
+          if (existing.assetId && existing.trueCost != null && !flowSnapshotByAsset.has(existing.assetId)) {
+            flowSnapshotByAsset.set(existing.assetId, Number(existing.trueCost))
+          }
+        }
+      }
       const buildRow = (item: typeof itemsWithSubtotals[number], index: number, parentId: string | null) => {
-        const costBasis = item.costBasis != null
+        let costBasis = item.costBasis != null
           ? item.costBasis
           : (isSaleUpdate && item.assetId && updateCostBasisMap[item.assetId] != null)
             ? updateCostBasisMap[item.assetId]
@@ -1006,6 +1050,9 @@ export async function updateReservation(id: string, input: Partial<ReservationFo
         const isCloudProduct = !!item.cloudProductId
         // Drop nonsensical margins for rentals & clamp sale margins into Decimal(5,2) bounds.
         const safeMargin = sanitizeMarginPercent(item.marginPercent ?? null, updateReservationType)
+        const flowTrueCost = isFlowOrder && item.assetId ? flowSnapshotByAsset.get(item.assetId) ?? null : null
+        // The basis may be raised but never sits below true cost.
+        if (flowTrueCost != null) costBasis = Math.max(costBasis ?? flowTrueCost, flowTrueCost)
         return {
           reservationId: id,
           packageId: activePackage?.id || null,
@@ -1023,8 +1070,11 @@ export async function updateReservation(id: string, input: Partial<ReservationFo
           isOneTime: item.isOneTime || false,
           sortOrder: index,
           parentId,
-          ...((isSaleUpdate || isCloudUpdate) && costBasis != null ? { costBasis } : {}),
+          // Flow lines price off their basis, so it must survive the edit too.
+          ...((isSaleUpdate || isCloudUpdate || isFlowOrder) && costBasis != null ? { costBasis } : {}),
           ...(safeMargin != null ? { marginPercent: safeMargin } : {}),
+          ...(flowTrueCost != null ? { trueCost: flowTrueCost } : {}),
+          ...(isFlowOrder && item.flowAddedAtMonth != null ? { flowAddedAtMonth: item.flowAddedAtMonth } : {}),
         }
       }
 
@@ -1092,8 +1142,9 @@ export async function updateReservation(id: string, input: Partial<ReservationFo
       }
     }
 
-    // Recalculate subtotals when isRecurring or dates change (without items or billing cycle change)
-    if (!data.items && !data.billingCycleType && (data.isRecurring !== undefined || data.startDate || data.endDate)) {
+    // Recalculate subtotals when isRecurring or dates change (without items or billing cycle change).
+    // Not for Flow: its line subtotals are contract values, re-derived by the repricer below.
+    if (!isFlowOrder && !data.items && !data.billingCycleType && (data.isRecurring !== undefined || data.startDate || data.endDate)) {
       const currentItems = await tx.reservationItem.findMany({ where: { reservationId: id } })
       const effStart = data.startDate ?? existingReservation.startDate
       const effEnd = data.endDate ?? existingReservation.endDate
@@ -1243,6 +1294,27 @@ export async function updateReservation(id: string, input: Partial<ReservationFo
         // conversion before a term was set) — financed RTO is always monthly recurring.
         updateData.isRecurring = true
       }
+    } else if (effectiveType === 'FLOW') {
+      if (data.flowTermMonths !== undefined) {
+        const term = Math.round(Number(data.flowTermMonths) || 0)
+        if (term <= 0) throw new Error('A Flow order needs a term before it can be priced.')
+        updateData.flowTermMonths = term
+      }
+      if (data.flowMarginPct !== undefined) updateData.flowMarginPct = data.flowMarginPct
+      if (data.flowFinancePct !== undefined) updateData.flowFinancePct = data.flowFinancePct
+      if (data.flowPurchaseTaxPct !== undefined) updateData.flowPurchaseTaxPct = data.flowPurchaseTaxPct
+      if (data.flowTaxExempt !== undefined) updateData.flowTaxExempt = data.flowTaxExempt
+      if (data.flowRecoverByMonth !== undefined) updateData.flowRecoverByMonth = data.flowRecoverByMonth
+      if (data.flowDeprPct !== undefined) updateData.flowDeprPct = data.flowDeprPct
+      if (data.flowLifeMonths !== undefined) updateData.flowLifeMonths = data.flowLifeMonths
+      if (data.flowStepPct !== undefined) updateData.flowStepPct = data.flowStepPct
+      // The subscription starts when the order does, until the first period is billed.
+      if (data.startDate !== undefined && !(existingReservation.flowPeriodsBilled ?? 0)) {
+        updateData.flowStartDate = data.startDate
+      }
+      // Billed from its schedule, never by the billing run. Line rates, totals, the
+      // contract, the payment and the end date are re-derived by repriceFlowTx below.
+      updateData.nextBillingDate = null
     } else if (data.reservationType === 'SALE' && existingReservation.reservationType !== 'SALE') {
       // Switching to SALE: clear RTO fields, set one-time billing
       updateData.billingCycleType = 'ONE_TIME'
@@ -1314,6 +1386,14 @@ export async function updateReservation(id: string, input: Partial<ReservationFo
       await tx.package.update({ where: { id: activePackage.id }, data: pkgUpdate })
     }
 
+    if (updated.reservationType === 'FLOW') {
+      await repriceFlowTx(tx, id)
+      return tx.reservation.findUniqueOrThrow({
+        where: { id },
+        include: { client: true, items: { include: { asset: true } } },
+      })
+    }
+
     return updated
   })
 
@@ -1340,6 +1420,9 @@ export async function updateReservationItemRate(
     if (!reservation) throw new Error('Reservation not found')
     if (['COMPLETED', 'CANCELLED', 'LOST'].includes(reservation.status)) {
       throw new Error('Cannot adjust rates on completed, canceled, or lost reservations')
+    }
+    if (reservation.reservationType === 'FLOW') {
+      throw new Error("Flow line rates are derived from each line's cost basis and can't be edited directly.")
     }
 
     const item = await tx.reservationItem.findUnique({ where: { id: itemId } })
@@ -1382,6 +1465,7 @@ export async function updateReservationItemRate(
       data: { subtotal: newSubtotal, discountAmount, taxAmount: newTaxAmount, total: newTotal },
     })
     await maybeRecalcRto(tx, reservationId, newTotal)
+    await maybeRecalcFlow(tx, reservationId)
   })
 
   revalidatePath('/dashboard/orders')
@@ -1454,6 +1538,7 @@ export async function updateReservationItemQuantity(
       data: { subtotal: newSubtotal, discountAmount, taxAmount: newTaxAmount, total: newTotal },
     })
     await maybeRecalcRto(tx, reservationId, newTotal)
+    await maybeRecalcFlow(tx, reservationId)
   })
 
   revalidatePath('/dashboard/orders')
@@ -1590,6 +1675,7 @@ export async function updateReservationItemOneTime(
       data: { subtotal: newSubtotal, discountAmount, taxAmount: newTaxAmount, total: newTotal },
     })
     await maybeRecalcRto(tx, reservationId, newTotal)
+    await maybeRecalcFlow(tx, reservationId)
   })
 
   revalidatePath('/dashboard/orders')
@@ -1691,6 +1777,7 @@ export async function addItemToReservation(
       data: { subtotal: newSubtotal, discountAmount, taxAmount: newTaxAmount, total: newTotal },
     })
     await maybeRecalcRto(tx, reservationId, newTotal)
+    await maybeRecalcFlow(tx, reservationId)
 
     return item
   })
@@ -1926,6 +2013,9 @@ export async function addCloudHostToReservation(
     if (['COMPLETED', 'CANCELLED', 'LOST'].includes(reservation.status)) {
       throw new Error('Cannot add items to completed, canceled, or lost reservations')
     }
+    if (reservation.reservationType === 'FLOW') {
+      throw new Error("Cloud hosts can't be added to a Flow order.")
+    }
 
     // Resolve target package
     let targetPackageId = data.packageId || reservation.packages.find((p) => p.isActive)?.id || null
@@ -2077,6 +2167,9 @@ export async function updateCloudHostInReservation(
     if (!reservation) throw new Error('Reservation not found')
     if (['COMPLETED', 'CANCELLED', 'LOST'].includes(reservation.status)) {
       throw new Error('Cannot edit items on completed, canceled, or lost reservations')
+    }
+    if (reservation.reservationType === 'FLOW') {
+      throw new Error("Cloud hosts can't be added to a Flow order.")
     }
 
     const parent = await tx.reservationItem.findUnique({ where: { id: parentItemId } })
@@ -2245,6 +2338,7 @@ export async function addServiceItemToReservation(
       data: { subtotal: newSubtotal, discountAmount, taxAmount: newTaxAmount, total: newTotal },
     })
     await maybeRecalcRto(tx, reservationId, newTotal)
+    await maybeRecalcFlow(tx, reservationId)
 
     return item
   })
@@ -2294,6 +2388,10 @@ export async function addReservationComponent(
     if (!reservation) throw new Error('Reservation not found')
     if (['COMPLETED', 'CANCELLED', 'LOST'].includes(reservation.status)) {
       throw new Error('Cannot modify items on this reservation')
+    }
+    // Flow prices each line off its own basis; a component row would sit outside it.
+    if (reservation.reservationType === 'FLOW') {
+      throw new Error('Components are not supported on Flow orders — add each part as its own line.')
     }
 
     const parent = await tx.reservationItem.findUnique({
@@ -2453,6 +2551,7 @@ export async function removeReservationItem(
       data: { subtotal: newSubtotal, discountAmount, taxAmount: newTaxAmount, total: newTotal },
     })
     await maybeRecalcRto(tx, reservationId, newTotal)
+    await maybeRecalcFlow(tx, reservationId)
   })
 
   revalidatePath('/dashboard/orders')
@@ -2535,6 +2634,16 @@ export async function requestRevision(id: string, notes?: string) {
       actionRequired: true,
       actionRequiredNote:
         notes || (previousStatus === 'APPROVED' ? 'Revising approved order' : 'Revision requested'),
+      // A revised Flow order must be agreed again (v1): drop the frozen terms and the
+      // autopay authorization so the next approval freezes what the client actually
+      // signs. Once anything is billed the agreement stands.
+      ...(reservation.reservationType === 'FLOW' && !(reservation.flowPeriodsBilled ?? 0) ? {
+        flowTermsSnapshot: Prisma.DbNull,
+        flowTermsVersion: null,
+        flowAutopayMethod: null,
+        flowAutopayAuthorizedBy: null,
+        flowAutopayAuthorizedAt: null,
+      } : {}),
     },
   })
 
@@ -2818,6 +2927,22 @@ export async function approveReservation(id: string, force?: boolean) {
   const gate = await quoteGate({ orderId: id, userId: authResult.userId, role: authResult.role, act: 'approving it', raise: false })
   if (gate.status === 'held') return { error: gate.message }
 
+  // Flow (v1): approval freezes the rendered subscription terms onto the order.
+  // Built before the transaction opens: it reads through the global client, and
+  // doing that inside an open interactive transaction risks starving the pool.
+  const preReservation = await prisma.reservation.findUnique({
+    where: { id },
+    select: { reservationType: true, flowTermsSnapshot: true },
+  })
+  let flowSnapshot: Awaited<ReturnType<typeof buildFlowTermsSnapshot>> | null = null
+  if (preReservation?.reservationType === 'FLOW' && preReservation.flowTermsSnapshot == null) {
+    try {
+      flowSnapshot = await buildFlowTermsSnapshot(id)
+    } catch (e) {
+      return { error: e instanceof Error ? e.message : 'This Flow order cannot be approved yet.' }
+    }
+  }
+
   const reservation = await prisma.$transaction(async (tx) => {
     const existingReservation = await tx.reservation.findUnique({
       where: { id },
@@ -2873,6 +2998,10 @@ export async function approveReservation(id: string, force?: boolean) {
         confirmedAt: existingReservation.confirmedAt || new Date(),
         actionRequired: false,
         actionRequiredNote: null,
+        ...(flowSnapshot ? {
+          flowTermsSnapshot: flowSnapshot as unknown as Prisma.InputJsonValue,
+          flowTermsVersion: flowSnapshot.version,
+        } : {}),
       },
       include: {
         client: true,
@@ -3982,7 +4111,8 @@ export async function checkoutReservationItem(
     await recomputeUnitRevenue(tx, assetUnitId)
 
     // Set nextBillingDate on first checkout if not already set and billing is recurring
-    if (!reservation.nextBillingDate && reservation.billingCycleType !== 'ONE_TIME') {
+    // Never for Flow: it is billed from its schedule, not by the billing run.
+    if (!reservation.nextBillingDate && reservation.billingCycleType !== 'ONE_TIME' && reservation.reservationType !== 'FLOW') {
       await tx.reservation.update({
         where: { id: reservationId },
         data: {
@@ -4019,6 +4149,7 @@ export async function checkoutReservationItem(
       data: { subtotal: newSubtotal, discountAmount, taxAmount: newTaxAmount, total: newTotal },
     })
     await maybeRecalcRto(tx, reservationId, newTotal)
+    await maybeRecalcFlow(tx, reservationId)
 
     // The first scan on an approved order starts preparing it. It no longer
     // activates it: an order is activated only once everything is out, and
@@ -4373,7 +4504,8 @@ export async function bulkCheckoutReservation(
     }
 
     // Set nextBillingDate on first checkout if not already set and billing is recurring
-    if (!reservation.nextBillingDate && reservation.billingCycleType !== 'ONE_TIME') {
+    // Never for Flow: it is billed from its schedule, not by the billing run.
+    if (!reservation.nextBillingDate && reservation.billingCycleType !== 'ONE_TIME' && reservation.reservationType !== 'FLOW') {
       await tx.reservation.update({
         where: { id: reservationId },
         data: {
@@ -4597,7 +4729,7 @@ export async function checkoutByBarcode(
     // Fetch reservation dates for period calculation
     const reservation = await prisma.reservation.findUnique({
       where: { id: reservationId },
-      select: { startDate: true, endDate: true, isRecurring: true },
+      select: { startDate: true, endDate: true, isRecurring: true, reservationType: true },
     })
     if (!reservation) return { success: false, error: 'Reservation not found' }
 
@@ -4616,6 +4748,12 @@ export async function checkoutByBarcode(
         })
       : null
     let reservationItem = pickScanLine(candidateItems, assigned?.reservationItemId ?? null)
+
+    if (!reservationItem && reservation.reservationType === 'FLOW') {
+      // A Flow line is priced off landed cost when it is added to the order; an
+      // ad hoc line from a scan would carry a rental rate as a contract value (v1).
+      return { success: false, error: `${assetUnit.asset.name} is not on this Flow order — add it to the order first.` }
+    }
 
     if (!reservationItem) {
       // Ad hoc add: create a new reservation item for this asset type.
@@ -5061,9 +5199,13 @@ export async function updatePackage(
       shippingMargin: Number((pkg.reservation as any).shippingMargin) || 0,
       rentalCreditAmount: Number(pkg.reservation.rentalCreditAmount) || 0,
     })
-    await prisma.reservation.update({
-      where: { id: pkg.reservationId },
-      data: { deliveryCost: newDeliveryCost, returnCost: newReturnCost, subtotal, discountAmount, taxAmount, total },
+    await prisma.$transaction(async (tx) => {
+      await tx.reservation.update({
+        where: { id: pkg.reservationId },
+        data: { deliveryCost: newDeliveryCost, returnCost: newReturnCost, subtotal, discountAmount, taxAmount, total },
+      })
+      // Flow: the shipping feeds its total, which the repricer owns.
+      await maybeRecalcFlow(tx, pkg.reservationId)
     })
   }
 
@@ -5146,6 +5288,8 @@ export async function setActivePackage(
       where: { id: reservationId },
       data: { subtotal, discountAmount, taxAmount, total, deliveryCost: pkgDeliveryCost, returnCost: pkgReturnCost },
     })
+    // Flow re-derives the newly active option's lines, totals and schedule money.
+    await maybeRecalcFlow(tx, reservationId)
   })
 
   revalidatePath('/dashboard/orders')
@@ -5213,6 +5357,9 @@ export async function duplicatePackage(
           subtotal: item.subtotal,
           isOneTime: item.isOneTime,
           costBasis: item.costBasis,
+          // Flow's snapshotted true cost and co-term month ride with the line.
+          trueCost: item.trueCost,
+          flowAddedAtMonth: item.flowAddedAtMonth,
           marginPercent: item.marginPercent,
           includedInParent: item.includedInParent,
           notes: item.notes,
@@ -5507,4 +5654,67 @@ export async function resetItemUnitCheckout(
     revalidatePath(`/dashboard/orders/${reservationId}`)
     return { success: true }
   })
+}
+
+// ---------------------------------------------------------------------------
+// Flow: a line's cost basis, and the month-13 step (v1)
+// ---------------------------------------------------------------------------
+/**
+ * Set a Flow line's cost basis per unit — the price the Flow payment is built from.
+ * The basis may be raised but never sits below the line's true cost (what the gear
+ * cost us). Reprices the whole order. Refused once the terms are locked.
+ */
+export async function updateFlowLineBasis(reservationId: string, itemId: string, basis: number) {
+  const authResult = await requireEditor()
+  if (!authResult.authorized) throw new Error(authResult.error || 'Unauthorized')
+  if (!Number.isFinite(basis) || basis <= 0) throw new Error('Enter a cost basis above $0')
+
+  await prisma.$transaction(async (tx) => {
+    const reservation = await tx.reservation.findUnique({ where: { id: reservationId } })
+    if (!reservation) throw new Error('Reservation not found')
+    if (reservation.reservationType !== 'FLOW') throw new Error('Only Flow lines are priced by cost basis.')
+    if (['COMPLETED', 'CANCELLED', 'LOST'].includes(reservation.status)) {
+      throw new Error('Cannot change pricing on a completed, canceled, or lost order')
+    }
+    assertFlowTermsOpen(reservation, 'pricing')
+    const item = await tx.reservationItem.findUnique({ where: { id: itemId } })
+    if (!item || item.reservationId !== reservationId) throw new Error('Reservation item not found')
+    const trueCost = item.trueCost != null ? Number(item.trueCost) : null
+    if (trueCost != null && basis < trueCost - 0.005) {
+      throw new Error(`The cost basis can't go below what the gear cost us ($${trueCost.toFixed(2)} per unit).`)
+    }
+    await tx.reservationItem.update({ where: { id: itemId }, data: { costBasis: Math.round(basis * 100) / 100 } })
+    await repriceFlowTx(tx, reservationId)
+  })
+
+  revalidatePath('/dashboard/orders')
+  revalidatePath(`/dashboard/orders/${reservationId}`)
+}
+
+/** From month 13 on, pay this % of the year-one payment; null returns to the engine's shape. */
+export async function updateFlowStepPct(reservationId: string, pct: number | null) {
+  const authResult = await requireEditor()
+  if (!authResult.authorized) throw new Error(authResult.error || 'Unauthorized')
+
+  if (pct != null && (!Number.isFinite(pct) || pct < 1 || pct > 100)) {
+    throw new Error('The month-13 payment must be between 1% and 100% of the year-one payment.')
+  }
+
+  await prisma.$transaction(async (tx) => {
+    const reservation = await tx.reservation.findUnique({ where: { id: reservationId } })
+    if (!reservation) throw new Error('Reservation not found')
+    if (reservation.reservationType !== 'FLOW') throw new Error('Only Flow orders have a month-13 step.')
+    if (['COMPLETED', 'CANCELLED', 'LOST'].includes(reservation.status)) {
+      throw new Error('Cannot change the schedule on a completed, canceled, or lost order')
+    }
+    assertFlowTermsOpen(reservation, 'schedule')
+    await tx.reservation.update({
+      where: { id: reservationId },
+      data: { flowStepPct: pct == null ? null : Math.round(pct * 100) / 100 },
+    })
+    await repriceFlowTx(tx, reservationId)
+  })
+
+  revalidatePath('/dashboard/orders')
+  revalidatePath(`/dashboard/orders/${reservationId}`)
 }
