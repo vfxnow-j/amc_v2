@@ -6,7 +6,9 @@ import { serialize } from '@/lib/utils'
 import { addDays } from 'date-fns'
 import { calculateNextBillingDate, generateInvoiceNumber, getBillingPeriod } from '@/lib/utils/billing'
 import type { BillingCycleType } from '@/lib/types'
-import { anchorAfter, billedPeriods, isAnchoredCycle } from '@/lib/billing/calendar'
+import { addDays as addCalendarDays, anchorAfter, billedPeriods, intendedDay, isAnchoredCycle } from '@/lib/billing/calendar'
+import { cycleInvoice, cycleTermsFor, toCycleLine } from '@/lib/billing/cycle-invoice'
+import { termEnd } from '@/lib/billing/payment-schedule'
 import { formatPeriodCount, roundMoney } from '@/lib/pricing/periods'
 import { getBillingAnchor } from '@/lib/settings/business'
 import { requireAdmin, requireAuth } from '@/lib/auth-utils'
@@ -34,7 +36,12 @@ export async function runBillingCycle(): Promise<BillingRunResult> {
     },
     include: {
       client: true,
-      items: { include: { asset: true } },
+      // Only the quote option the client went ahead with bills.
+      items: {
+        where: { OR: [{ packageId: null }, { package: { isActive: true } }] },
+        include: { asset: true },
+      },
+      packages: { where: { isActive: true }, select: { deliveryCost: true, returnCost: true } },
     },
   })
 
@@ -43,6 +50,14 @@ export async function runBillingCycle(): Promise<BillingRunResult> {
   for (const reservation of dueReservations) {
     // Skip if recurrence end date has passed
     if (reservation.recurrenceEndDate && new Date(reservation.recurrenceEndDate) < now) {
+      continue
+    }
+    // A committed term ends billing (owner, 2026-09-26). RTO counts installments instead.
+    const termStop = reservation.reservationType !== 'RENT_TO_OWN' && reservation.termMonths
+      ? termEnd(reservation.startDate, reservation.termMonths)
+      : null
+    if (termStop && reservation.nextBillingDate && intendedDay(reservation.nextBillingDate).getTime() >= termStop.getTime()) {
+      await prisma.reservation.update({ where: { id: reservation.id }, data: { nextBillingDate: null } })
       continue
     }
 
@@ -67,12 +82,19 @@ export async function runBillingCycle(): Promise<BillingRunResult> {
         // whole period; off it — an invoice date scheduled before the business
         // moved its billing day — it is the stretch up to the new day, prorated.
         const anchoredNext = isAnchoredCycle(cycle) ? anchorAfter(billingDate, cycle, anchor) : null
-        const share = isAnchoredCycle(cycle) && anchoredNext
-          ? billedPeriods(billingDate, anchoredNext, cycle, anchor)
+        // The last stretch of a committed term stops at the term's end.
+        const stretchEnd = anchoredNext && termStop && anchoredNext.getTime() > termStop.getTime() ? termStop : anchoredNext
+        const share = isAnchoredCycle(cycle) && stretchEnd
+          ? billedPeriods(billingDate, stretchEnd, cycle, anchor)
           : 1
+        const priorInvoices = await tx.invoice.count({
+          where: { reservationId: reservation.id, status: { notIn: ['VOID', 'CANCELLED'] } },
+        })
+        const billedTo = termStop && periodEnd.getTime() >= termStop.getTime() ? addCalendarDays(termStop, -1) : periodEnd
 
         // For RTO, use the fixed monthly payment amount; otherwise calculate from items
         let subtotal = 0
+        let cycleTax: number | null = null
         let invoiceItems
         if (isRTO && reservation.rtoMonthlyPayment) {
           // RTO: single line item for the monthly installment
@@ -91,25 +113,27 @@ export async function runBillingCycle(): Promise<BillingRunResult> {
             }
           })
         } else {
-          invoiceItems = reservation.items.map((item) => {
-            const qty = Number(item.quantity) || 1
-            const price = Number(item.rate)
-            const amount = roundMoney(qty * price * share)
-            subtotal += amount
-            const shareNote = Math.abs(share - 1) < 0.0005 ? '' : ` × ${formatPeriodCount(share)}`
-            return {
-              description: `${item.asset?.name || item.description || 'Ad-hoc item'} (${item.pricingType} rate${shareNote})`,
-              quantity: qty,
-              unitPrice: price,
-              amount,
-              assetId: item.assetId,
-            }
+          // What the quote says: the discount, parts inside a system's price
+          // left out, one-time lines and delivery on the first invoice only.
+          const priced = cycleInvoice({
+            lines: reservation.items.map(toCycleLine),
+            share,
+            first: priorInvoices === 0,
+            terms: cycleTermsFor({
+              ...reservation,
+              deliveryCost: reservation.packages[0]?.deliveryCost ?? reservation.deliveryCost,
+              returnCost: reservation.packages[0]?.returnCost ?? reservation.returnCost,
+            }),
+            shareNote: Math.abs(share - 1) < 0.0005 ? '' : ` × ${formatPeriodCount(share)}`,
           })
+          invoiceItems = priced.items
+          subtotal = priced.subtotal
+          cycleTax = priced.taxAmount
         }
 
         const resTaxRate = Number(reservation.taxRate) || 0
-        const taxAmount = subtotal * (resTaxRate / 100)
-        const total = subtotal + taxAmount
+        const taxAmount = cycleTax ?? roundMoney(subtotal * (resTaxRate / 100))
+        const total = roundMoney(subtotal + taxAmount)
 
         const paymentTerms = reservation.paymentTerms ?? reservation.client.paymentTerms ?? 30
         const dueDate = addDays(new Date(), paymentTerms)
@@ -143,7 +167,7 @@ export async function runBillingCycle(): Promise<BillingRunResult> {
             notes,
             periodNumber,
             periodStartDate: periodStart,
-            periodEndDate: periodEnd,
+            periodEndDate: billedTo,
             items: { create: invoiceItems },
           },
         })
@@ -162,7 +186,8 @@ export async function runBillingCycle(): Promise<BillingRunResult> {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const resUpdate: any = {
           lastBilledDate: new Date(),
-          nextBillingDate: nextBilling,
+          // Once the term's last stretch is billed, the schedule ends.
+          nextBillingDate: termStop && nextBilling && nextBilling.getTime() >= termStop.getTime() ? null : nextBilling,
           billingPeriodsCompleted: periodNumber,
         }
 

@@ -9,6 +9,7 @@ import type { InvoiceStatus } from '@/lib/types'
 import { firstInvoiceStretch, stretchLabel } from '@/lib/billing/calendar'
 import { formatPeriodCount, roundMoney } from '@/lib/pricing/periods'
 import { getBillingAnchor } from '@/lib/settings/business'
+import { cycleInvoice, cycleTermsFor, toCycleLine } from '@/lib/billing/cycle-invoice'
 import { nextNumber } from '@/lib/numbering/next'
 
 export type InvoiceFormData = {
@@ -17,6 +18,8 @@ export type InvoiceFormData = {
   issueDate?: Date
   dueDate: Date
   taxRate?: number
+  /** Tax already worked out (e.g. by cycleInvoice, which doesn't tax delivery); overrides subtotal × taxRate. */
+  taxAmount?: number
   notes?: string
   terms?: string
   /** The stretch of the term this invoice bills, when it bills one. */
@@ -176,7 +179,7 @@ export async function createInvoice(data: InvoiceFormData) {
   })
 
   const taxRate = data.taxRate || 0
-  const taxAmount = subtotal * (taxRate / 100)
+  const taxAmount = data.taxAmount ?? subtotal * (taxRate / 100)
   const total = subtotal + taxAmount
 
   const invoice = await prisma.invoice.create({
@@ -482,11 +485,14 @@ export async function createInvoiceFromReservation(reservationId: string, dueDat
     where: { id: reservationId },
     include: {
       client: true,
+      // Only the quote option the client went ahead with bills.
       items: {
+        where: { OR: [{ packageId: null }, { package: { isActive: true } }] },
         include: {
           asset: true,
         },
       },
+      packages: { where: { isActive: true }, select: { deliveryCost: true, returnCost: true } },
     },
   })
 
@@ -506,6 +512,40 @@ export async function createInvoiceFromReservation(reservationId: string, dueDat
     ? ` × ${formatPeriodCount(stretch.periods)}, ${stretchLabel(stretch.start, stretch.end)}`
     : ''
 
+  // Inherit tax rate from reservation if not provided
+  const effectiveTaxRate = taxRate ?? (Number(reservation.taxRate) || 0)
+
+  // A recurring rental bills what the quote says: the discount, parts inside a
+  // system's price left out, one-time lines and delivery on the first invoice
+  // only — the same pricing the billing run uses.
+  const recurringRental = reservation.isRecurring && ['RENTAL', 'CLOUD'].includes(reservation.reservationType)
+  if (recurringRental) {
+    const priced = cycleInvoice({
+      lines: reservation.items.map(toCycleLine),
+      share: stretch?.periods ?? 1,
+      first: priorInvoices === 0,
+      terms: {
+        ...cycleTermsFor({
+          ...reservation,
+          deliveryCost: reservation.packages[0]?.deliveryCost ?? reservation.deliveryCost,
+          returnCost: reservation.packages[0]?.returnCost ?? reservation.returnCost,
+        }),
+        taxRate: effectiveTaxRate,
+      },
+      shareNote: stretchNote,
+    })
+    return createInvoice({
+      clientId: reservation.clientId,
+      reservationId: reservation.id,
+      dueDate,
+      taxRate: effectiveTaxRate,
+      taxAmount: priced.taxAmount,
+      items: priced.items.map((i) => ({ ...i, assetId: i.assetId || undefined })),
+      ...(stretch ? { periodStartDate: stretch.start, periodEndDate: stretch.end } : {}),
+      notes: reservation.projectName ? `Project: ${reservation.projectName}` : undefined,
+    })
+  }
+
   // Build invoice items from reservation
   const items = reservation.items.map((item) => {
     const quantity = Number(item.quantity) || 1
@@ -518,9 +558,6 @@ export async function createInvoiceFromReservation(reservationId: string, dueDat
       assetId: item.assetId || undefined,
     }
   })
-
-  // Inherit tax rate from reservation if not provided
-  const effectiveTaxRate = taxRate ?? (Number(reservation.taxRate) || 0)
 
   return createInvoice({
     clientId: reservation.clientId,
