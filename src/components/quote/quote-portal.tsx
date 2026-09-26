@@ -422,6 +422,7 @@ export function QuotePortal({
                   undefined,
                   hasPackages ? selectedPackageId : undefined,
                   flow && autopayMethod ? { method: autopayMethod } : undefined,
+                  flow ? quote.flowTerms?.version : undefined,
                 );
                 setAnswer("approved");
               } catch (problem) {

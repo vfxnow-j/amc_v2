@@ -15,6 +15,7 @@ import { getBillingAnchor } from '@/lib/settings/business'
 import { flowQuotePayload } from '@/lib/pricing/flow-client-payload'
 import { buildFlowTermsSnapshot, flowQuoteProblem, flowTermsForReservation } from '@/lib/flow-terms-server'
 import { checkFlowApproval } from '@/lib/flow/approval'
+import { validateSignerName } from '@/lib/quotes/signer-name'
 
 const TOKEN_EXPIRY_DAYS = 30
 
@@ -441,6 +442,8 @@ export async function approveQuote(
   quantityChanges?: Array<{ itemId: string; newQuantity: number }>,
   selectedPackageId?: string,
   autopay?: { method: 'ACH' | 'CARD' },
+  /** The Flow terms `version` the client's page displayed when they signed. */
+  termsVersion?: unknown,
 ) {
   const quoteToken = await prisma.quoteToken.findUnique({
     where: { token },
@@ -486,6 +489,13 @@ export async function approveQuote(
     throw new Error('This quote can no longer be approved')
   }
 
+  // The name of record from here on: trimmed, non-empty, sane length. Every
+  // downstream write (autopay authorization, signed document, signed PDF,
+  // status history, internal email) uses this value, never the raw argument.
+  const nameCheck = validateSignerName(signerName)
+  if (!nameCheck.ok) throw new Error(nameCheck.error)
+  const validatedSignerName = nameCheck.name
+
   // Phase 6: a quote whose figure changed after approval (or was never cleared)
   // cannot be accepted until the new figure is approved and sent again.
   const portalHold = await portalQuoteHold(reservation.id)
@@ -494,22 +504,27 @@ export async function approveQuote(
   // Flow (v1): approved as quoted, with autopay authorized, and the terms the
   // client agreed to frozen onto the order. The terms are rendered here from the
   // current settings — never taken from the browser — and built before the
-  // transaction opens, because the render reads through the global client.
+  // transaction opens, because the render reads through the global client. The
+  // version rendered here is also what the client's displayed version must match
+  // (checkFlowApproval): terms edited by staff after the client opened the quote
+  // must not be silently frozen onto an order the client never saw.
   let flowApproval: {
     snapshot: Awaited<ReturnType<typeof buildFlowTermsSnapshot>>
     autopayMethod: 'ACH' | 'CARD'
     signerName: string
   } | null = null
   if (reservation.reservationType === 'FLOW') {
+    const snapshot = await buildFlowTermsSnapshot(reservation.id)
     const check = checkFlowApproval({
-      signerName,
+      signerName: validatedSignerName,
       quantityChanges,
       selectedPackageId,
       activePackageId: reservation.packages.find((p) => p.isActive)?.id ?? null,
       autopayMethod: autopay && typeof autopay === 'object' ? (autopay as { method?: unknown }).method : undefined,
+      displayedTermsVersion: termsVersion,
+      currentTermsVersion: snapshot.version,
     })
     if (!check.ok) throw new Error(check.error)
-    const snapshot = await buildFlowTermsSnapshot(reservation.id)
     flowApproval = { snapshot, autopayMethod: check.autopayMethod, signerName: check.signerName }
     // Nothing below may re-rate a Flow line with rental maths.
     quantityChanges = undefined
@@ -517,6 +532,19 @@ export async function approveQuote(
   }
 
   await prisma.$transaction(async (tx) => {
+    // Claim the token first, atomically. Two concurrent approvals can both pass
+    // the checks above (they run outside this transaction, against a snapshot
+    // read earlier), but only one `updateMany` can flip usedAt from null here —
+    // the loser gets 0 rows and must not touch anything else, since for Flow
+    // that "anything else" is a payment authorization.
+    const claimed = await tx.quoteToken.updateMany({
+      where: { id: quoteToken.id, usedAt: null },
+      data: { usedAt: new Date() },
+    })
+    if (claimed.count !== 1) {
+      throw new Error('This quote has already been answered.')
+    }
+
     // Switch active package if client selected a different one
     if (selectedPackageId) {
       const currentActive = reservation.packages.find((p) => p.isActive)
@@ -599,12 +627,6 @@ export async function approveQuote(
       },
     })
 
-    // Mark token as used
-    await tx.quoteToken.update({
-      where: { id: quoteToken.id },
-      data: { usedAt: new Date() },
-    })
-
     // Store signature on the proposal document if one exists
     const proposalDoc = await tx.document.findFirst({
       where: {
@@ -620,7 +642,7 @@ export async function approveQuote(
         where: { id: proposalDoc.id },
         data: {
           isSigned: true,
-          signedBy: signerName,
+          signedBy: validatedSignerName,
           signedAt: new Date(),
         },
       })
@@ -630,7 +652,7 @@ export async function approveQuote(
   // Generate signed quote PDF document
   try {
     const { generateSignedQuoteDocument } = await import('./documents')
-    await generateSignedQuoteDocument(reservation.id, signatureDataUrl, signerName)
+    await generateSignedQuoteDocument(reservation.id, signatureDataUrl, validatedSignerName)
   } catch (error) {
     console.error('Failed to generate signed quote document:', error)
   }
@@ -643,7 +665,7 @@ export async function approveQuote(
   // failure here must not report that it isn't.
   try {
     const { settleAgreementFromQuote } = await import('@/lib/requirements/quote-terms')
-    await settleAgreementFromQuote(reservation.id, signerName, new Date())
+    await settleAgreementFromQuote(reservation.id, validatedSignerName, new Date())
   } catch (error) {
     console.error('Failed to settle the rental agreement from a signed quote:', error)
   }
@@ -656,7 +678,7 @@ export async function approveQuote(
       entityId: reservation.id,
       fromStatus: reservation.status,
       toStatus: 'APPROVED',
-      notes: `Approved via quote link by ${signerName}`,
+      notes: `Approved via quote link by ${validatedSignerName}`,
     })
   } catch { /* non-critical */ }
 
@@ -681,7 +703,7 @@ export async function approveQuote(
         clientName: updatedRes.client.name,
         reservationNumber: updatedRes.reservationNumber,
         reservationId: updatedRes.id,
-        signerName,
+        signerName: validatedSignerName,
         total: Number(updatedRes.total),
         selectedPackageName: updatedRes.packages.length > 1 && activePackage
           ? activePackage.name

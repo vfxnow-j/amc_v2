@@ -186,6 +186,34 @@ test('the signer is named, and the name is trimmed', () => {
   assert.equal(checkFlowApproval({ signerName: '   ', autopayMethod: 'ACH' }).ok, false)
   assert.equal(checkFlowApproval({ signerName: 42, autopayMethod: 'ACH' }).ok, false)
   assert.equal(checkFlowApproval({ signerName: 'x'.repeat(201), autopayMethod: 'ACH' }).ok, false)
+  assert.equal(checkFlowApproval({ signerName: 'x'.repeat(200), autopayMethod: 'ACH' }).ok, true)
   const r = checkFlowApproval({ signerName: '  Ada Client ', autopayMethod: 'CARD' })
   assert.ok(r.ok && r.signerName === 'Ada Client')
+})
+
+test('a Flow approval is refused when the terms moved on after the client saw them', () => {
+  const base = { signerName: 'Ada Client', autopayMethod: 'ACH' as const }
+  // No currentTermsVersion supplied (an older caller, or a test that isn't
+  // exercising this rule) — the check is skipped, not failed closed.
+  assert.equal(checkFlowApproval({ ...base }).ok, true)
+
+  // The version the client's page displayed still matches what the server
+  // would render now — approval proceeds.
+  const matched = checkFlowApproval({ ...base, displayedTermsVersion: 3, currentTermsVersion: 3 })
+  assert.equal(matched.ok, true)
+
+  // Staff edited the terms between the client opening the quote and signing —
+  // the version has moved on. Refused with a message that tells them to reload.
+  const stale = checkFlowApproval({ ...base, displayedTermsVersion: 2, currentTermsVersion: 3 })
+  assert.deepEqual(stale, {
+    ok: false,
+    error: 'These terms were updated — please reload the quote to review them.',
+  })
+
+  // Never trust the shape of what the browser sent: only a real integer counts
+  // as a version the client could have actually seen.
+  for (const bad of ['3', 3.5, null, undefined, {}, [3]]) {
+    const r = checkFlowApproval({ ...base, displayedTermsVersion: bad, currentTermsVersion: 3 })
+    assert.equal(r.ok, false, `accepted ${JSON.stringify(bad)} as a version`)
+  }
 })

@@ -6,6 +6,7 @@
  *
  * Pure — no prisma, no 'use server', no next/*.
  */
+import { validateSignerName } from '@/lib/quotes/signer-name'
 
 export const FLOW_AUTOPAY_METHODS = ['ACH', 'CARD'] as const
 export type FlowAutopayMethod = (typeof FLOW_AUTOPAY_METHODS)[number]
@@ -17,6 +18,15 @@ export type FlowApprovalInput = {
   /** The order's active option, if it has any. */
   activePackageId?: string | null
   autopayMethod?: unknown
+  /**
+   * The terms `version` the client's page rendered before they signed, and the
+   * version the server would render right now (about to be frozen onto the
+   * order). Both are supplied by approveQuote for the real approval path; a
+   * caller that omits `currentTermsVersion` (older callers, existing tests)
+   * skips this rule rather than failing closed on a value it never had.
+   */
+  displayedTermsVersion?: unknown
+  currentTermsVersion?: number
 }
 
 export type FlowApprovalResult =
@@ -40,9 +50,20 @@ export function checkFlowApproval(input: FlowApprovalInput): FlowApprovalResult 
     return { ok: false, error: 'Autopay authorization (ACH or card) is required to approve a Flow subscription.' }
   }
 
-  const name = typeof input.signerName === 'string' ? input.signerName.trim() : ''
-  if (!name) return { ok: false, error: 'Enter your full name to sign.' }
-  if (name.length > 200) return { ok: false, error: 'That name is too long.' }
+  const nameCheck = validateSignerName(input.signerName)
+  if (!nameCheck.ok) return { ok: false, error: nameCheck.error }
 
-  return { ok: true, signerName: name, autopayMethod: method as FlowAutopayMethod }
+  // The terms shown to the client must be the terms being frozen onto the order.
+  // If staff edited the Flow terms settings between the client opening the quote
+  // and signing it, the version the server would render now has moved on — the
+  // client agreed to different wording than what's about to be recorded.
+  if (input.currentTermsVersion !== undefined) {
+    const displayed = input.displayedTermsVersion
+    const isValidInteger = typeof displayed === 'number' && Number.isInteger(displayed)
+    if (!isValidInteger || displayed !== input.currentTermsVersion) {
+      return { ok: false, error: 'These terms were updated — please reload the quote to review them.' }
+    }
+  }
+
+  return { ok: true, signerName: nameCheck.name, autopayMethod: method as FlowAutopayMethod }
 }
