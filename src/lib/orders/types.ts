@@ -68,3 +68,11 @@ export const ORDER_TYPES: ReservationType[] = [
   "FLOW",
   "CLOUD",
 ];
+
+/**
+ * What every invoicing path says when asked to bill a Flow order. Flow bills
+ * from its schedule, and that schedule is not wired into invoicing yet — so the
+ * run skips it and every hand-raised path refuses it rather than invent a bill.
+ */
+export const FLOW_NOT_INVOICED =
+  "Flow orders are billed from their schedule; invoicing isn't wired yet.";

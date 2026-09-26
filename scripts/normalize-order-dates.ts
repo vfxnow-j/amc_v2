@@ -41,6 +41,7 @@ const RESERVATION_DAY_FIELDS = [
   "deliveryDate",
   "returnDate",
   "rtoStartDate",
+  "flowStartDate",
 ] as const;
 
 type Change = { field: string; from: Date | null; to: Date | null };

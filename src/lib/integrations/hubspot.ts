@@ -27,6 +27,7 @@ async function getConfig() {
       RENTAL: (map.get('hubspot_pipeline_rental') as string) || 'default',
       SALE: (map.get('hubspot_pipeline_sale') as string) || 'default',
       RENT_TO_OWN: (map.get('hubspot_pipeline_rto') as string) || 'default',
+      FLOW: (map.get('hubspot_pipeline_flow') as string) || 'default',
       CLOUD: (map.get('hubspot_pipeline_cloud') as string) || 'default',
     } as Record<string, string>,
   }
@@ -175,6 +176,7 @@ const ORDER_TYPE_LABELS: Record<string, string> = {
   RENTAL: 'Rental',
   SALE: 'Sale',
   RENT_TO_OWN: 'Rent-to-Own',
+  FLOW: 'Flow',
   CLOUD: 'Cloud',
 }
 

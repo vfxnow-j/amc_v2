@@ -224,6 +224,9 @@ async function maybeAutoInvoice(tx: TxClient, reservationId: string): Promise<bo
   })
   if (!reservation) return false
 
+  // Flow bills from its schedule, which is not wired into invoicing yet.
+  if (reservation.reservationType === 'FLOW') return false
+
   // Skip invoicing for not-billed reservations (eval, gifted, etc.)
   if (reservation.notBilled) return false
 
@@ -377,7 +380,7 @@ export type ReservationFilters = {
   startDate?: Date
   endDate?: Date
   overdue?: boolean
-  reservationType?: 'RENTAL' | 'RENT_TO_OWN'
+  reservationType?: 'RENTAL' | 'RENT_TO_OWN' | 'FLOW'
 }
 
 // Generate unique reservation/sale number
@@ -394,7 +397,7 @@ export async function getReservations(filters: ReservationFilters = {}) {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const where: any = {
-    reservationType: reservationType ? reservationType : { in: ['RENTAL', 'RENT_TO_OWN'] },
+    reservationType: reservationType ? reservationType : { in: ['RENTAL', 'RENT_TO_OWN', 'FLOW'] },
   }
 
   if (search) {
@@ -465,7 +468,7 @@ export async function getRentalPipelineMetrics() {
 
   const results = await prisma.reservation.groupBy({
     by: ['status'],
-    where: { reservationType: { in: ['RENTAL', 'RENT_TO_OWN'] } },
+    where: { reservationType: { in: ['RENTAL', 'RENT_TO_OWN', 'FLOW'] } },
     _sum: { total: true },
     _count: true,
   })
@@ -589,7 +592,7 @@ export async function createReservation(input: ReservationFormData) {
   // Recurring is derived from the type and the cycle (lib/orders/recurring.ts),
   // never taken from the caller: nothing that builds an order sent it.
   const effectiveCycle = data.reservationType === 'SALE' ? 'ONE_TIME'
-    : data.reservationType === 'RENT_TO_OWN' ? 'MONTHLY'
+    : data.reservationType === 'RENT_TO_OWN' || data.reservationType === 'FLOW' ? 'MONTHLY'
     : (data.billingCycleType || 'MONTHLY')
   const effectiveIsRecurring = recurringFor(data.reservationType || 'RENTAL', effectiveCycle)
   let subtotal = 0
@@ -673,7 +676,7 @@ export async function createReservation(input: ReservationFormData) {
         createdById: authResult.userId,
         // Billing cycle
         billingCycleType: data.reservationType === 'SALE' ? 'ONE_TIME'
-          : data.reservationType === 'RENT_TO_OWN' ? 'MONTHLY'
+          : data.reservationType === 'RENT_TO_OWN' || data.reservationType === 'FLOW' ? 'MONTHLY'
           : billingCycleType,
         billingCycleDay,
         billingCycleDays,
@@ -896,6 +899,16 @@ export async function updateReservation(id: string, input: Partial<ReservationFo
       throw new Error('Can only edit draft, revision, or active reservations')
     }
 
+    // An order can't switch into or out of Flow (v1 01a81f5): a Flow order is
+    // priced and scheduled from its own columns, which no other type carries.
+    if (
+      data.reservationType !== undefined &&
+      data.reservationType !== existingReservation.reservationType &&
+      (data.reservationType === 'FLOW' || existingReservation.reservationType === 'FLOW')
+    ) {
+      throw new Error("An order can't be switched into or out of Flow. Create a new order instead.")
+    }
+
     // Find the active package (scope item operations to it)
     const activePackage = existingReservation.packages.find((p) => p.isActive)
 
@@ -1010,9 +1023,10 @@ export async function updateReservation(id: string, input: Partial<ReservationFo
     if (data.billingCycleType && data.billingCycleType !== existingReservation.billingCycleType && !data.items) {
       const newPricingType = pricingTypeForBillingCycle(data.billingCycleType)
       const effectiveType = data.reservationType ?? existingReservation.reservationType
-      // SALE lines are one-time and RTO subtotals hold the full buyout value, so
-      // neither is re-priced off a per-period asset rate.
-      const repriceRates = effectiveType !== 'SALE' && effectiveType !== 'RENT_TO_OWN'
+      // SALE lines are one-time, RTO subtotals hold the full buyout value and a
+      // Flow line's rate is its contract value, so none is re-priced off a
+      // per-period asset rate.
+      const repriceRates = effectiveType !== 'SALE' && effectiveType !== 'RENT_TO_OWN' && effectiveType !== 'FLOW'
 
       const cycleItems = await tx.reservationItem.findMany({
         where: { reservationId: id },
@@ -1202,11 +1216,22 @@ export async function updateReservation(id: string, input: Partial<ReservationFo
       updateData.rtoTermMonths = null
       updateData.rtoMonthlyPayment = null
       updateData.rtoBuyoutPrice = null
-    } else if (data.reservationType === 'RENTAL' && existingReservation.reservationType === 'RENT_TO_OWN') {
-      // Switching from RTO to RENTAL: clear RTO fields but keep billing as-is
+      updateData.flowTermMonths = null
+      updateData.flowMonthlyPayment = null
+      updateData.flowContractValue = null
+    } else if (
+      data.reservationType === 'RENTAL' &&
+      (existingReservation.reservationType === 'RENT_TO_OWN' || existingReservation.reservationType === 'FLOW')
+    ) {
+      // Switching from a financed type to RENTAL: clear the financing columns but
+      // keep billing as-is. Flow is refused above; the columns are cleared anyway
+      // (v1 c1ed9cf/80ed1a5) so a rental can never carry a Flow term and rate.
       updateData.rtoTermMonths = null
       updateData.rtoMonthlyPayment = null
       updateData.rtoBuyoutPrice = null
+      updateData.flowTermMonths = null
+      updateData.flowMonthlyPayment = null
+      updateData.flowContractValue = null
     }
 
     // Recurring follows the type and the cycle (lib/orders/recurring.ts) — set on
@@ -4850,6 +4875,12 @@ export async function duplicateReservation(
   const targetType: ReservationType = options?.targetType ?? source.reservationType
   const isSaleTarget = targetType === 'SALE'
   const isRtoTarget = targetType === 'RENT_TO_OWN'
+  // Flow only duplicates as Flow (v1): its line rates are per-unit contract values
+  // and its pricing lives in flow* columns no other type reads, and vice versa.
+  if (targetType !== source.reservationType && (targetType === 'FLOW' || source.reservationType === 'FLOW')) {
+    throw new Error('A Flow order can only be duplicated as a Flow order.')
+  }
+  const isFlowTarget = targetType === 'FLOW'
 
   // RTO financing term: explicit choice → source's existing term → sane default.
   const rtoTermMonths = isRtoTarget
@@ -4913,6 +4944,8 @@ export async function duplicateReservation(
         subtotal: sub,
         isOneTime: isSaleTarget ? true : item.isOneTime,
         costBasis: item.costBasis,
+        // Flow: keep the snapshotted true cost; the basis is floored at it.
+        ...(isFlowTarget ? { trueCost: item.trueCost } : {}),
         // Base parts stay included in their machine's rate on the copy.
         includedInParent: item.includedInParent,
         marginPercent: sanitizeMarginPercent(
@@ -4987,6 +5020,29 @@ export async function duplicateReservation(
         returnCourier: source.returnCourier,
         returnTrackingProvider: source.returnTrackingProvider,
         returnTrackingNumber: source.returnTrackingNumber,
+        // Flow: the same term and pricing knobs, a fresh start and nothing billed.
+        // Lines and totals are copied verbatim like every other type, so the
+        // contract value carries over. The current-period payment is left for
+        // the Flow repricer to derive: the source's may already be past a step.
+        ...(isFlowTarget ? {
+          flowTermMonths: source.flowTermMonths,
+          flowContractValue: source.flowContractValue,
+          flowMonthlyPayment: null,
+          flowStartDate: newStart,
+          flowPeriodsBilled: 0,
+          flowStepPct: source.flowStepPct,
+          flowMarginPct: source.flowMarginPct,
+          flowFinancePct: source.flowFinancePct,
+          flowPurchaseTaxPct: source.flowPurchaseTaxPct,
+          flowTaxExempt: source.flowTaxExempt,
+          flowRecoverByMonth: source.flowRecoverByMonth,
+          flowDeprPct: source.flowDeprPct,
+          flowLifeMonths: source.flowLifeMonths,
+          flowAssumedAprPct: source.flowAssumedAprPct,
+          flowAssumedLoanBalance: source.flowAssumedLoanBalance,
+          flowAssumedNoteMonths: source.flowAssumedNoteMonths,
+          flowExtensionPct: source.flowExtensionPct,
+        } : {}),
       },
     })
 

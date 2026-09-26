@@ -11,6 +11,7 @@ import { formatPeriodCount, roundMoney } from '@/lib/pricing/periods'
 import { getBillingAnchor } from '@/lib/settings/business'
 import { CYCLE_ORDER_INCLUDE, cycleInvoice, cycleTermsForOrder, toCycleLine } from '@/lib/billing/cycle-invoice'
 import { nextNumber } from '@/lib/numbering/next'
+import { FLOW_NOT_INVOICED } from '@/lib/orders/types'
 
 export type InvoiceFormData = {
   clientId: string
@@ -163,6 +164,14 @@ export async function createInvoice(data: InvoiceFormData) {
   const session = await auth()
   if (!session?.user?.id) {
     throw new Error('Unauthorized')
+  }
+
+  if (data.reservationId) {
+    const order = await prisma.reservation.findUnique({
+      where: { id: data.reservationId },
+      select: { reservationType: true },
+    })
+    if (order?.reservationType === 'FLOW') throw new Error(FLOW_NOT_INVOICED)
   }
 
   const invoiceNumber = await generateInvoiceNumber()
@@ -493,6 +502,7 @@ export async function createInvoiceFromReservation(reservationId: string, dueDat
   if (!reservation) {
     throw new Error('Reservation not found')
   }
+  if (reservation.reservationType === 'FLOW') throw new Error(FLOW_NOT_INVOICED)
 
   // The first invoice of a recurring order bills from the term start up to the
   // next billing date — a prorated stub when the start falls between anchors.
@@ -571,6 +581,7 @@ export async function createInvoiceForAddOns(reservationId: string, dueDate: Dat
   })
 
   if (!reservation) throw new Error('Reservation not found')
+  if (reservation.reservationType === 'FLOW') throw new Error(FLOW_NOT_INVOICED)
 
   // Cutoff: items added after the last billing (or confirmation/creation)
   const cutoffDate = reservation.lastBilledDate || reservation.confirmedAt || reservation.createdAt

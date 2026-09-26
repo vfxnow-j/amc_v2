@@ -33,6 +33,8 @@ export async function runBillingCycle(): Promise<BillingRunResult> {
       isRecurring: true,
       notBilled: false,
       nextBillingDate: { lte: now },
+      // Flow bills from its own schedule, which is not wired into billing yet.
+      reservationType: { not: 'FLOW' },
     },
     include: {
       client: true,
@@ -227,6 +229,8 @@ export async function getUpcomingBilling(days: number = 7) {
       billingCycleType: { not: 'ONE_TIME' },
       isRecurring: true,
       nextBillingDate: { lte: futureDate, gte: new Date() },
+      // The billing run skips Flow (see runBillingCycle), so it is not upcoming.
+      reservationType: { not: 'FLOW' },
     },
     include: { client: true },
     orderBy: { nextBillingDate: 'asc' },

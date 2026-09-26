@@ -343,6 +343,10 @@ export async function convertReservationToSale(reservationId: string) {
     if (reservation.reservationType === 'SALE') {
       throw new Error('This is already a sale order')
     }
+    // Flow gear always comes back; it is never sold through the order (v1 01a81f5).
+    if (reservation.reservationType === 'FLOW') {
+      throw new Error("A Flow order can't be converted to a sale.")
+    }
 
     const allowedStatuses = ['DRAFT', 'APPROVED', 'PREPARING', 'SHIPPED', 'ACTIVE']
     if (!allowedStatuses.includes(reservation.status)) {

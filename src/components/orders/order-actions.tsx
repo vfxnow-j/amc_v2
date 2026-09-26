@@ -627,7 +627,7 @@ function ActivateDialog({ id, terms, total, clientPaymentTerms, type, busy, run,
           <ModalCancel />
           <ModalConfirm
             disabled={busy}
-            onClick={() => run(() => activateOrder(id, { terms: draft, invoiceNow }))}
+            onClick={() => run(() => activateOrder(id, { terms: draft, invoiceNow: invoiceNow && type !== "FLOW" }))}
           >
             {busy ? "Activating…" : "Activate"}
           </ModalConfirm>
@@ -642,23 +642,26 @@ function ActivateDialog({ id, terms, total, clientPaymentTerms, type, busy, run,
         type={type}
       />
 
-      <label className="mt-4 flex items-start gap-2 border-t border-hairline pt-3">
-        <input
-          type="checkbox"
-          checked={invoiceNow}
-          disabled={draft.notBilled}
-          onChange={(event) => setInvoiceNow(event.target.checked)}
-          className="mt-[3px] size-4 flex-none accent-[var(--color-accent-solid)]"
-        />
-        <span className="text-detail text-ink">
-          Invoice the client now
-          <span className="block text-micro text-ink-faint">
-            {draft.notBilled
-              ? "Not available — this order is marked not billed."
-              : "Raises a draft invoice against the order. It is not sent until you send it."}
+      {/* Flow is billed from its schedule, which invoicing does not read yet. */}
+      {type === "FLOW" ? null : (
+        <label className="mt-4 flex items-start gap-2 border-t border-hairline pt-3">
+          <input
+            type="checkbox"
+            checked={invoiceNow}
+            disabled={draft.notBilled}
+            onChange={(event) => setInvoiceNow(event.target.checked)}
+            className="mt-[3px] size-4 flex-none accent-[var(--color-accent-solid)]"
+          />
+          <span className="text-detail text-ink">
+            Invoice the client now
+            <span className="block text-micro text-ink-faint">
+              {draft.notBilled
+                ? "Not available — this order is marked not billed."
+                : "Raises a draft invoice against the order. It is not sent until you send it."}
+            </span>
           </span>
-        </span>
-      </label>
+        </label>
+      )}
     </Modal>
   );
 }

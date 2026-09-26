@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { addDays } from "date-fns";
 import { prisma } from "@/lib/prisma";
 import { recurringFor } from "@/lib/orders/recurring";
+import { FLOW_NOT_INVOICED } from "@/lib/orders/types";
 import { speedApplies, type ShippingSpeed } from "@/lib/orders/shipping";
 import { handoverShortfall, shortfallMessage, type MissingLine } from "@/lib/orders/handover";
 import { parseDateInput } from "@/lib/billing/calendar";
@@ -164,6 +165,13 @@ export async function sendOrderQuote(
 ): Promise<StageOutcome> {
   const auth = await requireEditor();
   if (!auth.authorized) return { status: "error", message: auth.error ?? "Unauthorized" };
+
+  // No client quote exists for Flow yet (see generateQuoteToken); refuse before
+  // the stage moves on a send that could carry no link.
+  const flow = await prisma.reservation.findUnique({ where: { id }, select: { reservationType: true } });
+  if (flow?.reservationType === "FLOW") {
+    return { status: "error", message: "Flow orders don't have a client quote yet." };
+  }
 
   const hold = await held(id, "sending it", "Send the quote to the client");
   if (hold) return hold;
@@ -516,6 +524,7 @@ export async function saveBillingTerms(
   const allowed: Record<string, BillingCycleType[]> = {
     SALE: ["ONE_TIME"],
     RENT_TO_OWN: ["MONTHLY"],
+    FLOW: ["MONTHLY"],
     RENTAL: ["ONE_TIME", "MONTHLY", "WEEKLY"],
     CLOUD: ["ONE_TIME", "MONTHLY", "WEEKLY"],
   };
@@ -530,7 +539,9 @@ export async function saveBillingTerms(
           ? "A sale has no term, so it bills once."
           : current.reservationType === "RENT_TO_OWN"
             ? "A rent-to-own is financed monthly."
-            : "Rentals and cloud orders bill once, monthly or weekly.",
+            : current.reservationType === "FLOW"
+              ? "A Flow order bills monthly from its schedule."
+              : "Rentals and cloud orders bill once, monthly or weekly.",
     };
   }
   if (terms.taxRate < 0 || terms.taxRate > 100) {
@@ -563,7 +574,10 @@ export async function saveBillingTerms(
       where: { id },
       data: {
         termMonths:
-          recurringFor(current.reservationType, terms.billingCycleType) && current.reservationType !== "RENT_TO_OWN"
+          // Rent-to-own and Flow carry their own term (rtoTermMonths / flowTermMonths).
+          recurringFor(current.reservationType, terms.billingCycleType) &&
+          current.reservationType !== "RENT_TO_OWN" &&
+          current.reservationType !== "FLOW"
             ? terms.termMonths
             : null,
       },
@@ -590,6 +604,7 @@ export async function invoiceOrder(
   const order = await prisma.reservation.findUnique({
     where: { id },
     select: {
+      reservationType: true,
       notBilled: true,
       total: true,
       paymentTerms: true,
@@ -597,6 +612,7 @@ export async function invoiceOrder(
     },
   });
   if (!order) return { status: "error", message: "Order not found." };
+  if (order.reservationType === "FLOW") return { status: "error", message: FLOW_NOT_INVOICED };
   if (order.notBilled) {
     return {
       status: "error",

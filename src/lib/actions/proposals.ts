@@ -30,6 +30,21 @@ function toRelativePath(absolutePath: string): string {
 }
 
 /**
+ * Flow orders have no client documents yet: their line rates are per-unit contract
+ * values that a proposal would present as rental pricing (v1 7a8943f). Refused
+ * server-side so a stale tab or a direct call cannot produce one.
+ */
+async function assertProposalAllowed(reservationId: string): Promise<void> {
+  const order = await prisma.reservation.findUnique({
+    where: { id: reservationId },
+    select: { reservationType: true },
+  })
+  if (order?.reservationType === 'FLOW') {
+    throw new Error("Proposals aren't available for Flow orders yet.")
+  }
+}
+
+/**
  * Save a proposal — creates or updates the PROPOSAL document for a reservation.
  * Stores both the PDF file and the proposal JSON state (for re-editing).
  */
@@ -41,6 +56,7 @@ export async function saveProposal(
 ) {
   const authResult = await requireEditor()
   if (!authResult.authorized) throw new Error(authResult.error || 'Unauthorized')
+  await assertProposalAllowed(reservationId)
 
   const folder = path.join(DOCUMENTS_ROOT, 'reservations', reservationId)
   await fs.mkdir(folder, { recursive: true })
@@ -109,6 +125,7 @@ export async function saveProposalDraft(
 ) {
   const authResult = await requireEditor()
   if (!authResult.authorized) throw new Error(authResult.error || 'Unauthorized')
+  await assertProposalAllowed(reservationId)
 
   const existing = await prisma.document.findFirst({
     where: {
@@ -183,6 +200,7 @@ export async function sendProposalEmail(
 ) {
   const authResult = await requireEditor()
   if (!authResult.authorized) throw new Error(authResult.error || 'Unauthorized')
+  await assertProposalAllowed(reservationId)
 
   const reservation = await prisma.reservation.findUnique({
     where: { id: reservationId },

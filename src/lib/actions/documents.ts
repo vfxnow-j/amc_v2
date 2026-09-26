@@ -386,6 +386,9 @@ export async function generateSignedQuoteDocument(
       },
     })
     if (!reservation) return
+    // Flow has no client quote document yet: its line rates are whole-term
+    // contract values the quote PDF would print as rental pricing.
+    if (reservation.reservationType === 'FLOW') return
 
     // Use active package items if multi-package
     const activePackage = reservation.packages.find((p) => p.isActive)

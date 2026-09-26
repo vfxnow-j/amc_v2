@@ -370,6 +370,8 @@ export async function expandBuildOntoLine(
     },
   });
   if (!parent?.assetId || parent.reservation.id !== reservationId) return { added: 0 };
+  // A Flow line is priced as a whole off its landed cost and carries no parts.
+  if (parent.reservation.reservationType === "FLOW") return { added: 0 };
 
   const build = await prisma.assetComponent.findMany({
     where: { assetId: parent.assetId, isDefault: true },
@@ -602,6 +604,10 @@ export async function configureLine(
   const context = await lineContext(reservationId, itemId);
   if (!context) return { status: "error", message: "That line isn't a configurable machine on this order." };
   const { parent, options, sale, matchFor } = context;
+  // A Flow line is priced as a whole off its landed cost and carries no parts.
+  if (parent.reservation.reservationType === "FLOW") {
+    return { status: "error", message: "A Flow line can't be configured with parts." };
+  }
   if (["COMPLETED", "CANCELLED", "LOST"].includes(parent.reservation.status)) {
     return { status: "error", message: "This order is closed, so its lines can't change." };
   }

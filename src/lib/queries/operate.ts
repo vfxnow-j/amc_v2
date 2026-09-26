@@ -161,11 +161,12 @@ export async function getCalendarMonth(year: number, month: number) {
       where: {
         status: { notIn: ARCHIVE_STATUSES },
         endDate: inGrid,
-        isRecurring: false,
-        // Only a rental comes back. A sale's endDate is a v1 default of start
-        // plus 30 days, rent-to-own ends in ownership, and cloud ships nothing
-        // — showing any of them as a return put inbound arrows on draft sales.
-        reservationType: "RENTAL",
+        // Only a one-time rental and a Flow term come back on their end date. A
+        // sale's endDate is a v1 default of start plus 30 days, rent-to-own ends
+        // in ownership, and cloud ships nothing — showing any of them as a return
+        // put inbound arrows on draft sales. A Flow order recurs, but its end
+        // date is the term's end, when the gear always returns.
+        OR: [{ reservationType: "RENTAL", isRecurring: false }, { reservationType: "FLOW" }],
       },
       select,
     }),

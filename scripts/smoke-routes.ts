@@ -90,6 +90,17 @@ const RECORD_ROUTES: {
       ),
   },
   {
+    label: "order record · flow",
+    path: (id) => `/dashboard/orders/${id}`,
+    find: () =>
+      firstId(() =>
+        prisma.reservation.findFirst({
+          where: { reservationType: "FLOW" },
+          select: { id: true },
+        }),
+      ),
+  },
+  {
     label: "order record · cloud",
     path: (id) => `/dashboard/orders/${id}`,
     find: () =>

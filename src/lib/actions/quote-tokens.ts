@@ -27,6 +27,13 @@ export async function generateQuoteToken(reservationId: string) {
   })
 
   if (!reservation) throw new Error('Reservation not found')
+  // The client quote page renders rental, sale and rent-to-own pricing; a Flow
+  // line's rate is its whole-term contract value and would read as a monthly
+  // price (v1 7bb38b1). This is the only place a QuoteToken is minted, so no link
+  // can exist for a Flow order until its quote is built.
+  if (reservation.reservationType === 'FLOW') {
+    throw new Error("Flow orders don't have a client quote yet.")
+  }
   const allowedStatuses = ['DRAFT', 'REVISION', 'QUOTE_SENT', 'APPROVED']
   if (!allowedStatuses.includes(reservation.status)) {
     throw new Error('Can only generate quote links for draft, revision, sent, or approved reservations')

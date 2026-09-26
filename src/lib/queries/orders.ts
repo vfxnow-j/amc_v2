@@ -164,10 +164,13 @@ export const getBillingBook = cache(async function getBillingBook(now = new Date
   const [recurringAgg, dueSoon, stalled, oneTimeAgg, oneTimeRows, invoiced, notBilledAgg] =
     await Promise.all([
       sumOrderValue(recurring),
+      // Due-soon and stalled are about the billing run, which skips Flow.
       prisma.reservation.count({
-        where: { ...recurring, nextBillingDate: { lte: soon, not: null } },
+        where: { ...recurring, reservationType: { not: "FLOW" }, nextBillingDate: { lte: soon, not: null } },
       }),
-      prisma.reservation.count({ where: { ...recurring, nextBillingDate: null } }),
+      prisma.reservation.count({
+        where: { ...recurring, reservationType: { not: "FLOW" }, nextBillingDate: null },
+      }),
       sumOrderValue(oneTime),
       orderValues(oneTime),
       prisma.invoice.groupBy({

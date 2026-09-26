@@ -146,11 +146,14 @@ export async function OrderBillingCard({
             clientPaymentTerms={order.client.paymentTerms}
             type={type}
           />
-          <InvoiceButton
-            id={id}
-            notBilled={billing.notBilled}
-            dueDays={billing.paymentTerms ?? order.client.paymentTerms}
-          />
+          {/* Flow bills from its schedule; invoicing isn't wired for it yet. */}
+          {type === "FLOW" ? null : (
+            <InvoiceButton
+              id={id}
+              notBilled={billing.notBilled}
+              dueDays={billing.paymentTerms ?? order.client.paymentTerms}
+            />
+          )}
         </span>
       }
     >

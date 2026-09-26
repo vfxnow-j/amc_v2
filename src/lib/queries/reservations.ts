@@ -214,10 +214,11 @@ export async function getReservationList({
         unitsOrdered: record.items.reduce((sum, item) => sum + item.quantity, 0),
         unitsOut,
         value: Number(record.total),
-        // Only a rental comes back, so only a rental can be late back.
+        // Only a one-time rental and a Flow term come back on their end date,
+        // so only those can be late back.
         isLate:
-          record.reservationType === "RENTAL" &&
-          !record.isRecurring &&
+          ((record.reservationType === "RENTAL" && !record.isRecurring) ||
+            record.reservationType === "FLOW") &&
           unitsOut > 0 &&
           record.endDate < dayStart,
       };
