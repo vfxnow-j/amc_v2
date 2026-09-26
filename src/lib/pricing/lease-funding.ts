@@ -37,10 +37,38 @@ export type LeaseBalance = { balance: number; payment: number; monthsLeft: numbe
 
 const round2 = (n: number) => Math.round(n * 100) / 100
 
-/** Payments made by `asOf`: one per whole month since the start. */
+const daysInMonth = (year: number, month: number) => new Date(Date.UTC(year, month + 1, 0)).getUTCDate()
+
+/**
+ * Payments made by `asOf`: payments are in arrears, and the k-th payment falls
+ * on the start's day-of-month, k months later, clamped to the last day of that
+ * month (a Jan 31 start pays on Feb 28, not "no payment until March"). Compared
+ * by calendar Y/M/D in UTC — dates in this app are stored at noon UTC.
+ */
 function paymentsMade(start: Date, asOf: Date): number {
   const months = (asOf.getUTCFullYear() - start.getUTCFullYear()) * 12 + (asOf.getUTCMonth() - start.getUTCMonth())
-  return Math.max(0, months - (asOf.getUTCDate() < start.getUTCDate() ? 1 : 0))
+  // `months` lands asOf's payment in the same year/month as asOf, so the
+  // clamped due-day for that payment uses asOf's month length, not start's.
+  const dueDay = Math.min(start.getUTCDate(), daysInMonth(asOf.getUTCFullYear(), asOf.getUTCMonth()))
+  return Math.max(0, months - (asOf.getUTCDate() < dueDay ? 1 : 0))
+}
+
+/**
+ * Split `totalCents` across `shares` (fractions summing to ~1) so the parts
+ * always sum to exactly `totalCents` and none go negative: floor each share's
+ * exact cents, then hand the leftover cents one each to the largest fractional
+ * remainders (ties broken by original order).
+ */
+function allocateCents(totalCents: number, shares: number[]): number[] {
+  const exact = shares.map((s) => s * totalCents)
+  const floors = exact.map(Math.floor)
+  const allocated = floors.reduce((a, b) => a + b, 0)
+  const remainder = Math.max(0, Math.round(totalCents - allocated))
+  const order = exact
+    .map((e, i) => ({ i, frac: e - floors[i] }))
+    .sort((a, b) => b.frac - a.frac || a.i - b.i)
+  for (let k = 0; k < remainder && k < order.length; k++) floors[order[k].i] += 1
+  return floors
 }
 
 function presentValue(pmt: number, aprPct: number, months: number): number {
@@ -50,6 +78,8 @@ function presentValue(pmt: number, aprPct: number, months: number): number {
 }
 
 export function leaseBalance(l: LeaseTerms, asOf: Date, assume: Assumption, assumedPrincipal: number): LeaseBalance {
+  // LeaseStatus (schema): ACTIVE, PAID_OFF, DEFAULTED, TRANSFERRED — every status
+  // other than PAID_OFF is amortized from its terms below.
   if (l.status === 'PAID_OFF') return { balance: 0, payment: 0, monthsLeft: 0, aprPct: l.aprPct, assumed: false }
   const made = paymentsMade(l.startDate, asOf)
   if (l.monthlyPayment > 0) {
@@ -87,16 +117,16 @@ export function unitFunding(leases: LeaseTerms[], held: HeldUnit[], asOf: Date, 
     // A terms-missing lease is assumed per unit (each is its own note on its own
     // cost); a lease with terms is one note split by cost.
     const whole = lease.monthlyPayment > 0 ? leaseBalance(lease, asOf, assume, 0) : null
-    let balanceLeft = whole?.balance ?? 0
-    let paymentLeft = whole?.payment ?? 0
+    const shares = units.map((u) => (totalCost > 0 ? Math.max(0, u.cost) / totalCost : 1 / units.length))
+    // Largest-remainder split in cents: shares always sum to the lease figure
+    // exactly, and no unit's share is ever negative or off by more than a cent.
+    const balanceCents = whole ? allocateCents(Math.round(whole.balance * 100), shares) : []
+    const paymentCents = whole ? allocateCents(Math.round(whole.payment * 100), shares) : []
     units.forEach((u, i) => {
-      const share = totalCost > 0 ? Math.max(0, u.cost) / totalCost : 1 / units.length
-      const last = i === units.length - 1
+      const share = shares[i]
       if (whole) {
-        const balance = last ? round2(balanceLeft) : round2(whole.balance * share)
-        const pmt = last ? round2(paymentLeft) : round2(whole.payment * share)
-        balanceLeft -= balance
-        paymentLeft -= pmt
+        const balance = balanceCents[i] / 100
+        const pmt = paymentCents[i] / 100
         out.set(u.unitId, { unitId: u.unitId, leaseId: lease.id, leaseLabel: lease.label, share, balance, payment: pmt, monthsLeft: whole.monthsLeft, aprPct: whole.aprPct, assumed: false })
       } else {
         const b = leaseBalance(lease, asOf, assume, Math.max(0, u.cost))

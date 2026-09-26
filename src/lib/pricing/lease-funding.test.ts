@@ -63,3 +63,51 @@ test('a lease whose held units cost nothing splits evenly', () => {
   const held = [{ unitId: 'u1', assetId: 'x', leaseId: 'L1', cost: 0 }, { unitId: 'u2', assetId: 'x', leaseId: 'L1', cost: 0 }]
   assert.equal(unitFunding([fcb], held, day(2026, 8, 26), FLOW_LEASE_ASSUMPTION).get('u1')!.share, 0.5)
 })
+
+test('month-end payment timing: a Jan 31 start clamps to the last day of short months', () => {
+  const lease = { ...fcb, startDate: day(2026, 0, 31) }
+  const made = (asOf: Date) => leaseBalance(lease, asOf, FLOW_LEASE_ASSUMPTION, 0).monthsLeft
+  // termMonths - monthsLeft = paymentsMade
+  assert.equal(36 - made(day(2026, 1, 27)), 0) // Feb 27: not yet
+  assert.equal(36 - made(day(2026, 1, 28)), 1) // Feb 28: first payment (clamped)
+  assert.equal(36 - made(day(2026, 2, 30)), 1) // Mar 30: still 1
+  assert.equal(36 - made(day(2026, 2, 31)), 2) // Mar 31: second payment
+  assert.equal(36 - made(day(2026, 3, 30)), 3) // Apr 30: third payment (clamped)
+})
+
+test('month-end payment timing: a Feb 29 leap-year start pays on Mar 29', () => {
+  const lease = { ...fcb, startDate: day(2024, 1, 29) }
+  const made = (asOf: Date) => 36 - leaseBalance(lease, asOf, FLOW_LEASE_ASSUMPTION, 0).monthsLeft
+  assert.equal(made(day(2024, 2, 29)), 1)
+})
+
+test('month-end payment timing: a mid-month start crosses a year boundary cleanly', () => {
+  const lease = { ...fcb, startDate: day(2025, 10, 15) }
+  const made = (asOf: Date) => 36 - leaseBalance(lease, asOf, FLOW_LEASE_ASSUMPTION, 0).monthsLeft
+  assert.equal(made(day(2026, 0, 15)), 2)
+  assert.equal(made(day(2026, 0, 14)), 1)
+})
+
+test('largest-remainder split: $1.00 over 200 equal-cost units never goes negative', () => {
+  const held = Array.from({ length: 200 }, (_, i) => ({ unitId: `u${i}`, assetId: 'x', leaseId: 'L1', cost: 100 }))
+  const lease = { ...fcb, monthlyPayment: 1, aprPct: 0, termMonths: 1, startDate: day(2026, 8, 26) }
+  const f = unitFunding([lease], held, day(2026, 8, 26), FLOW_LEASE_ASSUMPTION)
+  const balances = [...f.values()].map((u) => u.balance)
+  const cents = balances.map((b) => Math.round(b * 100))
+  const sum = Math.round(balances.reduce((s, b) => s + b, 0) * 100) / 100
+  assert.equal(sum, 1)
+  assert.ok(balances.every((b) => b >= 0))
+  assert.ok(Math.max(...cents) - Math.min(...cents) <= 1)
+})
+
+test('largest-remainder split: $1.00 over 3 equal units splits to the cent with no negatives', () => {
+  const held = [1, 2, 3].map((i) => ({ unitId: `u${i}`, assetId: 'x', leaseId: 'L1', cost: 100 }))
+  const lease = { ...fcb, monthlyPayment: 1, aprPct: 0, termMonths: 1, startDate: day(2026, 8, 26) }
+  const f = unitFunding([lease], held, day(2026, 8, 26), FLOW_LEASE_ASSUMPTION)
+  const balances = [...f.values()].map((u) => u.balance)
+  const cents = balances.map((b) => Math.round(b * 100))
+  const sum = Math.round(balances.reduce((s, b) => s + b, 0) * 100) / 100
+  assert.equal(sum, 1)
+  assert.ok(balances.every((b) => b >= 0))
+  assert.ok(Math.max(...cents) - Math.min(...cents) <= 1)
+})
