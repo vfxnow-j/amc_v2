@@ -30,6 +30,7 @@ import { firstInvoiceStretch, stretchLabel } from '@/lib/billing/calendar'
 import { businessToday, intendedDay } from '@/lib/billing/calendar'
 import { recurringFor } from '@/lib/orders/recurring'
 import { kindForOrderType, nextNumber } from '@/lib/numbering/next'
+import { CHECKOUT_LINE_WHERE, pickScanLine, unitChargeFor } from '@/lib/checkout/lines'
 // Transaction client type for passing prisma tx to helpers
 type TxClient = Omit<typeof prisma, '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'>
 
@@ -4177,8 +4178,9 @@ export async function bulkCheckoutReservation(
         client: true,
         items: {
           where: {
-            // Components (parentId set) are pricing lines, not physical units — exclude.
-            parentId: null,
+            // Parts inside a system check out like any line; cloud config rows and
+            // lines from an option the client didn't choose never do.
+            ...CHECKOUT_LINE_WHERE,
             ...(itemIds ? { id: { in: itemIds } } : {}),
           },
           include: { asset: true },
@@ -4247,7 +4249,7 @@ export async function bulkCheckoutReservation(
 
       // Per-unit charge for this booking = rate × billing periods.
       const itemPeriods = calculatePeriodsSync(reservation.startDate, reservation.endDate, item.pricingType, reservation.isRecurring)
-      const itemUnitCharge = computeItemSubtotal(Number(item.rate), 1, itemPeriods)
+      const itemUnitCharge = unitChargeFor(item, computeItemSubtotal(Number(item.rate), 1, itemPeriods))
 
       for (const unit of availableUnits) {
         // Create checkout
@@ -4539,42 +4541,20 @@ export async function checkoutByBarcode(
     if (!reservation) return { success: false, error: 'Reservation not found' }
 
     // Find existing reservation item for this asset type, or create one ad hoc.
-    // A machine's lines come first; a configured part (below) only when no
-    // line for the asset has room.
-    // The asset may sit on several lines (same asset billed at different rates),
-    // so scan into the first line that still has room; only when every line is
-    // full does the first one stretch to absorb the extra unit.
-    // Only the quote option the order goes ahead with: an alternative the
-    // client didn't choose has nothing to send out.
-    const inChosenOption = { OR: [{ packageId: null }, { package: { isActive: true } }] }
+    // Which lines are checkout targets, and which one a scanned unit lands on,
+    // is decided by lib/checkout/lines.ts.
     const candidateItems = await prisma.reservationItem.findMany({
-      where: {
-        reservationId,
-        assetId: assetUnit.assetId,
-        parentId: null,
-        ...inChosenOption,
-      },
+      where: { reservationId, assetId: assetUnit.assetId, ...CHECKOUT_LINE_WHERE },
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
     })
-    // A part configured into a machine on this order — a GPU under its
-    // workstation (Settings → Configurable items). Scanning that GPU marries
-    // the unit to the part row under its machine instead of opening a separate
-    // GPU line beside it, which is what the order would otherwise grow.
-    const partItems = await prisma.reservationItem.findMany({
-      where: {
-        reservationId,
-        assetId: assetUnit.assetId,
-        parentId: { not: null },
-        ...inChosenOption,
-      },
-      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
-    })
-    let reservationItem =
-      candidateItems.find((i) => i.checkedOutCount < i.quantity) ??
-      partItems.find((i) => i.checkedOutCount < i.quantity) ??
-      candidateItems[0] ??
-      partItems[0] ??
-      null
+    // The line this exact unit was assigned to while preparing, if any.
+    const assigned = candidateItems.length
+      ? await prisma.reservationItemUnit.findFirst({
+          where: { assetUnitId: assetUnit.id, reservationItemId: { in: candidateItems.map((i) => i.id) }, checkedOutAt: null },
+          select: { reservationItemId: true },
+        })
+      : null
+    let reservationItem = pickScanLine(candidateItems, assigned?.reservationItemId ?? null)
 
     if (!reservationItem) {
       // Ad hoc add: create a new reservation item for this asset type.
