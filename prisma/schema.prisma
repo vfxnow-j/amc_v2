@@ -909,6 +909,7 @@ enum ReservationType {
   SALE // Equipment sale, no return expected
   RENT_TO_OWN // Equipment financing — fixed monthly payments toward ownership
   CLOUD // Cloud services (placeholder — coming soon)
+  FLOW // Term hardware subscription — owned gear, returns at term end
 }
 
 enum DeliveryMethod {
@@ -1051,6 +1052,44 @@ model Reservation {
   rtoStartDate        DateTime? // When first installment began
   rtoDefaultCount     Int?      @default(0) // Number of missed/overdue payments
 
+  // Flow — fixed-term subscription on gear we already own; it comes back at term end.
+  // Priced off landed cost (not the catalog rate) and shaped so unrecovered capital is
+  // billed back by each 12-month anniversary. See src/lib/pricing/flow-order.ts.
+  flowTermMonths     Int?
+  flowMonthlyPayment Decimal?  @db.Decimal(12, 2) // the CURRENT period's rate, not the only rate
+  flowContractValue  Decimal?  @db.Decimal(12, 2)
+  flowStartDate      DateTime?
+  flowPeriodsBilled  Int?      @default(0)
+  // From month 13 on, the monthly payment as a % of the year-one payment. Null = the recoverByMonth shape.
+  flowStepPct        Decimal?  @db.Decimal(5, 2)
+
+  // Pricing inputs, stored so the order re-prices identically later.
+  flowMarginPct      Decimal? @db.Decimal(5, 2)
+  flowFinancePct     Decimal? @db.Decimal(5, 2)
+  flowPurchaseTaxPct Decimal? @db.Decimal(5, 2) // tax we would pay BUYING, not the client's sales tax
+  flowTaxExempt      Boolean  @default(true)
+  flowRecoverByMonth Int?
+  flowDeprPct        Decimal? @db.Decimal(5, 2)
+  flowLifeMonths     Int?
+
+  // Assumptions used only where a unit's loan record is incomplete. Never overrides a
+  // real Lease; the funding panel labels anything derived from these.
+  flowAssumedAprPct      Decimal? @db.Decimal(5, 2)
+  flowAssumedLoanBalance Decimal? @db.Decimal(12, 2)
+  flowAssumedNoteMonths  Int?
+
+  // Flow subscription terms (addendum). The approved quote is the binding agreement:
+  // the rendered terms are frozen here at approval and never re-rendered afterwards.
+  flowExtensionPct         Decimal?  @db.Decimal(5, 2) // per-order override; null = settings default
+  flowTermsSnapshot        Json?
+  flowTermsVersion         Int?
+  // Autopay authorization captured at approval (no processor yet — Stripe in v2).
+  flowAutopayMethod        String? // 'ACH' | 'CARD'
+  flowAutopayAuthorizedBy  String?
+  flowAutopayAuthorizedAt  DateTime?
+  flowAutopaySetupAt       DateTime? // staff set up the recurring charge
+  flowAutopaySetupById     String?
+
   // Payment terms (override client default; null = use client's paymentTerms)
   paymentTerms Int?
 
@@ -1131,6 +1170,16 @@ model ReservationItem {
   // Margin tracking (sales)
   costBasis     Decimal? @db.Decimal(12, 2) // Per-unit cost
   marginPercent Decimal? @db.Decimal(5, 2) // Margin % applied
+
+  // Flow: what this gear actually cost us, per unit (purchasePrice + landedCostAdjustment,
+  // averaged over the asset's live units), snapshotted when the line was added. costBasis
+  // carries the PRICING basis that margin and financing apply to; this one feeds profit,
+  // return on capital and residual, and must never shape a schedule.
+  trueCost Decimal? @db.Decimal(12, 2)
+
+  // Flow: the month of the term at which this line was co-termed in. Null means it was on
+  // the order from the start. The schedule is derived from these, never stored.
+  flowAddedAtMonth Int?
 
   // Tracking (counts instead of booleans for multi-unit)
   assignedCount   Int @default(0) // Units soft-assigned during prep
