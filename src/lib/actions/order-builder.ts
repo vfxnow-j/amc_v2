@@ -9,6 +9,7 @@ import type { PricingType } from "@/lib/types";
 import { intendedDay, parseDateInput } from "@/lib/billing/calendar";
 import { addTermMonths } from "@/lib/flow/stored-money";
 import { isFlowTerm, FLOW_TERMS_MESSAGE } from "@/lib/flow/terms";
+import { flowOrderKnobsProblem } from "@/lib/flow/knob-bounds";
 import {
   findSubstitutes,
   searchAssetsForWindow,
@@ -162,6 +163,23 @@ export async function createOrder(
     return { status: "error", message: FLOW_TERMS_MESSAGE };
   }
   const flowTerm = isFlow ? rawFlowTerm : 0;
+  // The knobs' bounds, the same the form shows — refused here with the reason
+  // rather than stored for the pricing engine to trust.
+  if (isFlow && input.flow) {
+    const problem = flowOrderKnobsProblem(
+      {
+        flowMarginPct: input.flow.marginPct,
+        flowFinancePct: input.flow.financePct,
+        flowPurchaseTaxPct: input.flow.purchaseTaxPct,
+        flowRecoverByMonth: input.flow.recoverByMonth,
+        flowDeprPct: input.flow.deprPct,
+        flowLifeMonths: input.flow.lifeMonths,
+        flowStepPct: input.flow.stepPct,
+      },
+      flowTerm,
+    );
+    if (problem) return { status: "error", message: problem };
+  }
   const start = parseDateInput(input.start);
   const requestedEnd = parseDateInput(input.end);
   if (!start || (input.type !== "SALE" && !isFlow && !requestedEnd)) {

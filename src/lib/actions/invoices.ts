@@ -6,8 +6,9 @@ import { auth } from '@/lib/auth'
 import { requireAuth, requireEditor, requireAdmin } from '@/lib/auth-utils'
 import { serialize } from '@/lib/utils'
 import type { InvoiceStatus } from '@/lib/types'
-import { firstInvoiceStretch, stretchLabel } from '@/lib/billing/calendar'
-import { formatPeriodCount, roundMoney } from '@/lib/pricing/periods'
+import { firstInvoiceStretch } from '@/lib/billing/calendar'
+import { firstStretchNote, priorCycleInvoiceWhere } from '@/lib/billing/first-cycle'
+import { roundMoney } from '@/lib/pricing/periods'
 import { getBillingAnchor } from '@/lib/settings/business'
 import { CYCLE_ORDER_INCLUDE, cycleInvoice, cycleTermsForOrder, toCycleLine } from '@/lib/billing/cycle-invoice'
 import { nextNumber } from '@/lib/numbering/next'
@@ -23,6 +24,8 @@ export type InvoiceFormData = {
   taxAmount?: number
   notes?: string
   terms?: string
+  /** Which billing period this invoice covers, when it bills one (lib/billing/first-cycle). */
+  periodNumber?: number
   /** The stretch of the term this invoice bills, when it bills one. */
   periodStartDate?: Date
   periodEndDate?: Date
@@ -205,6 +208,7 @@ export async function createInvoice(data: InvoiceFormData) {
       total,
       notes: data.notes,
       terms: data.terms,
+      periodNumber: data.periodNumber,
       periodStartDate: data.periodStartDate,
       periodEndDate: data.periodEndDate,
       status: 'DRAFT',
@@ -506,15 +510,14 @@ export async function createInvoiceFromReservation(reservationId: string, dueDat
 
   // The first invoice of a recurring order bills from the term start up to the
   // next billing date — a prorated stub when the start falls between anchors.
-  const priorInvoices = await prisma.invoice.count({
-    where: { reservationId, status: { notIn: ['VOID', 'CANCELLED'] } },
-  })
-  const stretch = priorInvoices === 0
+  // "First" is no prior cycle invoice (lib/billing/first-cycle), the rule the
+  // billing run and checkout's auto-invoice share.
+  const priorCycleInvoices = await prisma.invoice.count({ where: priorCycleInvoiceWhere(reservationId) })
+  const first = priorCycleInvoices === 0
+  const stretch = first
     ? firstInvoiceStretch(reservation, await getBillingAnchor())
     : null
-  const stretchNote = stretch && Math.abs(stretch.periods - 1) >= 0.0005
-    ? ` × ${formatPeriodCount(stretch.periods)}, ${stretchLabel(stretch.start, stretch.end)}`
-    : ''
+  const stretchNote = firstStretchNote(stretch)
 
   // Inherit tax rate from reservation if not provided
   const effectiveTaxRate = taxRate ?? (Number(reservation.taxRate) || 0)
@@ -527,7 +530,7 @@ export async function createInvoiceFromReservation(reservationId: string, dueDat
     const priced = cycleInvoice({
       lines: reservation.items.map(toCycleLine),
       share: stretch?.periods ?? 1,
-      first: priorInvoices === 0,
+      first,
       terms: { ...cycleTermsForOrder(reservation), taxRate: effectiveTaxRate },
       shareNote: stretchNote,
     })
@@ -538,6 +541,9 @@ export async function createInvoiceFromReservation(reservationId: string, dueDat
       taxRate: effectiveTaxRate,
       taxAmount: priced.taxAmount,
       items: priced.items.map((i) => ({ ...i, assetId: i.assetId || undefined })),
+      // The first stretch is stamped period 1 even when it has no dates, so the
+      // billing run and checkout see it as the first cycle invoice.
+      ...(first ? { periodNumber: 1 } : {}),
       ...(stretch ? { periodStartDate: stretch.start, periodEndDate: stretch.end } : {}),
       notes: reservation.projectName ? `Project: ${reservation.projectName}` : undefined,
     })

@@ -15,6 +15,7 @@ import { prisma } from "@/lib/prisma";
 import { anchorAfter, billedPeriods, intendedDay, isAnchoredCycle, toDateInput } from "@/lib/billing/calendar";
 import { ACTIVE_PACKAGE_SHIPPING, cycleInvoice, cycleTermsForOrder, scopeChosenItems, toCycleLine } from "@/lib/billing/cycle-invoice";
 import { termEnd } from "@/lib/billing/payment-schedule";
+import { priorCycleInvoiceWhere } from "@/lib/billing/first-cycle";
 import { roundMoney } from "@/lib/pricing/periods";
 import { BILLING_ANCHOR_KEY, parseBillingAnchor } from "@/lib/settings/business";
 
@@ -89,7 +90,7 @@ async function main() {
           const stretchEnd = anchoredNext && termStop && anchoredNext.getTime() > termStop.getTime() ? termStop : anchoredNext;
           if (stretchEnd !== anchoredNext) causes.push("term clips stretch");
           const share = isAnchoredCycle(cycle) && stretchEnd ? billedPeriods(billingDate, stretchEnd, cycle, anchor) : 1;
-          const prior = await tx.invoice.count({ where: { reservationId: r.id, status: { notIn: ["VOID", "CANCELLED"] } } });
+          const prior = await tx.invoice.count({ where: priorCycleInvoiceWhere(r.id) });
           const first = prior === 0;
           const scoped = scopeChosenItems(r.items);
           const priced = cycleInvoice({

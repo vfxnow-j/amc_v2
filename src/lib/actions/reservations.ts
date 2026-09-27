@@ -19,14 +19,16 @@ import {
   computeItemSubtotal,
   formatPeriodCount,
   formatTermLength,
-  roundMoney,
 } from '@/lib/pricing/periods'
 import { deriveRentalRate, pricingTypeForBillingCycle } from '@/lib/pricing/rates'
 // One next-billing rule for the whole app. This file used to carry its own copy,
 // which read the 1st in server-local time and ignored the business anchor.
 import { calculateNextBillingDate } from '@/lib/utils/billing'
 import { getBillingAnchor } from '@/lib/settings/business'
-import { firstInvoiceStretch, stretchLabel } from '@/lib/billing/calendar'
+import { firstInvoiceStretch } from '@/lib/billing/calendar'
+import { ACTIVE_PACKAGE_SHIPPING, cycleTermsForOrder } from '@/lib/billing/cycle-invoice'
+import { autoInvoiceScope, firstCycleAutoInvoice } from '@/lib/billing/auto-invoice'
+import { firstStretchNote, priorCycleInvoiceWhere } from '@/lib/billing/first-cycle'
 import { businessToday, intendedDay } from '@/lib/billing/calendar'
 import { recurringFor } from '@/lib/orders/recurring'
 import { kindForOrderType, nextNumber } from '@/lib/numbering/next'
@@ -35,6 +37,7 @@ import { calculateReservationTotals, sanitizeMarginPercent } from '@/lib/pricing
 import { loadFlowBases } from '@/lib/flow/load-bases'
 import { applyFlowDefaults } from '@/lib/flow/defaults'
 import { assertFlowTerm } from '@/lib/flow/terms'
+import { flowOrderKnobsProblem } from '@/lib/flow/knob-bounds'
 import { carryFlowLine, matchFlowLines } from '@/lib/flow/line-carry'
 import { loadFlowDefaults } from '@/lib/flow/order-inputs'
 import { duplicateOrderTx, duplicateTargetType } from '@/lib/orders/duplicate'
@@ -216,7 +219,13 @@ async function maybeAutoInvoice(tx: TxClient, reservationId: string): Promise<bo
     include: {
       client: true,
       // Ordered so the already-billed fallback below consumes lines predictably.
-      items: { include: { asset: true }, orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }] },
+      // Every line, with its package's state: which option was chosen is
+      // decided here (autoInvoiceScope), not in the query.
+      items: {
+        include: { asset: true, package: { select: { isActive: true } } },
+        orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+      },
+      packages: ACTIVE_PACKAGE_SHIPPING,
     },
   })
   if (!reservation) return false
@@ -230,6 +239,78 @@ async function maybeAutoInvoice(tx: TxClient, reservationId: string): Promise<bo
   // Skip invoicing for zero-dollar deals (no value to bill)
   const itemsTotal = reservation.items.reduce((sum, i) => sum + Number(i.subtotal), 0)
   if (itemsTotal <= 0) return false
+
+  // Calculate due date from reservation payment terms (falls back to client default)
+  const paymentTerms = reservation.paymentTerms ?? reservation.client.paymentTerms ?? 30
+  const dueDate = addDays(new Date(), paymentTerms)
+  const resTaxRate = Number(reservation.taxRate) || 0
+  const notes = reservation.projectName ? `Project: ${reservation.projectName}` : undefined
+
+  // A recurring rental's first stretch is priced the way the billing run and the
+  // manual first invoice price it (lib/billing/cycle-invoice): from the term
+  // start up to the next billing date, with the discount, one-time lines and
+  // delivery. It is stamped periodNumber 1, so none of those paths bills the
+  // first stretch's one-time charges again. "First" is no prior cycle invoice
+  // (lib/billing/first-cycle), counted here inside the same transaction.
+  const recurringRental = reservation.isRecurring && ['RENTAL', 'CLOUD'].includes(reservation.reservationType)
+  if (recurringRental && (await tx.invoice.count({ where: priorCycleInvoiceWhere(reservationId) })) === 0) {
+    const stretch = firstInvoiceStretch(reservation, await getBillingAnchor())
+    const { priced, lines } = firstCycleAutoInvoice({
+      items: reservation.items,
+      share: stretch?.periods ?? 1,
+      terms: cycleTermsForOrder(reservation),
+      shareNote: firstStretchNote(stretch),
+    })
+    if (lines.length === 0) return false
+
+    const createdInvoice = await tx.invoice.create({
+      data: {
+        invoiceNumber: await nextNumber('invoice', tx),
+        clientId: reservation.clientId,
+        reservationId: reservation.id,
+        issueDate: new Date(),
+        dueDate,
+        subtotal: priced.subtotal,
+        taxRate: resTaxRate,
+        taxAmount: priced.taxAmount,
+        total: priced.total,
+        status: 'DRAFT',
+        notes,
+        periodNumber: 1,
+        ...(stretch ? { periodStartDate: stretch.start, periodEndDate: stretch.end } : {}),
+      },
+    })
+    // Two passes so a billed child can nest under its billed parent.
+    const resItemIdToInvoiceItemId = new Map<string, string>()
+    for (const pass of [false, true]) {
+      for (const line of lines) {
+        if (!!line.parentReservationItemId !== pass) continue
+        const created = await tx.invoiceItem.create({
+          data: {
+            invoiceId: createdInvoice.id,
+            description: line.description,
+            quantity: line.quantity,
+            unitPrice: line.unitPrice,
+            amount: line.amount,
+            assetId: line.assetId || undefined,
+            reservationItemId: line.reservationItemId,
+            parentId: line.parentReservationItemId ? resItemIdToInvoiceItemId.get(line.parentReservationItemId) ?? null : null,
+          },
+        })
+        if (line.reservationItemId) resItemIdToInvoiceItemId.set(line.reservationItemId, created.id)
+      }
+    }
+
+    await tx.reservation.update({
+      where: { id: reservationId },
+      data: { lastBilledDate: new Date() },
+    })
+    return true
+  }
+
+  // Everything else — a one-time rental, a sale, rent-to-own, or a recurring
+  // rental whose first stretch is already invoiced — bills the lines not yet on
+  // an invoice at their stored subtotals.
 
   // Check existing invoices (excluding voided/canceled) to avoid double-billing
   const existingInvoices = await tx.invoice.findMany({
@@ -260,11 +341,11 @@ async function maybeAutoInvoice(tx: TxClient, reservationId: string): Promise<bo
     unmatchedCountByAsset.set(invItem.assetId, (unmatchedCountByAsset.get(invItem.assetId) || 0) + 1)
   }
 
-  // Filter to only uninvoiced items. Cloud-host component children (parentId +
-  // cloudProductId) are hidden config rows — skip them so invoices show just
-  // the cloud-host summary line.
-  const uninvoicedItems = reservation.items.filter((item) => {
-    if (item.parentId && item.cloudProductId) return false
+  // Filter to only uninvoiced items. The scope leaves out lines of quote options
+  // the client didn't choose, parts included in a system's price, and cloud-host
+  // component children (hidden config rows — the invoice shows just the
+  // cloud-host summary line).
+  const uninvoicedItems = autoInvoiceScope(reservation.items).filter((item) => {
     if (invoicedItemIds.has(item.id)) return false
     if (item.assetId) {
       const alreadyBilled = unmatchedCountByAsset.get(item.assetId) || 0
@@ -278,51 +359,30 @@ async function maybeAutoInvoice(tx: TxClient, reservationId: string): Promise<bo
 
   if (uninvoicedItems.length === 0) return false
 
-  // Calculate due date from reservation payment terms (falls back to client default)
-  const paymentTerms = reservation.paymentTerms ?? reservation.client.paymentTerms ?? 30
-  const dueDate = addDays(new Date(), paymentTerms)
-
   // Generate invoice number (pattern: Settings → Business → Numbering)
   const invoiceNumber = await nextNumber('invoice', tx)
-
-  // The order's first invoice on a recurring anchored cycle bills from the term
-  // start up to the next billing date — a prorated stub for a mid-period start —
-  // instead of one whole cycle. Later add-on invoices keep billing whole.
-  const stretch = existingInvoices.length === 0
-    ? firstInvoiceStretch(reservation, await getBillingAnchor())
-    : null
-  const lineAmount = (item: (typeof uninvoicedItems)[number]) =>
-    stretch
-      ? roundMoney((Number(item.quantity) || 1) * Number(item.rate) * stretch.periods)
-      : Number(item.subtotal)
 
   // Build line items from uninvoiced items only (use stored subtotals which include term periods)
   let subtotal = 0
   const buildLine = (item: (typeof uninvoicedItems)[number]) => {
-    const amount = lineAmount(item)
     const periods = calculatePeriodsSync(reservation.startDate, reservation.endDate, item.pricingType, reservation.isRecurring)
     // Terms rarely land on whole periods, so spell out both the multiplier and the
     // plain-English term (e.g. "x 1.38 monthly — 6 weeks") on the invoice line.
-    const periodLabel = stretch
-      ? Math.abs(stretch.periods - 1) < 0.0005
-        ? ''
-        : ` x ${formatPeriodCount(stretch.periods)}, ${stretchLabel(stretch.start, stretch.end)}`
-      : periods > 1
-        ? ` x ${formatPeriodCount(periods)} ${item.pricingType.toLowerCase()} — ${formatTermLength(reservation.startDate, reservation.endDate)}`
-        : ''
+    const periodLabel = periods > 1
+      ? ` x ${formatPeriodCount(periods)} ${item.pricingType.toLowerCase()} — ${formatTermLength(reservation.startDate, reservation.endDate)}`
+      : ''
     return {
       description: `${item.asset?.name || item.description || 'Ad-hoc item'} (${item.pricingType} rate${periodLabel})`,
       quantity: Number(item.quantity) || 1,
       unitPrice: Number(item.rate),
-      amount,
+      amount: Number(item.subtotal),
       assetId: item.assetId || undefined,
       reservationItemId: item.id,
     }
   }
-  for (const item of uninvoicedItems) subtotal += lineAmount(item)
+  for (const item of uninvoicedItems) subtotal += Number(item.subtotal)
 
   // Inherit tax rate from reservation
-  const resTaxRate = Number(reservation.taxRate) || 0
   const taxAmount = subtotal * (resTaxRate / 100)
   const invoiceTotal = subtotal + taxAmount
 
@@ -339,8 +399,7 @@ async function maybeAutoInvoice(tx: TxClient, reservationId: string): Promise<bo
       taxAmount,
       total: invoiceTotal,
       status: 'DRAFT',
-      notes: reservation.projectName ? `Project: ${reservation.projectName}` : undefined,
-      ...(stretch ? { periodStartDate: stretch.start, periodEndDate: stretch.end } : {}),
+      notes,
     },
   })
   const resItemIdToInvoiceItemId = new Map<string, string>()
@@ -696,6 +755,12 @@ export async function createReservation(input: ReservationFormData) {
         flowLifeMonths: data.flowLifeMonths ?? null,
       }, await loadFlowDefaults(prisma))
     : null
+  // The same bounds the builder's form shows, checked here too: any caller can
+  // reach this action, and the pricing engine trusts the stored knobs.
+  if (flowKnobs) {
+    const knobProblem = flowOrderKnobsProblem({ ...flowKnobs, flowStepPct: data.flowStepPct ?? null }, flowTerm)
+    if (knobProblem) throw new Error(knobProblem)
+  }
 
   const reservation = await prisma.$transaction(async (tx) => {
     const res = await tx.reservation.create({
@@ -1179,7 +1244,8 @@ export async function updateReservation(id: string, input: Partial<ReservationFo
           if (derived > 0) rate = derived
         }
         const periods = item.isOneTime ? 1 : calculatePeriodsSync(effectiveStart, effectiveEnd, pricingType, effectiveRecurringForCycle)
-        const itemSub = computeItemSubtotal(rate, item.quantity, periods)
+        // A part included in its system's price is not charged on its own.
+        const itemSub = item.includedInParent ? 0 : computeItemSubtotal(rate, item.quantity, periods)
         // Non-active packages are alternative quote options — re-price them onto the
         // new unit, but only the active package feeds the order total.
         if (!activePackage || item.packageId === activePackage.id) subtotal += itemSub
@@ -1200,7 +1266,8 @@ export async function updateReservation(id: string, input: Partial<ReservationFo
       subtotal = 0
       for (const item of currentItems) {
         const periods = item.isOneTime ? 1 : calculatePeriodsSync(effStart, effEnd, item.pricingType, effRecurring)
-        const itemSub = computeItemSubtotal(Number(item.rate), item.quantity, periods)
+        // A part included in its system's price is not charged on its own.
+        const itemSub = item.includedInParent ? 0 : computeItemSubtotal(Number(item.rate), item.quantity, periods)
         subtotal += itemSub
         await tx.reservationItem.update({
           where: { id: item.id },
@@ -1355,6 +1422,22 @@ export async function updateReservation(id: string, input: Partial<ReservationFo
       if (data.flowDeprPct !== undefined) updateData.flowDeprPct = data.flowDeprPct
       if (data.flowLifeMonths !== undefined) updateData.flowLifeMonths = data.flowLifeMonths
       if (data.flowStepPct !== undefined) updateData.flowStepPct = data.flowStepPct
+      // Bounds-check the knobs as they will be stored — what changed merged over
+      // what the order already has — so a recover-by month is checked against
+      // the (possibly new) term too. Only when one of them is changing, so an
+      // order saved before these checks can still have its lines edited.
+      const touchesKnobs = [data.flowTermMonths, data.flowMarginPct, data.flowFinancePct, data.flowPurchaseTaxPct,
+        data.flowRecoverByMonth, data.flowDeprPct, data.flowLifeMonths, data.flowStepPct].some((x) => x !== undefined)
+      const knobProblem = touchesKnobs && flowOrderKnobsProblem({
+        flowMarginPct: data.flowMarginPct !== undefined ? data.flowMarginPct : existingReservation.flowMarginPct,
+        flowFinancePct: data.flowFinancePct !== undefined ? data.flowFinancePct : existingReservation.flowFinancePct,
+        flowPurchaseTaxPct: data.flowPurchaseTaxPct !== undefined ? data.flowPurchaseTaxPct : existingReservation.flowPurchaseTaxPct,
+        flowRecoverByMonth: data.flowRecoverByMonth !== undefined ? data.flowRecoverByMonth : existingReservation.flowRecoverByMonth,
+        flowDeprPct: data.flowDeprPct !== undefined ? data.flowDeprPct : existingReservation.flowDeprPct,
+        flowLifeMonths: data.flowLifeMonths !== undefined ? data.flowLifeMonths : existingReservation.flowLifeMonths,
+        flowStepPct: data.flowStepPct !== undefined ? data.flowStepPct : existingReservation.flowStepPct,
+      }, (updateData.flowTermMonths as number | null | undefined) ?? existingReservation.flowTermMonths)
+      if (knobProblem) throw new Error(knobProblem)
       // The subscription starts when the order does, until the first period is billed.
       if (data.startDate !== undefined && !(existingReservation.flowPeriodsBilled ?? 0)) {
         updateData.flowStartDate = data.startDate
@@ -5122,6 +5205,11 @@ export async function sendQuoteEmail(reservationId: string) {
   })
 
   if (!reservation) throw new Error('Reservation not found')
+  // A Flow line's rate is its contract value, which this email would print as a
+  // monthly rate. Flow quotes go out through the client quote link and its PDF.
+  if (reservation.reservationType === 'FLOW') {
+    throw new Error("A Flow order's quote is sent with the client quote link, not this email.")
+  }
   if (reservation.status !== 'DRAFT') throw new Error('Can only send quotes for draft reservations')
   if (!reservation.client.email) throw new Error('Client has no email address')
 

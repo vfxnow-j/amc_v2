@@ -42,3 +42,42 @@ export function flowKnobsProblem(knobs: Partial<Record<FlowKnobKey, number | nul
   }
   return null
 }
+
+/**
+ * The first problem with an order's stored Flow knobs (the columns on the
+ * order), or null. Every path that writes them — the builder, createReservation
+ * and updateReservation — checks here, so a value the form would refuse can't
+ * reach the pricing engine by another route. Also refuses a recover-by month
+ * past the term: the engine can't recover the cost after the contract ends.
+ * `termMonths` is the order's (new or existing) term; null skips that check.
+ * Values may be numbers or stored decimals; anything Number() can read.
+ */
+export function flowOrderKnobsProblem(
+  knobs: {
+    flowMarginPct?: unknown
+    flowFinancePct?: unknown
+    flowPurchaseTaxPct?: unknown
+    flowRecoverByMonth?: unknown
+    flowDeprPct?: unknown
+    flowLifeMonths?: unknown
+    flowStepPct?: unknown
+  },
+  termMonths: number | null | undefined,
+): string | null {
+  const num = (v: unknown) => (v == null ? v : Number(v)) as number | null | undefined
+  const problem = flowKnobsProblem({
+    marginPct: num(knobs.flowMarginPct),
+    financePct: num(knobs.flowFinancePct),
+    purchaseTaxPct: num(knobs.flowPurchaseTaxPct),
+    recoverByMonth: num(knobs.flowRecoverByMonth),
+    deprPct: num(knobs.flowDeprPct),
+    lifeMonths: num(knobs.flowLifeMonths),
+    stepPct: num(knobs.flowStepPct),
+  })
+  if (problem) return problem
+  const recover = num(knobs.flowRecoverByMonth)
+  if (recover != null && termMonths != null && termMonths > 0 && recover > termMonths) {
+    return `Recover by month can't be later than the term (${termMonths} months).`
+  }
+  return null
+}

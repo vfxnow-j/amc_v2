@@ -9,6 +9,7 @@ import type { BillingCycleType } from '@/lib/types'
 import { addDays as addCalendarDays, anchorAfter, billedPeriods, intendedDay, isAnchoredCycle } from '@/lib/billing/calendar'
 import { CYCLE_ORDER_INCLUDE, cycleInvoice, cycleTermsForOrder, toCycleLine } from '@/lib/billing/cycle-invoice'
 import { termEnd } from '@/lib/billing/payment-schedule'
+import { priorCycleInvoiceWhere } from '@/lib/billing/first-cycle'
 import { formatPeriodCount, roundMoney } from '@/lib/pricing/periods'
 import { getBillingAnchor } from '@/lib/settings/business'
 import { requireAdmin, requireAuth } from '@/lib/auth-utils'
@@ -90,9 +91,9 @@ export async function runBillingCycle(): Promise<BillingRunResult> {
         const share = isAnchoredCycle(cycle) && stretchEnd
           ? billedPeriods(billingDate, stretchEnd, cycle, anchor)
           : 1
-        const priorInvoices = await tx.invoice.count({
-          where: { reservationId: reservation.id, status: { notIn: ['VOID', 'CANCELLED'] } },
-        })
+        // "First" is no prior cycle invoice (lib/billing/first-cycle) — an add-on
+        // invoice doesn't take the first stretch's one-time charges with it.
+        const priorCycleInvoices = await tx.invoice.count({ where: priorCycleInvoiceWhere(reservation.id) })
         const billedTo = termStop && periodEnd.getTime() >= termStop.getTime() ? addCalendarDays(termStop, -1) : periodEnd
 
         // For RTO, use the fixed monthly payment amount; otherwise calculate from items
@@ -121,7 +122,7 @@ export async function runBillingCycle(): Promise<BillingRunResult> {
           const priced = cycleInvoice({
             lines: reservation.items.map(toCycleLine),
             share,
-            first: priorInvoices === 0,
+            first: priorCycleInvoices === 0,
             terms: cycleTermsForOrder(reservation),
             shareNote: Math.abs(share - 1) < 0.0005 ? '' : ` × ${formatPeriodCount(share)}`,
           })
