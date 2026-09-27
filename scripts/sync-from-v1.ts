@@ -38,6 +38,9 @@ function print(report: SyncReport) {
       String(t.displaced).padStart(10),
       String(t.keptV2Only).padStart(13),
     );
+    if (t.displacedKeys.length) {
+      console.log(`  displaced ${t.table}: ${t.displacedKeys.join(", ")}`);
+    }
   }
   if (changed.length === 0) console.log("(nothing differs)");
   if (report.unmapped.length) {

@@ -907,10 +907,13 @@ export async function getForecastReport(): Promise<ForecastReport> {
         },
         select: resSelect,
       }),
-      // Recurring reservations with nextBillingDate in this month
+      // Recurring reservations with nextBillingDate in this month. Flow orders
+      // never carry a nextBillingDate (v2's rule — see v1-sync/engine.ts), so
+      // excluding FLOW here is belt-and-suspenders, not the only guard.
       prisma.reservation.findMany({
         where: {
           status: { in: ['APPROVED', 'PREPARING', 'SHIPPED', 'ACTIVE'] },
+          reservationType: { not: 'FLOW' },
           nextBillingDate: { gte: start, lte: end },
         },
         select: resSelect,

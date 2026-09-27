@@ -51,11 +51,13 @@ import {
  *
  * **A v1 value v2 cannot hold is skipped, never deleted.** v1's enum columns
  * are read as text and cast into v2's types on the way in. A row holding a
- * value v2's enum lacks (v1's FLOW orders, 2026-09-26) is left out of the stage
- * and reported; so is every row whose foreign key points at a skipped row (the
- * lines, packages and quote links of a skipped order). Their keys go in a
- * per-table held set, and neither the delete nor the ledger pruning touches a
- * held key — a skipped row stays exactly as it is in v2 until v2 can hold it.
+ * value v2's enum lacks (none as of 2026-09-26, now that FLOW has a v2 column —
+ * see the comment on `relink` for what happens when a future v1 value doesn't)
+ * is left out of the stage and reported; so is every row whose foreign key
+ * points at a skipped row (the lines, packages and quote links of a skipped
+ * order). Their keys go in a per-table held set, and neither the delete nor the
+ * ledger pruning touches a held key — a skipped row stays exactly as it is in
+ * v2 until v2 can hold it.
  */
 
 type Tx = Prisma.TransactionClient;
@@ -101,6 +103,11 @@ type TableRule = {
   where?: string;
 };
 
+/** The column to show for a displaced row in the sync report, when the primary key alone would mean nothing to a reader. */
+const DISPLACED_LABEL: Record<string, string> = {
+  reservations: "reservationNumber",
+};
+
 const TABLE_RULES: Record<string, TableRule> = {
   reservations: {
     transform: {
@@ -108,7 +115,11 @@ const TABLE_RULES: Record<string, TableRule> = {
       // A sale has no term: its end date is its order date.
       endDate: `case when r."reservationType" = 'SALE' then ${calendarDay("startDate")} else ${calendarDay("endDate")} end`,
       quoteExpiresAt: calendarDay("quoteExpiresAt"),
-      nextBillingDate: calendarDay("nextBillingDate"),
+      // v2's rule (lib/actions/reservations.ts), not v1's: a Flow order never
+      // carries a next billing date — it bills by flowPeriodsBilled/flowStartDate,
+      // not a cycle date. v1 still sets one; without this, the pull would put it
+      // back every run.
+      nextBillingDate: `case when r."reservationType" = 'FLOW' then null else ${calendarDay("nextBillingDate")} end`,
       recurrenceEndDate: calendarDay("recurrenceEndDate"),
       deliveryDate: calendarDay("deliveryDate"),
       returnDate: calendarDay("returnDate"),
@@ -147,7 +158,12 @@ const TABLE_RULES: Record<string, TableRule> = {
     v2OwnedOnUpdate: ["passwordHash", "mfaEnabled", "mfaSecret", "mfaDefault", "passwordChangedAt"],
   },
   settings: {
-    where: `r.key not in ('llm_knowledge_snapshot', 'llm_knowledge_updated_at')`,
+    // v2 owns these two rows once they exist: flow_subscription_terms is edited
+    // from the v2 Settings screen (Flow terms editor), and flow_pricing_defaults
+    // holds v2's Flow pricing inputs. v1 has no such rows today, so this is a
+    // one-way exclusion, not yet a conflict — but v1-wins would still erase v2's
+    // if v1 ever grew rows under these keys (owner/controller decision, 2026-09-26).
+    where: `r.key not in ('llm_knowledge_snapshot', 'llm_knowledge_updated_at', 'flow_subscription_terms', 'flow_pricing_defaults')`,
     transform: {
       // v1's recipient list wins, but the label and the ticks only v2 has are
       // kept on each address v1 still lists.
@@ -173,6 +189,8 @@ export type TableDiff = {
   keptV2Only: number;
   /** v2 rows removed because a v1 row claims the same unique value. */
   displaced: number;
+  /** Identifiers of the displaced rows — a business number where the table has one, else the primary key. */
+  displacedKeys: string[];
 };
 
 export type SyncReport = {
@@ -205,9 +223,10 @@ async function relink(tx: Tx) {
   await tx.$executeRawUnsafe(`import foreign schema public from server v1 into v1_remote`);
 
   // v1's enum columns come across declared as v2's enum types, so one v1 value
-  // v2 doesn't have (FLOW, 2026-09-26) fails the fetch and aborts everything.
-  // Read them as text; the stage casts each into v2's type, and rows holding a
-  // value v2 lacks are skipped and reported instead.
+  // v2 doesn't have (v1's FLOW orders did, until 84a32b4 added the column,
+  // 2026-09-26) fails the fetch and aborts everything. Read them as text; the
+  // stage casts each into v2's type, and rows holding a value v2 lacks are
+  // skipped and reported instead.
   const enumCols = await rows<{ table: string; column: string; isArray: boolean }>(
     tx,
     `select c.relname as table, a.attname as column, (t.typcategory = 'A') as "isArray"
@@ -449,6 +468,21 @@ export async function syncFromV1(options: {
            } as displaced`,
       );
 
+      let displacedKeys: string[] = [];
+      if (tableUniques.length && Number(counts.displaced) > 0) {
+        const label = DISPLACED_LABEL[table];
+        const displacedExpr = label && shared.includes(label) ? `p.${q(label)}::text` : keyOf("p");
+        const found = await rows<{ key: string }>(
+          tx,
+          `select distinct ${displacedExpr} as key from public.${q(table)} p
+             where ${tableUniques
+               .map((u) => `(${displacedPredicate({ table, stage, join, pk, uniqueCols: u.cols })})`)
+               .join(" or ")}
+            order by 1`,
+        );
+        displacedKeys = found.map((f) => f.key);
+      }
+
       const diff: TableDiff = {
         table,
         inserted: Number(counts.ins),
@@ -456,6 +490,7 @@ export async function syncFromV1(options: {
         deleted: Number(counts.del),
         keptV2Only: Number(counts.kept),
         displaced: Number(counts.displaced),
+        displacedKeys,
       };
       report.tables.push(diff);
       if (!options.apply) continue;
