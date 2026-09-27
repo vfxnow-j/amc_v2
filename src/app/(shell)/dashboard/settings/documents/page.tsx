@@ -14,8 +14,10 @@ import {
   DocumentRowAction,
   RepairButton,
 } from "@/components/settings/document-actions";
+import { FlowTermsSection } from "@/components/settings/flow-terms-section";
 import { SettingsHeader } from "@/components/settings/settings-chrome";
 import { getAgreementTemplate } from "@/lib/actions/agreement";
+import { getFlowTermsSettings } from "@/lib/actions/flow-terms";
 import { getDocumentRows, getTrashedDocumentCount } from "@/lib/queries/settings";
 import { getSessionUser } from "@/lib/roles";
 import { fileSize, stamp } from "@/lib/settings/format";
@@ -86,6 +88,7 @@ export default async function DocumentsPage({
   const type = params.type ?? "all";
   const trash = params.trash === "1";
   const canEdit = user.role !== "VIEWER";
+  const isAdmin = user.role === "ADMIN" || user.role === "SUPER_ADMIN";
 
   return (
     <>
@@ -142,8 +145,21 @@ export default async function DocumentsPage({
           </div>
         )}
       </div>
+
+      {trash ? null : (
+        <Suspense
+          fallback={<CardSkeleton title="Flow subscription terms" rows={8} />}
+        >
+          <FlowTermsCard isAdmin={isAdmin} />
+        </Suspense>
+      )}
     </>
   );
+}
+
+async function FlowTermsCard({ isAdmin }: { isAdmin: boolean }) {
+  const settings = await getFlowTermsSettings();
+  return <FlowTermsSection initial={settings} canEdit={isAdmin} />;
 }
 
 async function TrashLink({ trash }: { trash: boolean }) {

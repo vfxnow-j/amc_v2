@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  renderFlowTerms, unknownPlaceholders, mergeFlowTermsSettings,
+  renderFlowTerms, unknownPlaceholders, mergeFlowTermsSettings, isValidTermsUrl,
   FLOW_TERMS_DEFAULTS, FLOW_TERMS_PLACEHOLDERS,
 } from './flow-terms'
 import type { FlowClientQuote } from './flow-client-quote'
@@ -72,4 +72,23 @@ test('settings merge fills missing keys and keeps stored clauses', () => {
 
 test('deterministic', () => {
   assert.deepEqual(renderFlowTerms(FLOW_TERMS_DEFAULTS, ctx), renderFlowTerms(FLOW_TERMS_DEFAULTS, ctx))
+})
+
+test('isValidTermsUrl accepts only http(s)', () => {
+  assert.equal(isValidTermsUrl('https://vfxnow.com/terms'), true)
+  assert.equal(isValidTermsUrl('http://vfxnow.com/terms'), true)
+  assert.equal(isValidTermsUrl('javascript:alert(1)'), false)
+  assert.equal(isValidTermsUrl('data:text/html,hi'), false)
+  assert.equal(isValidTermsUrl('/relative/path'), false)
+  assert.equal(isValidTermsUrl(''), false)
+  assert.equal(isValidTermsUrl('ftp://vfxnow.com/terms'), false)
+})
+
+test('settings merge falls back to the default URL when the stored one is not http(s)', () => {
+  const bad = mergeFlowTermsSettings({ generalTermsUrl: 'javascript:alert(1)' })
+  assert.equal(bad.generalTermsUrl, FLOW_TERMS_DEFAULTS.generalTermsUrl)
+  const alsoBad = mergeFlowTermsSettings({ generalTermsUrl: '' })
+  assert.equal(alsoBad.generalTermsUrl, FLOW_TERMS_DEFAULTS.generalTermsUrl)
+  const ok = mergeFlowTermsSettings({ generalTermsUrl: 'https://example.com/terms' })
+  assert.equal(ok.generalTermsUrl, 'https://example.com/terms')
 })

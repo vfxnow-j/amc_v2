@@ -13,7 +13,7 @@ import { prisma } from '@/lib/prisma'
 import { requireAuth, requireAdmin, requireEditor } from '@/lib/auth-utils'
 import { logAudit } from '@/lib/actions/audit'
 import { loadFlowTermsSettings, FLOW_TERMS_SETTING_KEY } from '@/lib/flow-terms-server'
-import { FLOW_TERMS_DEFAULTS, unknownPlaceholders, type FlowTermsSettings } from '@/lib/pricing/flow-terms'
+import { FLOW_TERMS_DEFAULTS, isValidTermsUrl, unknownPlaceholders, type FlowTermsSettings } from '@/lib/pricing/flow-terms'
 
 type TermsInput = Omit<FlowTermsSettings, 'version'>
 
@@ -32,7 +32,7 @@ function validate(next: TermsInput) {
   if (!Number.isInteger(next.endNoticeDays) || next.endNoticeDays < 0 || next.endNoticeDays > 365) {
     throw new Error('Notice days must be a whole number from 0 to 365.')
   }
-  if (!/^https?:\/\//.test(next.generalTermsUrl)) throw new Error('The General Terms link must start with http:// or https://')
+  if (!isValidTermsUrl(next.generalTermsUrl)) throw new Error('The General Terms link must start with http:// or https://')
   if (!next.clauses.length) throw new Error('Keep at least one clause.')
   for (const c of next.clauses) {
     if (!c.title.trim() || !c.body.trim()) throw new Error('Every clause needs a title and wording.')

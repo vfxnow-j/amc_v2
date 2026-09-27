@@ -64,13 +64,33 @@ export function unknownPlaceholders(text: string): string[] {
   return [...text.matchAll(PLACEHOLDER)].map((m) => m[1]).filter((k) => !known.has(k))
 }
 
-/** Stored JSON merged over the defaults, so a key added later always has a value. */
+/**
+ * The General Terms URL is rendered as a link on the public quote page, so only
+ * http(s) is acceptable — never `javascript:`, `data:`, a bare path, or similar.
+ * Shared by the save-side check (`saveFlowTermsSettings`) and the defensive
+ * fallback below, so both agree on exactly one definition of "valid".
+ */
+export function isValidTermsUrl(url: string): boolean {
+  return /^https?:\/\//.test(url)
+}
+
+/**
+ * Stored JSON merged over the defaults, so a key added later always has a
+ * value. A stored `generalTermsUrl` that isn't http(s) — e.g. hand-edited in
+ * the database, or written before the save-side check existed — falls back to
+ * the default rather than being rendered as a link.
+ */
 export function mergeFlowTermsSettings(stored: unknown): FlowTermsSettings {
   if (!stored || typeof stored !== 'object') return structuredClone(FLOW_TERMS_DEFAULTS)
   const s = stored as Partial<FlowTermsSettings>
+  const generalTermsUrl =
+    typeof s.generalTermsUrl === 'string' && isValidTermsUrl(s.generalTermsUrl)
+      ? s.generalTermsUrl
+      : FLOW_TERMS_DEFAULTS.generalTermsUrl
   return {
     ...structuredClone(FLOW_TERMS_DEFAULTS),
     ...s,
+    generalTermsUrl,
     clauses: Array.isArray(s.clauses) && s.clauses.length ? s.clauses : structuredClone(FLOW_TERMS_DEFAULTS.clauses),
   }
 }
