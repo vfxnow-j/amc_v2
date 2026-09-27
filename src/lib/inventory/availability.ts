@@ -1,4 +1,4 @@
-import type { AssetStatus, CheckoutStatus } from "@/generated/prisma/client";
+import type { AssetStatus, CheckoutStatus, ReservationStatus } from "@/generated/prisma/client";
 
 /**
  * What a unit's status means for booking. One definition, because "is this
@@ -57,6 +57,22 @@ export const OPEN_CHECKOUT: {
   actualReturn: null,
   status: { notIn: ["CANCELLED", "RETURNED"] },
 };
+
+/**
+ * Order statuses that hold stock. Quotes don't — nobody has agreed to them.
+ * The single source of truth for "does this order occupy units": the order
+ * builder (`lib/queries/order-builder.ts`) wraps this in a
+ * `Prisma.ReservationWhereInput`, the portal capacity engine
+ * (`lib/portal/capacity.ts`) reads it directly, and this module stays
+ * Prisma-value-free so both — including plain `node:test` runs with no
+ * database — can import it.
+ */
+export const HOLDS_STOCK_STATUSES: ReservationStatus[] = [
+  "APPROVED",
+  "PREPARING",
+  "SHIPPED",
+  "ACTIVE",
+];
 
 export function isBookable(status: AssetStatus): boolean {
   return BOOKABLE.includes(status);

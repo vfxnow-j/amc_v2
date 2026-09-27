@@ -35,6 +35,7 @@ export type AuditEntityType =
   | 'InventoryAudit'
   | 'ScanList'
   | 'Settings'
+  | 'Portal'
   | 'System'
 
 export type LogAuditParams = {

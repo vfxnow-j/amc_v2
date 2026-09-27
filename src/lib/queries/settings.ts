@@ -324,6 +324,8 @@ export type CategoryRow = {
   isConfigurable: boolean;
   isComponent: boolean;
   usefulLifeMonths: number;
+  /** Business days to turn a returned unit around; the portal adds it to next_available. */
+  refurbBufferDays: number;
   assets: number;
 };
 
@@ -339,6 +341,7 @@ export async function getCategoryRows(search: string): Promise<CategoryRow[]> {
       isConfigurable: true,
       isComponent: true,
       defaultUsefulLifeMonths: true,
+      refurbBufferDays: true,
       _count: { select: { assets: true } },
     },
     orderBy: { name: "asc" },
@@ -351,6 +354,7 @@ export async function getCategoryRows(search: string): Promise<CategoryRow[]> {
     isConfigurable: category.isConfigurable,
     isComponent: category.isComponent,
     usefulLifeMonths: category.defaultUsefulLifeMonths,
+    refurbBufferDays: category.refurbBufferDays,
     assets: category._count.assets,
   }));
 }

@@ -14,7 +14,13 @@ import {
   SettingsDenied,
   SettingsHeader,
 } from "@/components/settings/settings-chrome";
+import {
+  PortalClientConsole,
+  PortalClientRowActions,
+} from "@/components/settings/portal-client-console";
 import { dayYear } from "@/lib/format";
+import { getPortalClientRows } from "@/lib/portal/admin-queries";
+import { portalSecretKeyConfigured } from "@/lib/portal/secrets";
 import { getApiKeyRows } from "@/lib/queries/settings";
 import { getSessionUser } from "@/lib/roles";
 import { isAdminRole } from "@/lib/settings/pages";
@@ -30,6 +36,16 @@ const COLUMNS: Column[] = [
   { key: "expires", label: "Expires", width: "96px" },
   { key: "issued", label: "Issued by", width: "minmax(0,0.8fr)" },
   { key: "act", label: "", width: "96px", align: "right" },
+];
+
+const PORTAL_COLUMNS: Column[] = [
+  { key: "name", label: "Portal", width: "minmax(0,1fr)" },
+  { key: "prefix", label: "Token", width: "150px" },
+  { key: "scopes", label: "Scopes", width: "minmax(0,1fr)" },
+  { key: "cidrs", label: "Addresses", width: "minmax(0,0.8fr)" },
+  { key: "webhook", label: "Webhook", width: "96px" },
+  { key: "used", label: "Last used", width: "96px" },
+  { key: "act", label: "", width: "minmax(0,1.2fr)", align: "right" },
 ];
 
 /**
@@ -52,6 +68,7 @@ export default async function ApiKeysPage() {
     return <SettingsDenied id="api-keys" role={user.title} />;
 
   const canDelete = user.role === "SUPER_ADMIN";
+  const secretKeySet = portalSecretKeyConfigured();
 
   return (
     <>
@@ -91,6 +108,15 @@ export default async function ApiKeysPage() {
 
         <Suspense fallback={<ListTableSkeleton rows={8} />}>
           <Table canDelete={canDelete} />
+        </Suspense>
+      </div>
+
+      <div className="mt-3 grid min-h-0 items-start gap-3 lg:grid-cols-[minmax(0,380px)_1fr]">
+        <Card title="Portal clients" meta="scoped tokens for /v1, shown once">
+          <PortalClientConsole secretKeySet={secretKeySet} />
+        </Card>
+        <Suspense fallback={<ListTableSkeleton rows={3} />}>
+          <PortalTable secretKeySet={secretKeySet} />
         </Suspense>
       </div>
     </>
@@ -175,6 +201,88 @@ async function Table({ canDelete }: { canDelete: boolean }) {
                 name={key.name}
                 isActive={key.isActive}
                 canDelete={canDelete}
+              />
+            ),
+          },
+        };
+      })}
+    />
+  );
+}
+
+/**
+ * Portal clients: the external client portal's service tokens
+ * (docs/portal-api.md). They carry scopes, never a staff role, so they sit in
+ * their own table rather than among the keys above.
+ */
+async function PortalTable({ secretKeySet }: { secretKeySet: boolean }) {
+  const clients = await getPortalClientRows();
+  const now = new Date();
+
+  return (
+    <ListTable
+      columns={PORTAL_COLUMNS}
+      total={clients.length}
+      empty={
+        <>
+          No portal clients. Create one when the client portal is ready to
+          call /v1.
+        </>
+      }
+      rows={clients.map((client) => {
+        const expired = !!client.expiresAt && client.expiresAt <= now;
+        const dead = !client.isActive || expired;
+        return {
+          id: client.id,
+          cells: {
+            name: (
+              <span className={dead ? "text-ink-faint" : "font-bold"}>
+                {client.name}
+                {!client.isActive ? " · revoked" : expired ? " · expired" : ""}
+                {client.accounts ? (
+                  <span className="font-normal text-ink-muted">
+                    {" "}
+                    · {client.accounts} account{client.accounts === 1 ? "" : "s"}
+                  </span>
+                ) : null}
+              </span>
+            ),
+            prefix: (
+              <code className="text-detail text-ink-muted">
+                {client.tokenPrefix}
+                <span className="text-ink-faint">…</span>
+              </code>
+            ),
+            scopes: (
+              <span className="text-ink-muted">
+                {client.scopes.map((s) => s.replace("portal:", "")).join(", ")}
+              </span>
+            ),
+            cidrs: client.allowedCidrs.length ? (
+              <span className="text-ink-muted">{client.allowedCidrs.join(", ")}</span>
+            ) : (
+              <span className="text-ink-faint">Any</span>
+            ),
+            webhook: client.webhookUrl ? (
+              <span className="text-ink-muted" title={client.webhookUrl}>
+                {client.hasWebhookSecret ? "Signed" : "No secret"}
+              </span>
+            ) : (
+              <span className="text-ink-faint">None</span>
+            ),
+            used: client.lastUsedAt ? (
+              <span className="tabular-nums text-ink-muted">
+                {dayYear(client.lastUsedAt)}
+              </span>
+            ) : (
+              <span className="text-ink-faint">Never</span>
+            ),
+            act: (
+              <PortalClientRowActions
+                id={client.id}
+                name={client.name}
+                isActive={client.isActive}
+                secretKeySet={secretKeySet}
               />
             ),
           },

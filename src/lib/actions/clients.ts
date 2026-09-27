@@ -305,9 +305,20 @@ export async function deleteClient(id: string) {
   const authResult = await requireAdmin()
   if (!authResult.authorized) throw new Error(authResult.error)
 
-  await prisma.client.delete({
-    where: { id },
-  })
+  try {
+    await prisma.client.delete({
+      where: { id },
+    })
+  } catch (error) {
+    // portal_accounts.client_id is ON DELETE RESTRICT: a client linked to a
+    // portal account can't be deleted out from under the portal.
+    const code = (error as { code?: unknown } | null)?.code
+    if (code === 'P2003' || code === 'P2014') {
+      const linked = await prisma.portalAccount.count({ where: { clientId: id } })
+      if (linked) throw new Error('This client is linked to a portal account — re-link or remove it first.')
+    }
+    throw error
+  }
 
   revalidatePath('/dashboard/clients')
   revalidatePath('/dashboard')

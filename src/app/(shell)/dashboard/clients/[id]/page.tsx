@@ -17,6 +17,7 @@ import {
   OrdersCard,
 } from "@/components/clients/record-cards";
 import { RequirementsCard } from "@/components/clients/requirements-card";
+import { PortalAccountCard } from "@/components/clients/portal-account-card";
 import { ConversationsCard } from "@/components/tracker/conversations-card";
 import { EnvironmentCard } from "@/components/tracker/environment-card";
 import { RelationshipCard } from "@/components/tracker/relationship-card";
@@ -182,6 +183,12 @@ export default async function ClientRecordPage({ params }: Params) {
           </Suspense>
           <Suspense fallback={<CardSkeleton title="Documents" rows={5} />}>
             <DocumentsCard id={id} />
+          </Suspense>
+          <Suspense fallback={<CardSkeleton title="Portal account" rows={4} />}>
+            <PortalAccountCard
+              clientId={id}
+              canRelink={role === "SUPER_ADMIN" || role === "ADMIN"}
+            />
           </Suspense>
         </div>
       </div>

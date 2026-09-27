@@ -99,6 +99,16 @@ export const SETTINGS_PAGES: SettingsPage[] = [
     group: "The catalog",
   },
   {
+    // The client portal's catalog is curated and opt-in (owner, 2026-09-26):
+    // nothing reaches the portal until an offer here is published.
+    id: "portal-offers",
+    label: "Portal offers",
+    href: "/dashboard/settings/portal-offers",
+    blurb: "What the client portal may offer — each item or package, its solutions, terms, specs and software.",
+    access: "admin",
+    group: "The catalog",
+  },
+  {
     id: "categories",
     label: "Categories",
     href: "/dashboard/settings/categories",
