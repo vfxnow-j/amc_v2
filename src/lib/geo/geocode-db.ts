@@ -1,6 +1,6 @@
 import type { PrismaClient } from "@/generated/prisma/client";
 import { addressKey } from "./normalize";
-import type { GeoLookups, GeocodeResult } from "./geocode";
+import { resolveAddress, type GeoLookups, type GeocodeResult } from "./geocode";
 
 /**
  * The Prisma-backed lookups `resolveAddress` runs on: the v2-only `geocodes`
@@ -106,6 +106,22 @@ export async function geocodesFor(
     where: { addressKey: { in: [...new Set(keys.values())] } },
   });
   const byKey = new Map(rows.map((r) => [r.addressKey, toResult(r)]));
+
+  // An address nobody has geocoded yet — typed on an order a minute ago, or
+  // brought in by a sync — is resolved now, offline, and cached, so the map
+  // never waits for scripts/geocode-addresses.ts. Capped per call so a page
+  // after a large sync stays quick; the rest resolve on the next loads.
+  const lookups = dbLookups(prisma);
+  let resolved = 0;
+  for (const [text, key] of keys) {
+    if (byKey.has(key) || resolved >= NEW_PER_CALL) continue;
+    const r = await resolveAddress(text, lookups);
+    if (!r) continue;
+    await saveGeocode(prisma, r).catch(() => {});
+    byKey.set(key, r);
+    resolved++;
+  }
+
   const out = new Map<string, GeocodeResult>();
   for (const [text, key] of keys) {
     const hit = byKey.get(key);
@@ -113,3 +129,5 @@ export async function geocodesFor(
   }
   return out;
 }
+
+const NEW_PER_CALL = 200;
