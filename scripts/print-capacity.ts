@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { prisma } from "@/lib/prisma";
 import { loadAssetCapacity } from "@/lib/portal/capacity-load";
+import { businessToday } from "@/lib/billing/calendar";
 
 /**
  * Read-only sanity check for the portal's capacity figures: prints
@@ -12,7 +13,7 @@ import { loadAssetCapacity } from "@/lib/portal/capacity-load";
 async function main() {
   const fragments = process.argv.slice(2);
   const names = fragments.length ? fragments : ["A6000", "Workstation", "MacBook"];
-  const today = new Date();
+  const today = businessToday();
 
   for (const fragment of names) {
     const asset = await prisma.asset.findFirst({

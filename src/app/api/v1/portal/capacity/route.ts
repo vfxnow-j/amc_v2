@@ -2,6 +2,7 @@ import { badRequest, notFound, portalOk } from '@/lib/portal/errors'
 import { withPortal } from '@/lib/portal/with-portal'
 import { loadPoolCapacity } from '@/lib/portal/capacity-load'
 import { dayOf, type CapacityFigures } from '@/lib/portal/capacity'
+import { businessToday } from '@/lib/billing/calendar'
 
 /**
  * GET /v1/capacity?pool=<slug>[&from=YYYY-MM-DD&to=YYYY-MM-DD&qty=N]
@@ -25,7 +26,9 @@ export const GET = withPortal('portal:read', async (req) => {
   const qty = qtyRaw === null ? 1 : Number(qtyRaw)
   if (!Number.isInteger(qty) || qty < 1 || qty > 10_000) throw badRequest('qty must be a whole number from 1')
 
-  const today = new Date()
+  // The business day in Los Angeles (noon UTC), not UTC's — which turns over at 5pm Pacific.
+  const now = new Date()
+  const today = businessToday(now)
   const result = await loadPoolCapacity(slug, today, { from, to, qty })
   if (!result || !result.pool_info) throw notFound('No such capacity pool')
 
@@ -37,7 +40,7 @@ export const GET = withPortal('portal:read', async (req) => {
     window: { from: windowFrom, to: to && dayOf(to) > windowFrom ? dayOf(to) : windowFrom },
     qty,
     ...figures(result.pool),
-    as_of: today.toISOString(),
+    as_of: now.toISOString(),
   })
 })
 
