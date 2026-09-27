@@ -3035,6 +3035,9 @@ model PortalAccount {
   /// none | id_verified | agreement_and_coi
   verificationLevel String       @default("none")
   creditTier        String       @default("standard")
+  /// The client the portal created for this account. PUT mirrors company/contact onto the
+  /// linked client only while clientId still equals this (staff re-linking stops it).
+  createdClientId   String?
   createdAt         DateTime     @default(now())
   updatedAt         DateTime     @updatedAt
 
@@ -3058,6 +3061,9 @@ model PortalAccountSite {
   postalCode     String?
   country        String?
   isActive       Boolean       @default(true)
+  /// The account's default site; at most one per account (partial unique index in
+  /// prisma/manual/2026-09-26-portal-accounts-columns.sql).
+  isDefault      Boolean       @default(false)
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 
