@@ -11,6 +11,7 @@ import { NextResponse } from 'next/server'
 export type PortalErrorCode =
   | 'unauthorized'
   | 'forbidden_ip'
+  | 'ip_unverifiable'
   | 'insufficient_scope'
   | 'rate_limited'
   | 'bad_request'
@@ -84,6 +85,23 @@ export function toPortalErrorResponse(error: unknown): NextResponse {
     })
   }
   return portalError(500, 'internal_error', 'Something went wrong on our side')
+}
+
+/**
+ * `Cache-Control: no-store` on every response. A handler may return a
+ * Response whose headers are immutable (e.g. `Response.redirect`, a fetched
+ * response); that one is copied rather than letting the TypeError escape the
+ * error handling and the request log.
+ */
+export function noStore(response: Response): Response {
+  try {
+    response.headers.set('Cache-Control', 'no-store')
+    return response
+  } catch {
+    const headers = new Headers(response.headers)
+    headers.set('Cache-Control', 'no-store')
+    return new Response(response.body, { status: response.status, statusText: response.statusText, headers })
+  }
 }
 
 type ZodLike = { name: string; issues: { path: PropertyKey[]; message: string }[] }

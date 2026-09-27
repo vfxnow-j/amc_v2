@@ -1,15 +1,12 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
+import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { requireAdmin } from '@/lib/auth-utils'
 import { logAudit } from '@/lib/actions/audit'
-import { generatePortalToken, isPortalScope, parseCidr } from '@/lib/portal/auth-core'
-import {
-  encryptPortalSecret,
-  generateWebhookSecret,
-  portalSecretKeyConfigured,
-} from '@/lib/portal/secrets'
+import { PORTAL_SCOPES, generatePortalToken, parseCidr } from '@/lib/portal/auth-core'
+import { encryptPortalSecret, generateWebhookSecret, readPortalSecretKey } from '@/lib/portal/secrets'
 
 /**
  * Settings → API keys → Portal clients. Admin only.
@@ -47,75 +44,147 @@ async function admin() {
   return result.userId
 }
 
-function cleanScopes(scopes: string[]) {
-  const clean = [...new Set(scopes.map((s) => s.trim()))].filter(isPortalScope)
-  if (!clean.length) throw new Error('Pick at least one scope')
-  return clean
+const RATE_LIMIT_MAX = 10_000
+
+/**
+ * Every admin input, checked before anything is written. The webhook URL is
+ * https only — including on the WireGuard network — so a signed payload is
+ * never sent in the clear.
+ */
+const createSchema = z.object({
+  name: z
+    .string({ error: 'Give the portal client a name' })
+    .trim()
+    .min(1, 'Give the portal client a name')
+    .max(100, 'Keep the name under 100 characters'),
+  scopes: z
+    .array(z.string().trim())
+    .transform((list) => [...new Set(list)])
+    .pipe(
+      z
+        .array(z.enum(PORTAL_SCOPES, { error: (issue) => `Not a portal scope: ${String(issue.input)}` }))
+        .min(1, 'Pick at least one scope'),
+    ),
+  allowedCidrs: z
+    .array(z.string())
+    .max(50, 'At most 50 addresses or ranges')
+    .optional()
+    .transform((list) => [...new Set((list ?? []).map((c) => c.trim()).filter(Boolean))])
+    .superRefine((list, ctx) => {
+      const bad = list.filter((c) => !parseCidr(c))
+      if (bad.length) ctx.addIssue({ code: 'custom', message: `Not an address or CIDR: ${bad.join(', ')}` })
+    }),
+  webhookUrl: z
+    .string()
+    .trim()
+    .max(2000, 'Webhook URL is too long')
+    .nullish()
+    .transform((value, ctx) => {
+      if (!value) return null
+      let parsed: URL
+      try {
+        parsed = new URL(value)
+      } catch {
+        ctx.addIssue({ code: 'custom', message: 'Webhook URL is not a valid URL' })
+        return z.NEVER
+      }
+      if (parsed.protocol !== 'https:') {
+        ctx.addIssue({ code: 'custom', message: 'Webhook URL must use https' })
+        return z.NEVER
+      }
+      if (parsed.username || parsed.password) {
+        ctx.addIssue({ code: 'custom', message: 'Webhook URL must not carry a username or password' })
+        return z.NEVER
+      }
+      return parsed.toString()
+    }),
+  withWebhookSecret: z.boolean().optional(),
+  rateLimitPerMin: z
+    .number({ error: 'Rate limit must be a number' })
+    .int('Rate limit must be a whole number')
+    .min(1, 'Rate limit must be at least 1 a minute')
+    .max(RATE_LIMIT_MAX, `Rate limit must be at most ${RATE_LIMIT_MAX} a minute`)
+    .optional(),
+  expiresAt: z
+    .string()
+    .nullish()
+    .transform((value, ctx) => {
+      if (!value) return null
+      const date = new Date(value)
+      if (Number.isNaN(date.getTime())) {
+        ctx.addIssue({ code: 'custom', message: 'Expiry is not a date' })
+        return z.NEVER
+      }
+      return date
+    }),
+})
+
+const idSchema = z.string({ error: 'Portal client not found' }).trim().min(1, 'Portal client not found').max(64)
+
+/** The first problem, as a sentence for the console. */
+function parseOrThrow<T extends z.ZodType>(schema: T, input: unknown): z.output<T> {
+  const result = schema.safeParse(input)
+  if (!result.success) throw new Error(result.error.issues[0]?.message ?? 'That input is not valid')
+  return result.data
 }
 
-function cleanCidrs(cidrs: string[] | undefined) {
-  const list = (cidrs ?? []).map((c) => c.trim()).filter(Boolean)
-  const bad = list.filter((c) => !parseCidr(c))
-  if (bad.length) throw new Error(`Not an address or CIDR: ${bad.join(', ')}`)
-  return [...new Set(list)]
+async function findClientOrThrow(id: string) {
+  const existing = await prisma.portalClient.findUnique({
+    where: { id: parseOrThrow(idSchema, id) },
+    select: { id: true, tokenPrefix: true, isActive: true },
+  })
+  if (!existing) throw new Error('That portal client no longer exists — refresh the page.')
+  return existing
 }
 
-function cleanWebhookUrl(url: string | null | undefined) {
-  const value = url?.trim()
-  if (!value) return null
-  let parsed: URL
-  try {
-    parsed = new URL(value)
-  } catch {
-    throw new Error('Webhook URL is not a valid URL')
-  }
-  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
-    throw new Error('Webhook URL must be http or https')
-  }
-  return parsed.toString()
+/** Why no webhook secret can be made, or null when the key is usable. */
+function noKeyReason(): string | null {
+  const { problem } = readPortalSecretKey()
+  if (!problem) return null
+  return `No webhook secret was made: ${problem} A secret is never stored unencrypted. The token works; fix the key and rotate the secret to make one.`
 }
-
-const NO_KEY =
-  'No webhook secret was made: PORTAL_SECRET_KEY is not set on the server, and a secret is never stored unencrypted. The token works; add the key and rotate the secret to make one.'
 
 export async function createPortalClient(input: CreatePortalClientInput): Promise<CreatePortalClientResult> {
   const userId = await admin()
-  const name = input.name?.trim()
-  if (!name) throw new Error('Give the portal client a name')
-  const scopes = cleanScopes(input.scopes ?? [])
-  const allowedCidrs = cleanCidrs(input.allowedCidrs)
-  const webhookUrl = cleanWebhookUrl(input.webhookUrl)
-  const rateLimitPerMin = Math.min(10_000, Math.max(1, Math.round(input.rateLimitPerMin ?? 300)))
-  const expiresAt = input.expiresAt ? new Date(input.expiresAt) : null
-  if (expiresAt && Number.isNaN(expiresAt.getTime())) throw new Error('Expiry is not a date')
+  const { name, scopes, allowedCidrs, webhookUrl, withWebhookSecret, expiresAt, ...rest } = parseOrThrow(
+    createSchema,
+    input,
+  )
+  // The client's own limit is its read limit (writes 60, quotes 30 — auth-core PORTAL_RATE_LIMITS).
+  const rateLimitPerMin = rest.rateLimitPerMin ?? 300
 
   let webhookSecret: string | null = null
-  let webhookSecretEnc: string | null = null
   let webhookSecretSkipped: string | null = null
-  if (input.withWebhookSecret) {
-    if (portalSecretKeyConfigured()) {
-      webhookSecret = generateWebhookSecret()
-      webhookSecretEnc = encryptPortalSecret(webhookSecret)
-    } else {
-      webhookSecretSkipped = NO_KEY
-    }
+  if (withWebhookSecret) {
+    webhookSecretSkipped = noKeyReason()
+    if (!webhookSecretSkipped) webhookSecret = generateWebhookSecret()
   }
 
   const { token, tokenHash, tokenPrefix } = generatePortalToken()
-  const created = await prisma.portalClient.create({
-    data: {
-      name,
-      tokenHash,
-      tokenPrefix,
-      scopes,
-      allowedCidrs,
-      webhookUrl,
-      webhookSecretEnc,
-      rateLimitPerMin,
-      expiresAt,
-      createdById: userId,
-    },
-    select: { id: true },
+  // The secret is bound to the row's id, so the row is made first and the
+  // secret added in the same transaction.
+  const created = await prisma.$transaction(async (tx) => {
+    const row = await tx.portalClient.create({
+      data: {
+        name,
+        tokenHash,
+        tokenPrefix,
+        scopes,
+        allowedCidrs,
+        webhookUrl,
+        rateLimitPerMin,
+        expiresAt,
+        createdById: userId,
+      },
+      select: { id: true },
+    })
+    if (webhookSecret) {
+      await tx.portalClient.update({
+        where: { id: row.id },
+        data: { webhookSecretEnc: encryptPortalSecret(webhookSecret, row.id) },
+      })
+    }
+    return row
   })
 
   await logAudit({
@@ -129,7 +198,7 @@ export async function createPortalClient(input: CreatePortalClientInput): Promis
       scopes,
       allowedCidrs,
       webhookUrl,
-      hasWebhookSecret: !!webhookSecretEnc,
+      hasWebhookSecret: !!webhookSecret,
       rateLimitPerMin,
       expiresAt,
     },
@@ -143,11 +212,12 @@ export async function createPortalClient(input: CreatePortalClientInput): Promis
 /** A new token; the old one stops working at once. */
 export async function rotatePortalClientToken(id: string): Promise<{ token: string }> {
   const userId = await admin()
-  const existing = await prisma.portalClient.findUnique({ where: { id }, select: { tokenPrefix: true } })
-  if (!existing) throw new Error('Portal client not found')
+  const existing = await findClientOrThrow(id)
+  id = existing.id
 
   const { token, tokenHash, tokenPrefix } = generatePortalToken()
-  await prisma.portalClient.update({ where: { id }, data: { tokenHash, tokenPrefix } })
+  const { count } = await prisma.portalClient.updateMany({ where: { id }, data: { tokenHash, tokenPrefix } })
+  if (!count) throw new Error('That portal client no longer exists — refresh the page.')
 
   await logAudit({
     action: 'UPDATE',
@@ -164,15 +234,16 @@ export async function rotatePortalClientToken(id: string): Promise<{ token: stri
 /** A new webhook signing secret. Refuses without PORTAL_SECRET_KEY. */
 export async function rotatePortalWebhookSecret(id: string): Promise<{ webhookSecret: string }> {
   const userId = await admin()
-  if (!portalSecretKeyConfigured()) throw new Error(NO_KEY)
-  const existing = await prisma.portalClient.findUnique({ where: { id }, select: { id: true } })
-  if (!existing) throw new Error('Portal client not found')
+  const problem = noKeyReason()
+  if (problem) throw new Error(problem)
+  id = (await findClientOrThrow(id)).id
 
   const webhookSecret = generateWebhookSecret()
-  await prisma.portalClient.update({
+  const { count } = await prisma.portalClient.updateMany({
     where: { id },
-    data: { webhookSecretEnc: encryptPortalSecret(webhookSecret) },
+    data: { webhookSecretEnc: encryptPortalSecret(webhookSecret, id) },
   })
+  if (!count) throw new Error('That portal client no longer exists — refresh the page.')
 
   await logAudit({
     action: 'UPDATE',
@@ -188,7 +259,9 @@ export async function rotatePortalWebhookSecret(id: string): Promise<{ webhookSe
 /** Stops the token working. The row stays so the request log keeps its name. */
 export async function revokePortalClient(id: string): Promise<void> {
   const userId = await admin()
-  await prisma.portalClient.update({ where: { id }, data: { isActive: false } })
+  id = (await findClientOrThrow(id)).id
+  const { count } = await prisma.portalClient.updateMany({ where: { id }, data: { isActive: false } })
+  if (!count) throw new Error('That portal client no longer exists — refresh the page.')
   await logAudit({
     action: 'UPDATE',
     entityType: 'Portal',

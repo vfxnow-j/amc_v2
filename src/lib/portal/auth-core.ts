@@ -37,14 +37,54 @@ export function parseBearer(header: string | null | undefined): string | null {
 }
 
 /**
- * The caller's address: the first x-forwarded-for hop, else x-real-ip. Null
- * when neither is present — which fails any CIDR allowlist closed.
+ * How the caller's address is found. It is never guessed from headers a caller
+ * can set: Next only fills `x-forwarded-for` when it is absent, so its
+ * leftmost value is whatever the caller sent. One of two settings must say
+ * which value a trusted reverse proxy wrote:
+ *
+ * - `PORTAL_CLIENT_IP_HEADER` (e.g. `x-real-ip`): a header the proxy
+ *   **overwrites** with `$remote_addr`. Only that header is read, and it must
+ *   hold exactly one address.
+ * - `PORTAL_TRUSTED_PROXY_HOPS` (integer ≥ 1): the number of proxies that each
+ *   append to `x-forwarded-for`. The address that many entries from the right
+ *   is the one the outermost trusted proxy saw; anything to its left is the
+ *   caller's own claim and is ignored.
+ *
+ * With neither set the address is unverifiable: a client with an allowlist
+ * is refused (`ip_unverifiable`), a client without one is not checked.
  */
-export function clientIp(headers: { get(name: string): string | null }): string | null {
-  const forwarded = headers.get('x-forwarded-for')
-  const first = forwarded?.split(',')[0]?.trim()
-  const candidate = first || headers.get('x-real-ip')?.trim() || null
-  return candidate ? normalizeIp(candidate) : null
+export type ClientIpConfig =
+  | { mode: 'header'; header: string }
+  | { mode: 'hops'; hops: number }
+  | { mode: 'none' }
+
+export function clientIpConfigFromEnv(env: Record<string, string | undefined> = process.env): ClientIpConfig {
+  const header = env.PORTAL_CLIENT_IP_HEADER?.trim().toLowerCase()
+  if (header) return { mode: 'header', header }
+  const hopsRaw = env.PORTAL_TRUSTED_PROXY_HOPS?.trim()
+  if (hopsRaw && /^\d+$/.test(hopsRaw) && Number(hopsRaw) >= 1) return { mode: 'hops', hops: Number(hopsRaw) }
+  return { mode: 'none' }
+}
+
+/** The caller's address under `config`; `verifiable: false` when no source is configured. */
+export type ClientIp = { ip: string | null; verifiable: boolean }
+
+export function clientIp(headers: { get(name: string): string | null }, config: ClientIpConfig): ClientIp {
+  if (config.mode === 'header') {
+    const value = headers.get(config.header)?.trim()
+    // The proxy overwrites this header with one address; a list means it didn't.
+    if (!value || value.includes(',')) return { ip: null, verifiable: true }
+    return { ip: normalizeIp(value), verifiable: true }
+  }
+  if (config.mode === 'hops') {
+    const hops = (headers.get('x-forwarded-for') ?? '')
+      .split(',')
+      .map((part) => part.trim())
+      .filter(Boolean)
+    if (hops.length < config.hops) return { ip: null, verifiable: true }
+    return { ip: normalizeIp(hops[hops.length - config.hops]), verifiable: true }
+  }
+  return { ip: null, verifiable: false }
 }
 
 /** Strips an IPv4-mapped IPv6 prefix and any zone/port noise; null if not an IP. */
@@ -108,12 +148,27 @@ export type PortalClientGateRow = {
   expiresAt: Date | null
 }
 
+/** Why a 401 happened. Logged on the server only; every 401 body says the same thing. */
+export type UnauthorizedReason = 'missing_token' | 'unknown_token' | 'revoked' | 'expired'
+
+/** The one 401 message, so a caller can't tell a revoked token from a wrong one. */
+export const UNAUTHORIZED_MESSAGE = 'Invalid or missing token'
+
 export type GateFailure = {
   ok: false
   status: 401 | 403
-  code: 'unauthorized' | 'forbidden_ip' | 'insufficient_scope'
+  code: 'unauthorized' | 'forbidden_ip' | 'ip_unverifiable' | 'insufficient_scope'
   message: string
+  reason?: UnauthorizedReason
 }
+
+const unauthorized = (reason: UnauthorizedReason): GateFailure => ({
+  ok: false,
+  status: 401,
+  code: 'unauthorized',
+  message: UNAUTHORIZED_MESSAGE,
+  reason,
+})
 
 /**
  * Every check after the token lookup, in order: active, unexpired, IP, scope.
@@ -121,19 +176,53 @@ export type GateFailure = {
  */
 export function evaluatePortalClient(
   client: PortalClientGateRow | null,
-  input: { scope: PortalScope; ip: string | null; now?: Date },
+  input: { scope: PortalScope; ip: ClientIp; now?: Date },
 ): { ok: true } | GateFailure {
   const now = input.now ?? new Date()
-  if (!client) return { ok: false, status: 401, code: 'unauthorized', message: 'Invalid token' }
-  if (!client.isActive) return { ok: false, status: 401, code: 'unauthorized', message: 'Token has been revoked' }
-  if (client.expiresAt && client.expiresAt <= now) {
-    return { ok: false, status: 401, code: 'unauthorized', message: 'Token has expired' }
+  if (!client) return unauthorized('unknown_token')
+  if (!client.isActive) return unauthorized('revoked')
+  if (client.expiresAt && client.expiresAt <= now) return unauthorized('expired')
+  if (client.allowedCidrs.length > 0 && !input.ip.verifiable) {
+    return {
+      ok: false,
+      status: 403,
+      code: 'ip_unverifiable',
+      message:
+        'This token has an address allowlist, but the server is not configured to know the caller address',
+    }
   }
-  if (!ipAllowed(input.ip, client.allowedCidrs)) {
+  if (!ipAllowed(input.ip.ip, client.allowedCidrs)) {
     return { ok: false, status: 403, code: 'forbidden_ip', message: 'Caller address is not allowed for this token' }
   }
   if (!client.scopes.includes(input.scope)) {
     return { ok: false, status: 403, code: 'insufficient_scope', message: `Token lacks scope ${input.scope}` }
   }
   return { ok: true }
+}
+
+/**
+ * Requests per minute, per client, per kind of call (docs/portal-api-plan.md
+ * §7). Each kind has its own bucket, so a burst of quotes can't starve reads.
+ * `portal:billing` is a read. The client's `rateLimitPerMin` (default 300) is
+ * the read limit; writes and quotes are fixed.
+ */
+export const PORTAL_RATE_LIMITS = { read: 300, write: 60, quote: 30 } as const
+export type PortalRateClass = keyof typeof PORTAL_RATE_LIMITS
+
+export function rateClassFor(scope: PortalScope): PortalRateClass {
+  if (scope === 'portal:write') return 'write'
+  if (scope === 'portal:quote') return 'quote'
+  return 'read'
+}
+
+export function portalRateLimit(
+  scope: PortalScope,
+  clientReadLimit?: number | null,
+): { namespace: string; limit: number } {
+  const kind = rateClassFor(scope)
+  const override =
+    kind === 'read' && typeof clientReadLimit === 'number' && Number.isFinite(clientReadLimit) && clientReadLimit >= 1
+      ? Math.floor(clientReadLimit)
+      : null
+  return { namespace: `portal:${kind}`, limit: override ?? PORTAL_RATE_LIMITS[kind] }
 }

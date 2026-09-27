@@ -1,6 +1,6 @@
 import type { NextRequest } from 'next/server'
 import { authorizePortal, type PortalPrincipal, type PortalScope } from './auth'
-import { PortalError, toPortalErrorResponse } from './errors'
+import { PortalError, noStore, toPortalErrorResponse } from './errors'
 import { logPortalRequest } from './request-log'
 
 /**
@@ -46,14 +46,14 @@ export function withPortal<P extends Record<string, string | string[] | undefine
           },
         })
       }
+      response = noStore(response)
     } catch (error) {
       if (!(error instanceof PortalError) && !isZod(error)) {
         console.error(`[portal] ${req.method} ${req.nextUrl?.pathname ?? ''} failed:`, error)
       }
-      response = toPortalErrorResponse(error)
+      response = noStore(toPortalErrorResponse(error))
     }
 
-    response.headers.set('Cache-Control', 'no-store')
     logPortalRequest({
       method: req.method,
       path: req.nextUrl?.pathname ?? new URL(req.url).pathname,

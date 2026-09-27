@@ -27,8 +27,13 @@ const results: Result[] = [];
 const check = (name: string, ok: boolean, detail: string) => results.push({ name, ok, detail });
 
 const ctx = { params: Promise.resolve({}) };
+// The smoke runs as if behind a proxy that overwrites X-Real-IP; the
+// x-forwarded-for below is a caller's spoof and must be ignored.
+process.env.PORTAL_CLIENT_IP_HEADER = "x-real-ip";
+delete process.env.PORTAL_TRUSTED_PROXY_HOPS;
+
 function req(token: string | null, ip = "10.8.0.5") {
-  const headers: Record<string, string> = { "x-forwarded-for": ip };
+  const headers: Record<string, string> = { "x-real-ip": ip, "x-forwarded-for": "10.8.0.77" };
   if (token) headers.authorization = `Bearer ${token}`;
   return new NextRequest("http://localhost/api/v1/portal/health", { headers });
 }
@@ -74,6 +79,11 @@ async function main() {
     r = await call(token, "10.8.0.9");
     check("inside CIDR → 200", r.status === 200, `${r.status}`);
 
+    delete process.env.PORTAL_CLIENT_IP_HEADER;
+    r = await call(token, "10.8.0.9");
+    check("allowlist, no IP source configured → 403", r.status === 403 && r.body.code === "ip_unverifiable", `${r.status} ${r.body.code}`);
+    process.env.PORTAL_CLIENT_IP_HEADER = "x-real-ip";
+
     await prisma.portalClient.update({ where: { id: client.id }, data: { expiresAt: new Date(Date.now() - 1000) } });
     r = await call(token);
     check("expired → 401", r.status === 401, `${r.status} ${r.body.error}`);
@@ -89,8 +99,8 @@ async function main() {
       check("HTTP /v1/health no token → 401", anon.status === 401, `${anon.status}`);
       const authed = await fetch(`${base}/v1/health`, { headers: { authorization: `Bearer ${token}` } });
       const body = await authed.text();
-      // The dev server sees the caller as localhost, which is outside 10.8.0.0/24.
-      check("HTTP /v1/health outside CIDR → 403", authed.status === 403, `${authed.status} ${body}`);
+      // Outside 10.8.0.0/24 (forbidden_ip), or no IP source set on the server (ip_unverifiable).
+      check("HTTP /v1/health with allowlist → 403", authed.status === 403, `${authed.status} ${body}`);
       await prisma.portalClient.update({ where: { id: client.id }, data: { allowedCidrs: [] } });
       const open = await fetch(`${base}/v1/health`, { headers: { authorization: `Bearer ${token}` } });
       check("HTTP /v1/health → 200", open.status === 200, `${open.status} ${await open.text()}`);
@@ -104,7 +114,7 @@ async function main() {
     });
     check(
       "request log written, contract path, no bodies",
-      logged.length >= 6 && logged.every((row) => row.path === "/v1/health" && row.method === "GET"),
+      logged.length >= 7 && logged.every((row) => row.path === "/v1/health" && row.method === "GET"),
       `${logged.length} rows: ${[...new Set(logged.map((row) => `${row.path} ${row.status}`))].join(", ")}`,
     );
     const touched = await prisma.portalClient.findUnique({ where: { id: client.id }, select: { lastUsedAt: true } });

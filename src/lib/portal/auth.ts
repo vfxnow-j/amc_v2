@@ -4,10 +4,13 @@ import { prisma } from '@/lib/prisma'
 import { checkRateLimit } from '@/lib/utils/rate-limit'
 import { portalError } from './errors'
 import {
+  UNAUTHORIZED_MESSAGE,
   clientIp,
+  clientIpConfigFromEnv,
   evaluatePortalClient,
   hashPortalToken,
   parseBearer,
+  portalRateLimit,
   type PortalScope,
 } from './auth-core'
 
@@ -22,19 +25,24 @@ export type PortalAuthResult =
 
 const LAST_USED_THROTTLE_MS = 60_000
 
+const BEARER_CHALLENGE = { 'WWW-Authenticate': 'Bearer realm="vfxnow-portal"' }
+
+let warnedUnverifiable = false
+
 /**
  * The gate in front of every /v1 route: bearer token → SHA-256 → PortalClient;
  * active and unexpired; caller IP inside `allowedCidrs` (fail closed when a
- * list is set); the route's scope; the client's per-minute rate limit.
+ * list is set, and when the server can't tell the caller's address — see
+ * `clientIp`); the route's scope; the per-minute limit for that kind of call.
+ *
+ * Every 401 says the same thing; which one it was goes to the server log only.
  */
 export async function authorizePortal(req: NextRequest | Request, scope: PortalScope): Promise<PortalAuthResult> {
   const token = parseBearer(req.headers.get('authorization'))
   if (!token) {
     return {
       ok: false,
-      response: portalError(401, 'unauthorized', 'Missing or malformed bearer token', {
-        headers: { 'WWW-Authenticate': 'Bearer realm="vfxnow-portal"' },
-      }),
+      response: portalError(401, 'unauthorized', UNAUTHORIZED_MESSAGE, { headers: BEARER_CHALLENGE }),
     }
   }
 
@@ -52,18 +60,30 @@ export async function authorizePortal(req: NextRequest | Request, scope: PortalS
     },
   })
 
-  const gate = evaluatePortalClient(client, { scope, ip: clientIp(req.headers) })
+  const gate = evaluatePortalClient(client, { scope, ip: clientIp(req.headers, clientIpConfigFromEnv()) })
   if (!gate.ok) {
+    if (gate.reason && gate.reason !== 'unknown_token') {
+      console.warn(`[portal] 401 ${gate.reason} for portal client ${client?.id}`)
+    }
+    if (gate.code === 'ip_unverifiable' && !warnedUnverifiable) {
+      warnedUnverifiable = true
+      console.error(
+        '[portal] A portal client has an address allowlist but neither PORTAL_CLIENT_IP_HEADER nor PORTAL_TRUSTED_PROXY_HOPS is set, so its requests are refused (ip_unverifiable). See docs/portal-api-plan.md, Hosting checklist.',
+      )
+    }
     return {
       ok: false,
       portalClientId: client?.id,
-      response: portalError(gate.status, gate.code, gate.message),
+      response: portalError(gate.status, gate.code, gate.message, {
+        headers: gate.status === 401 ? BEARER_CHALLENGE : undefined,
+      }),
     }
   }
   // evaluatePortalClient returned ok, so the row exists.
   const row = client!
 
-  const limit = checkRateLimit('portal', row.id, Math.max(1, row.rateLimitPerMin), 60_000)
+  const bucket = portalRateLimit(scope, row.rateLimitPerMin)
+  const limit = checkRateLimit(bucket.namespace, row.id, bucket.limit, 60_000)
   if (!limit.allowed) {
     return {
       ok: false,

@@ -158,6 +158,12 @@ export function PortalClientConsole({ secretKeySet }: { secretKeySet: boolean })
             className={FIELD}
           />
         </label>
+        {cidrs.trim() ? null : (
+          <p role="note" className="rounded-well bg-sunken p-2 text-detail text-ink">
+            Left blank, this token works from any address. Recommended: the
+            WireGuard subnet (e.g. 10.8.0.0/24).
+          </p>
+        )}
 
         <label className="flex flex-col gap-[3px]">
           <span className="text-micro uppercase text-ink-muted">
@@ -166,7 +172,7 @@ export function PortalClientConsole({ secretKeySet }: { secretKeySet: boolean })
           <input
             value={webhookUrl}
             onChange={(event) => setWebhookUrl(event.target.value)}
-            placeholder="https://portal.internal/webhooks/amc"
+            placeholder="https://portal.internal/webhooks/amc (https only)"
             className={FIELD}
           />
         </label>
@@ -184,9 +190,9 @@ export function PortalClientConsole({ secretKeySet }: { secretKeySet: boolean })
         </label>
         {secretKeySet ? null : (
           <p className="text-detail text-ink-faint">
-            PORTAL_SECRET_KEY is not set on the server, so no webhook secret
-            can be made — it is never stored unencrypted. The token still
-            works.
+            PORTAL_SECRET_KEY is not set on the server (or is not 32 random
+            bytes as hex or base64), so no webhook secret can be made — it is
+            never stored unencrypted. The token still works.
           </p>
         )}
 

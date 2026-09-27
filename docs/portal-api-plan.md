@@ -258,6 +258,30 @@ Events from the portal's own writes go into the outbox inside the same transacti
 - An account only ever sees its own data.
 - Request bodies are never logged, and webhook secrets are encrypted at rest.
 
+### Hosting checklist
+
+Before /v1 is reachable from anywhere but this box:
+
+- **Serve /v1 on the WireGuard listener only.** Bind the /v1 vhost to the wg interface, or block `/v1` (and
+  `/api/v1/portal`) on the public vhost. A token's CIDR allowlist is a second wall, not the first.
+- **The reverse proxy must overwrite the client-IP header, never append to it.** The app never trusts a header a
+  caller can set. Pick one and set its env var:
+  - `proxy_set_header X-Real-IP $remote_addr;` and `PORTAL_CLIENT_IP_HEADER=x-real-ip` — only that header is read,
+    and it must hold one address. (Or `proxy_set_header X-Forwarded-For $remote_addr;` with
+    `PORTAL_CLIENT_IP_HEADER=x-forwarded-for`.)
+  - Or, if the proxies append (`$proxy_add_x_forwarded_for`), `PORTAL_TRUSTED_PROXY_HOPS=<number of proxies>` —
+    the address that many entries from the right of `X-Forwarded-For` is used; anything to its left is ignored.
+  - With neither set, a client that has an allowlist is refused with `403 ip_unverifiable` (logged once); a client
+    with no allowlist is not checked. Leave the allowlist blank only for a token that never leaves the box.
+- **Set `PORTAL_SECRET_KEY`** to 32 random bytes as hex or base64 (`openssl rand -hex 32`). Anything else is
+  refused, and no webhook secret can be made without it. Each secret is bound to its client's id, so rotating the
+  key means rotating every client's webhook secret.
+- **Rate limits** are per client and per kind of call, per minute: 300 reads (`portal:read`, `portal:billing`),
+  60 writes (`portal:write`), 30 quotes (`portal:quote`). A client's own `rateLimitPerMin` replaces its read limit
+  only. The limiter is in memory, so the limits hold per app instance; run one instance or move it to a shared
+  store.
+- **Webhook URLs are https only**, including on the WireGuard network.
+
 ## Phases
 
 **Phase 1: what the portal team can build against** (~2.5k LOC, ~1.5 weeks)
