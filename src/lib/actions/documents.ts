@@ -8,66 +8,20 @@ import { serialize } from '@/lib/utils'
 import { formatDate } from '@/lib/utils/format'
 import fs from 'fs/promises'
 import path from 'path'
-import type { DocumentType, PricingType } from '@/lib/types'
-import { pricingTypeLabels, allDeliveryMethodLabels } from '@/lib/types'
-import { formatTermLength, formatTermNote } from '@/lib/pricing/periods'
-import { computeReservationFinancials } from '@/lib/pricing/financials'
-import { lineTitle } from '@/lib/quotes/line-title'
-import { paymentLineForOrder } from '@/lib/billing/order-payment-schedule'
+import type { DocumentType } from '@/lib/types'
+import { DOCUMENTS_ROOT, getProjectRoot, getEntityFolder, toRelativePath, resolveDocPath } from '@/lib/documents/paths'
+import { generateAndSavePODocument, attachPODocumentsToAssets } from '@/lib/documents/purchase-order-documents'
+import { generateSignedQuoteDocument } from '@/lib/documents/signed-quote'
 
-// In standalone mode process.cwd() resolves to .next/standalone/ which gets
-// wiped on every rebuild. Use a stable project-root path for persistent storage.
-function getProjectRoot(): string {
-  const cwd = process.cwd()
-  // Standalone server runs from <project>/.next/standalone
-  if (cwd.endsWith(path.join('.next', 'standalone'))) {
-    return path.resolve(cwd, '..', '..')
-  }
-  return cwd
-}
-
-const DOCUMENTS_ROOT = path.join(getProjectRoot(), 'documents')
-
-/**
- * Resolve a document filePath (stored in DB) to an absolute filesystem path.
- * Handles both old absolute paths and new relative paths transparently.
- */
-export async function resolveDocPath(filePath: string): Promise<string> {
-  if (!path.isAbsolute(filePath)) {
-    return path.join(DOCUMENTS_ROOT, filePath)
-  }
-  // Absolute path — extract relative portion after /documents/
-  const docsIdx = filePath.indexOf('/documents/')
-  if (docsIdx !== -1) {
-    const relativePart = filePath.substring(docsIdx + '/documents/'.length)
-    return path.join(DOCUMENTS_ROOT, relativePart)
-  }
-  return filePath
-}
-
-/**
- * Convert an absolute filePath to a relative path for DB storage.
- */
-function toRelativePath(absolutePath: string): string {
-  if (absolutePath.startsWith(DOCUMENTS_ROOT)) {
-    return absolutePath.substring(DOCUMENTS_ROOT.length + 1)
-  }
-  const docsIdx = absolutePath.indexOf('/documents/')
-  if (docsIdx !== -1) {
-    return absolutePath.substring(docsIdx + '/documents/'.length)
-  }
-  return absolutePath
-}
-
-function getEntityFolder(entityType: string): string {
-  switch (entityType) {
-    case 'RESERVATION': return 'reservations'
-    case 'ASSET': return 'assets'
-    case 'LEASE': return 'leases'
-    case 'FUNDING_REQUEST': return 'funding-requests'
-    default: return 'purchase-orders'
-  }
-}
+// generateAndSavePODocument, attachPODocumentsToAssets and
+// generateSignedQuoteDocument used to be defined and exported directly from
+// this file. Because this file has 'use server' at the top, every export from
+// it becomes a publicly callable server action — and none of the three took
+// an auth check of their own (they trusted a caller-supplied createdById /
+// signerName). They're now used here only as plain internal function calls;
+// see src/lib/documents/purchase-order-documents.ts and
+// src/lib/documents/signed-quote.ts for the moved implementations and why
+// they're deliberately NOT re-exported from this 'use server' file.
 
 /**
  * Move a file to documents/.trash/<docId>/<originalName>. Files are NEVER
@@ -219,10 +173,19 @@ export async function getServerLogoDataUri(): Promise<string> {
  * Document row). Shared by the on-disk generator and the email notification so
  * the attached PDF always matches the saved document. Returns null if the PO
  * can't be found.
+ *
+ * Session-gated: this returns vendor and pricing detail for the PO, and every
+ * export of a "use server" file is directly callable, so an unauthenticated
+ * caller who knew a poId could otherwise read it back. All real callers
+ * (the PO PDF route, the receiving flow, the on-disk generator) already run
+ * behind their own auth check.
  */
 export async function renderPurchaseOrderPdf(
   poId: string
 ): Promise<{ buffer: Buffer; filename: string } | null> {
+  const authResult = await requireAuth()
+  if (!authResult.authorized) throw new Error(authResult.error || 'Unauthorized')
+
   const po = await prisma.purchaseOrder.findUnique({
     where: { id: poId },
     include: {
@@ -286,321 +249,12 @@ export async function renderPurchaseOrderPdf(
   return { buffer, filename }
 }
 
-/**
- * Auto-generate a PO PDF server-side and save it as a document.
- * Idempotent — skips if a PO document already exists for this purchase order,
- * unless `force` is set, in which case it rewrites the file and updates the
- * existing Document row in place (preserving its ID).
- */
-export async function generateAndSavePODocument(
-  poId: string,
-  createdById: string,
-  opts: { force?: boolean } = {}
-): Promise<void> {
-  try {
-    // Check if a PO document already exists — avoid duplicates
-    const existing = await prisma.document.findFirst({
-      where: {
-        entityType: 'PURCHASE_ORDER',
-        entityId: poId,
-        documentType: 'PURCHASE_ORDER',
-      },
-    })
-    if (existing && !opts.force) return
+// generateAndSavePODocument moved to src/lib/documents/purchase-order-documents.ts
+// (imported above) — see the note near the top of this file.
 
-    const rendered = await renderPurchaseOrderPdf(poId)
-    if (!rendered) return
-    const { buffer, filename } = rendered
-
-    // Save to disk
-    const folder = path.join(DOCUMENTS_ROOT, 'purchase-orders', poId)
-    await fs.mkdir(folder, { recursive: true })
-
-    const filePath = path.join(folder, filename)
-    await fs.writeFile(filePath, buffer)
-
-    // Create or update the document record without losing identity.
-    if (existing) {
-      await prisma.document.update({
-        where: { id: existing.id },
-        data: {
-          filename,
-          filePath: toRelativePath(filePath),
-          fileSize: buffer.length,
-        },
-      })
-    } else {
-      await prisma.document.create({
-        data: {
-          documentType: 'PURCHASE_ORDER',
-          filename,
-          filePath: toRelativePath(filePath),
-          fileSize: buffer.length,
-          entityType: 'PURCHASE_ORDER',
-          entityId: poId,
-          createdById,
-        },
-      })
-    }
-
-    revalidatePath(`/dashboard/purchase-orders/${poId}`)
-  } catch (error) {
-    // Non-critical — log but don't break the calling operation
-    console.error('Auto-generate PO document failed:', error)
-  }
-}
-
-type SignedQuoteReservation = NonNullable<Awaited<ReturnType<typeof loadSignedQuoteReservation>>>
-
-function loadSignedQuoteReservation(reservationId: string) {
-  return prisma.reservation.findUnique({
-    where: { id: reservationId },
-    include: {
-      client: true,
-      packages: {
-        include: {
-          items: {
-            include: { asset: { include: { category: true } } },
-            orderBy: { sortOrder: 'asc' },
-          },
-        },
-        orderBy: { sortOrder: 'asc' },
-      },
-      items: {
-        include: { asset: { include: { category: true } } },
-        orderBy: { sortOrder: 'asc' },
-      },
-    },
-  })
-}
-
-/** The rental / sale / rent-to-own signed quote, rendered to a PDF buffer. */
-async function renderSignedQuote(
-  reservation: SignedQuoteReservation,
-  signatureDataUrl: string,
-  signerName: string,
-  signedAt: string,
-  approvalStamp?: { method: string; signerName: string; signedAtIso: string },
-): Promise<Buffer> {
-  // Use active package items if multi-package
-  const activePackage = reservation.packages.find((p) => p.isActive)
-  const items = activePackage ? activePackage.items : reservation.items
-
-  // Derive rather than read the stored columns, so the PDF can never quote a total
-  // the order page doesn't show. See src/lib/pricing/financials.ts.
-  const financials = computeReservationFinancials({
-    order: reservation,
-    items,
-    discountType: reservation.discountType,
-    discountValue: reservation.discountValue,
-    taxRate: reservation.taxRate,
-    deliveryCost: activePackage?.deliveryCost ?? reservation.deliveryCost,
-    returnCost: activePackage?.returnCost ?? reservation.returnCost,
-    shippingMarginType: (reservation as any).shippingMarginType,
-    shippingMargin: (reservation as any).shippingMargin,
-    rentalCreditAmount: (reservation as any).rentalCreditAmount,
-  })
-
-  const { QuotePDF } = await import('@/components/documents/quote-pdf')
-  const payment = await paymentLineForOrder(reservation.id)
-
-  const quoteData = {
-    entityType: 'RESERVATION' as const,
-    number: reservation.reservationNumber,
-    reservationType: reservation.reservationType,
-    contactLabel: 'Prepared For',
-    contactName: reservation.client.name,
-    contactCompany: reservation.client.companyName || undefined,
-    contactEmail: reservation.client.email || undefined,
-    contactPhone: reservation.client.phone || undefined,
-    contactAddress: reservation.client.address || undefined,
-    dateLabel: reservation.reservationType === 'SALE' ? 'Order Date' : reservation.reservationType === 'RENT_TO_OWN' ? 'RTO Period' : 'Rental Period',
-    startDate: formatDate(reservation.startDate),
-    endDate: reservation.reservationType !== 'SALE' ? formatDate(reservation.endDate) : undefined,
-    rtoTermMonths: reservation.reservationType === 'RENT_TO_OWN' ? reservation.rtoTermMonths ?? undefined : undefined,
-    rtoMonthlyPayment: reservation.reservationType === 'RENT_TO_OWN' && reservation.rtoMonthlyPayment ? Number(reservation.rtoMonthlyPayment) : undefined,
-    rtoBuyoutPrice: reservation.reservationType === 'RENT_TO_OWN' && reservation.rtoBuyoutPrice ? Number(reservation.rtoBuyoutPrice) : undefined,
-    projectName: reservation.projectName || undefined,
-    status: 'APPROVED',
-    projectCode: reservation.projectCode || undefined,
-    quoteExpiresAt: reservation.quoteExpiresAt ? formatDate(reservation.quoteExpiresAt) : undefined,
-    termLength: reservation.reservationType !== 'SALE'
-      ? formatTermLength(reservation.startDate, reservation.endDate)
-      : undefined,
-    items: items.map((item, index) => {
-      const { title, spec } = lineTitle(item)
-      return {
-        description: title,
-        spec,
-        quantity: item.quantity || 1,
-        pricingType: pricingTypeLabels[(item.pricingType as PricingType) || 'DAILY'] || item.pricingType,
-        rate: Number(item.rate) || 0,
-        amount: financials.itemAmounts[index],
-        category: item.asset?.category?.name || (item as any).category || undefined,
-        termNote: formatTermNote(item, reservation),
-      }
-    }),
-    subtotal: financials.itemsSubtotal,
-    discountAmount: financials.discountAmount || undefined,
-    taxRate: financials.taxRate || undefined,
-    taxAmount: financials.taxAmount,
-    deliveryCost: financials.deliveryCost || undefined,
-    returnCost: financials.returnCost || undefined,
-    deliveryMethod: reservation.deliveryMethod ? (allDeliveryMethodLabels[reservation.deliveryMethod] || reservation.deliveryMethod) : undefined,
-    deliveryAddress: reservation.deliveryAddress || undefined,
-    deliveryDate: reservation.deliveryDate ? formatDate(reservation.deliveryDate) : undefined,
-    deliveryNotes: reservation.deliveryNotes || undefined,
-    deliveryTrackingProvider: reservation.deliveryTrackingProvider || undefined,
-    deliveryTrackingNumber: reservation.deliveryTrackingNumber || undefined,
-    returnMethod: reservation.returnMethod ? (allDeliveryMethodLabels[reservation.returnMethod] || reservation.returnMethod) : undefined,
-    returnDate: reservation.returnDate ? formatDate(reservation.returnDate) : undefined,
-    returnTrackingProvider: reservation.returnTrackingProvider || undefined,
-    returnTrackingNumber: reservation.returnTrackingNumber || undefined,
-    total: financials.total,
-    notes: reservation.notes || undefined,
-    paymentLine: payment ?? undefined,
-  }
-
-  const logoDataUri = await getServerLogoDataUri()
-
-  const { pdf } = await import('@react-pdf/renderer')
-  const doc = React.createElement(QuotePDF, {
-    data: quoteData,
-    logoDataUri,
-    signatureDataUrl: signatureDataUrl || undefined,
-    signerName,
-    signedAt,
-    approvalStamp: approvalStamp
-      ? { method: approvalStamp.method, signerName: approvalStamp.signerName, signedAt }
-      : undefined,
-  })
-  const stream = await pdf(doc as any).toBuffer()
-  const chunks: Uint8Array[] = []
-  for await (const chunk of stream as AsyncIterable<Uint8Array>) {
-    chunks.push(chunk)
-  }
-  return Buffer.concat(chunks)
-}
-
-/**
- * Server-side: generate a signed quote PDF and save it as a PROPOSAL document
- * when a customer approves via the public quote page.
- *
- * If `signatureDataUrl` is empty, an `approvalStamp` may be passed instead to
- * render an audit-trail stamp ("Approved via quote link by NAME at TIME").
- * That mode is used by `regenerateApprovedQuoteStamps()` to rebuild artifacts
- * for reservations whose original signed PDF was lost.
- */
-export async function generateSignedQuoteDocument(
-  reservationId: string,
-  signatureDataUrl: string,
-  signerName: string,
-  approvalStamp?: { method: string; signerName: string; signedAtIso: string },
-): Promise<void> {
-  try {
-    const reservation = await loadSignedQuoteReservation(reservationId)
-    if (!reservation) return
-
-    const stampDate = approvalStamp ? new Date(approvalStamp.signedAtIso) : new Date()
-    const signedAt = stampDate.toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    })
-
-    let buffer: Buffer
-    if (reservation.reservationType === 'FLOW') {
-      // Flow: the Flow quote — the payment schedule, never line prices or costs —
-      // with the frozen terms, the signature and the autopay authorization.
-      const { renderFlowQuotePdf } = await import('@/lib/flow/quote-pdf')
-      const rendered = await renderFlowQuotePdf(reservationId, {
-        signatureDataUrl: signatureDataUrl || undefined,
-        signerName,
-        signedAt,
-        approvalStamp: approvalStamp
-          ? { method: approvalStamp.method, signerName: approvalStamp.signerName, signedAt }
-          : undefined,
-      })
-      if (!rendered.ok) {
-        console.error(`Signed Flow quote not generated for ${reservationId}: ${rendered.problem}`)
-        return
-      }
-      buffer = rendered.buffer
-    } else {
-      buffer = await renderSignedQuote(reservation, signatureDataUrl, signerName, signedAt, approvalStamp)
-    }
-
-    // Save to disk
-    const folder = path.join(DOCUMENTS_ROOT, 'reservations', reservationId)
-    await fs.mkdir(folder, { recursive: true })
-
-    const clientName = reservation.client.name.replace(/[<>:"/\\|?*]+/g, '').replace(/\s+/g, ' ').trim()
-    const suffix = approvalStamp ? '-approved' : '-signed'
-    const filename = `${clientName}-${reservation.reservationNumber}${suffix}.pdf`
-    const filePath = path.join(folder, filename)
-    await fs.writeFile(filePath, buffer)
-
-    // Find a system user to attribute the document to
-    const systemUser = await prisma.user.findFirst({
-      where: { role: 'ADMIN' },
-      select: { id: true },
-    })
-
-    const recordedSignedAt = approvalStamp ? new Date(approvalStamp.signedAtIso) : new Date()
-
-    // Update the existing PROPOSAL row in place if there's already one for this
-    // reservation (preserves ID, audit references, soft-delete state); otherwise
-    // create a fresh record. Never delete-then-create.
-    const existing = await prisma.document.findFirst({
-      where: {
-        entityType: 'RESERVATION',
-        entityId: reservationId,
-        documentType: 'PROPOSAL',
-        deletedAt: null,
-      },
-      orderBy: { createdAt: 'desc' },
-    })
-
-    if (existing) {
-      await prisma.document.update({
-        where: { id: existing.id },
-        data: {
-          filename,
-          filePath: toRelativePath(filePath),
-          fileSize: buffer.length,
-          isSigned: true,
-          signedBy: signerName,
-          signedAt: recordedSignedAt,
-          metadata: approvalStamp
-            ? { ...((existing.metadata as Record<string, unknown>) || {}), approvalStamp }
-            : (existing.metadata ?? undefined) as object | undefined,
-        },
-      })
-    } else {
-      await prisma.document.create({
-        data: {
-          documentType: 'PROPOSAL',
-          filename,
-          filePath: toRelativePath(filePath),
-          fileSize: buffer.length,
-          entityType: 'RESERVATION',
-          entityId: reservationId,
-          isSigned: true,
-          signedBy: signerName,
-          signedAt: recordedSignedAt,
-          metadata: approvalStamp ? { approvalStamp } : undefined,
-          createdById: systemUser?.id || 'system',
-        },
-      })
-    }
-
-    revalidatePath(`/dashboard/orders/${reservationId}`)
-  } catch (error) {
-    console.error('Auto-generate signed quote document failed:', error)
-  }
-}
+// loadSignedQuoteReservation, renderSignedQuote and generateSignedQuoteDocument
+// moved to src/lib/documents/signed-quote.ts — see the note near the top of
+// this file.
 
 /**
  * Scan every reservation whose status_history shows a customer approval via the
@@ -685,66 +339,9 @@ export async function regenerateApprovedQuoteStamps() {
   return result
 }
 
-/**
- * Auto-attach all PO documents to assets that have been received from that PO.
- * Idempotent — deduplicates by entityType + entityId + filename.
- */
-export async function attachPODocumentsToAssets(
-  poId: string,
-  createdById: string
-): Promise<void> {
-  try {
-    const poDocuments = await prisma.document.findMany({
-      where: { entityType: 'PURCHASE_ORDER', entityId: poId },
-    })
-
-    if (poDocuments.length === 0) return
-
-    // Find all assets that have received items from this PO
-    const receivedItems = await prisma.pOItem.findMany({
-      where: {
-        purchaseOrderId: poId,
-        assetId: { not: null },
-        receivedQuantity: { gt: 0 },
-      },
-      select: { assetId: true },
-    })
-
-    const assetIds = [...new Set(receivedItems.map((i) => i.assetId!).filter(Boolean))]
-    if (assetIds.length === 0) return
-
-    for (const assetId of assetIds) {
-      for (const doc of poDocuments) {
-        const existing = await prisma.document.findFirst({
-          where: {
-            entityType: 'ASSET',
-            entityId: assetId,
-            filename: doc.filename,
-          },
-        })
-        if (!existing) {
-          await prisma.document.create({
-            data: {
-              documentType: doc.documentType,
-              filename: doc.filename,
-              filePath: doc.filePath,
-              fileSize: doc.fileSize,
-              entityType: 'ASSET',
-              entityId: assetId,
-              isSigned: doc.isSigned,
-              signedBy: doc.signedBy,
-              signedAt: doc.signedAt,
-              createdById,
-            },
-          })
-        }
-      }
-      revalidatePath(`/dashboard/assets/${assetId}`)
-    }
-  } catch {
-    // Non-critical — don't break the calling operation
-  }
-}
+// attachPODocumentsToAssets moved to
+// src/lib/documents/purchase-order-documents.ts — see the note near the top
+// of this file.
 
 export async function getDocuments(entityType: string, entityId: string) {
   const authResult = await requireAuth()

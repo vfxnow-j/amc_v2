@@ -15,7 +15,7 @@ import { syncUnitsToPurchaseOrderLease } from '@/lib/funding/lease-sync'
 import {
   generateAndSavePODocument,
   attachPODocumentsToAssets,
-} from '@/lib/actions/documents'
+} from '@/lib/documents/purchase-order-documents'
 import { notifyPurchaseOrderSubmitted } from '@/lib/notifications/outbound'
 import { renderPurchaseOrderPdf } from '@/lib/actions/documents'
 import { poPurchaseMethodLabels, poOrderTypeLabels, type POOrderType } from '@/lib/types'

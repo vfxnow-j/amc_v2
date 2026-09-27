@@ -530,7 +530,7 @@ export async function getDocumentRows(filters: {
   trash?: boolean;
 }): Promise<DocumentSweep> {
   const fs = await import("fs/promises");
-  const { resolveDocPath } = await import("@/lib/actions/documents");
+  const { resolveDocPath } = await import("@/lib/documents/paths");
 
   const where: Prisma.DocumentWhereInput = {
     deletedAt: filters.trash ? { not: null } : null,

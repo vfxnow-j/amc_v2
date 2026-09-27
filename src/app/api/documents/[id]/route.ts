@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import fs from "node:fs/promises";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { resolveDocPath } from "@/lib/actions/documents";
+import { resolveDocPath } from "@/lib/documents/paths";
 
 /**
  * Serving a stored document.
