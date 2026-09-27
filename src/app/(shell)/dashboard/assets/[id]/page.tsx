@@ -28,6 +28,7 @@ import { getAssetHeader } from "@/lib/queries/asset-record";
 import { getFamilyOfAsset } from "@/lib/queries/families";
 import { depreciationCategoryLabels } from "@/lib/types";
 import { UnitOfferingControl } from "@/components/inventory/unit-offering-control";
+import { PortalListingCard } from "@/components/portal/portal-listing-card";
 import { UNIT_OFFERINGS, type UnitOfferingValue } from "@/lib/inventory/unit-offering";
 import { getSessionUser } from "@/lib/roles";
 import { canEdit } from "@/lib/auth";
@@ -123,7 +124,10 @@ export default async function AssetRecordPage({ params }: Params) {
         <FleetStrip id={id} />
       </Suspense>
 
-      <div className="grid flex-1 gap-3 lg:grid-cols-[1fr_1.3fr_1fr]">
+      {/* Three columns by subject so none runs long while the others stop
+          short: the money; what it is and its units (the long list last);
+          the record and how it is offered. */}
+      <div className="grid flex-1 items-start gap-3 lg:grid-cols-[1fr_1.3fr_1fr]">
         <div className="flex min-h-0 flex-col gap-3">
           <Suspense
             fallback={<CardSkeleton title="Revenue to date" rows={3} />}
@@ -131,6 +135,20 @@ export default async function AssetRecordPage({ params }: Params) {
             <PositionCard id={id} />
           </Suspense>
           <Rates asset={asset} />
+          <MarketPrice asset={asset} />
+          <Suspense fallback={<CardSkeleton title="Depreciation" rows={4} />}>
+            <DepreciationCard
+              id={id}
+              method={asset.depreciationMethod}
+              usefulLifeMonths={asset.usefulLifeMonths}
+              salvageValue={asset.salvageValue}
+              categoryLabel={
+                asset.depreciationCategory
+                  ? depreciationCategoryLabels[asset.depreciationCategory]
+                  : null
+              }
+            />
+          </Suspense>
         </div>
 
         <div className="flex min-h-0 flex-col gap-3">
@@ -151,26 +169,15 @@ export default async function AssetRecordPage({ params }: Params) {
           <Suspense fallback={<CardSkeleton title="Offered as" rows={3} />}>
             <OfferingCard id={id} />
           </Suspense>
+          <Suspense fallback={<CardSkeleton title="Client portal" rows={3} />}>
+            <PortalListingCard target={{ kind: "ASSET", id }} />
+          </Suspense>
           {/* Where the units came from: PO → funding request → loan. */}
           <Suspense fallback={<CardSkeleton title="Bought on" rows={3} />}>
             <AssetTrailCard id={id} />
           </Suspense>
           <Suspense fallback={<CardSkeleton title="Coverage" rows={2} />}>
             <CoverageCard id={id} />
-          </Suspense>
-          <MarketPrice asset={asset} />
-          <Suspense fallback={<CardSkeleton title="Depreciation" rows={4} />}>
-            <DepreciationCard
-              id={id}
-              method={asset.depreciationMethod}
-              usefulLifeMonths={asset.usefulLifeMonths}
-              salvageValue={asset.salvageValue}
-              categoryLabel={
-                asset.depreciationCategory
-                  ? depreciationCategoryLabels[asset.depreciationCategory]
-                  : null
-              }
-            />
           </Suspense>
         </div>
       </div>

@@ -9,7 +9,8 @@ import { deleteOfferImageFile } from '@/lib/portal/images'
 
 /** Settings → Portal offers → Images: remove, reorder, describe. Admin only. Upload is /api/portal-images. */
 
-const PATH = '/dashboard/settings/portal-offers'
+// Images sit on the item or package page; refresh whichever is open.
+const PATH = '/dashboard'
 const idSchema = z.string().trim().regex(/^[a-z0-9]{10,40}$/i, 'Image not found')
 
 async function admin() {
@@ -26,7 +27,7 @@ export async function deletePortalOfferImage(imageId: string): Promise<void> {
   await prisma.portalOfferImage.delete({ where: { id } })
   await deleteOfferImageFile(row.offerId, id)
   await logAudit({ action: 'DELETE', entityType: 'Portal', entityId: row.offerId, oldValues: { kind: 'portal_offer_image', id, version: row.version }, userId })
-  revalidatePath(PATH)
+  revalidatePath(PATH, 'layout')
 }
 
 /** Swap with the neighbour in the given direction; the first image is the one shown first. */
@@ -41,7 +42,7 @@ export async function movePortalOfferImage(imageId: string, direction: 'up' | 'd
   if (at < 0 || to < 0 || to >= list.length) return
   ;[list[at], list[to]] = [list[to], list[at]]
   await prisma.$transaction(list.map((i, index) => prisma.portalOfferImage.update({ where: { id: i.id }, data: { sortOrder: index } })))
-  revalidatePath(PATH)
+  revalidatePath(PATH, 'layout')
 }
 
 /**
@@ -53,5 +54,5 @@ export async function setPortalOfferImageAlt(imageId: string, alt: string): Prom
   const id = idSchema.parse(imageId)
   const text = z.string().max(200, 'Keep alt text under 200 characters').parse(alt).trim()
   await prisma.portalOfferImage.update({ where: { id }, data: { alt: text || null } })
-  revalidatePath(PATH)
+  revalidatePath(PATH, 'layout')
 }

@@ -12,7 +12,7 @@ const row = {
   solutions: ['rental', 'flow'], termsBySolution: { flow: [24, 36] }, software: ['Houdini', 'Nuke'],
   specs: [{ key: 'GPU', value: 'RTX 5090 32GB' }, { key: 'RAM', value: '256GB' }],
   isPublic: true, isVisible: true, sortOrder: 0, assetId: 'a1',
-  asset: { id: 'a1', name: 'WS 5090', manufacturer: 'VFXnow', model: 'W1', retiredAt: null, category: { id: 'c1', name: 'Workstations' }, dailyRate: null, weeklyRate: null, monthlyRate: 1200 },
+  asset: { id: 'a1', name: 'WS 5090', manufacturer: 'VFXnow', model: 'W1', description: 'Fast.', specs: null, retiredAt: null, category: { id: 'c1', name: 'Workstations' }, components: [{ slot: 'GPU', quantity: 1, label: null, componentAsset: { name: 'RTX 5090 32GB' } }], dailyRate: null, weeklyRate: null, monthlyRate: 1200 },
   packageTemplate: null, pool: null,
   images: [{ id: 'img_1', version: '0123456789abcdef', alt: 'Front', width: 1600, height: 900 }],
 }
@@ -42,4 +42,19 @@ test('specs come out as key/value strings', () => {
   assert.deepEqual(specsDto({ GPU: 'A6000', RAM: 128 }), [{ key: 'GPU', value: 'A6000' }, { key: 'RAM', value: '128' }])
   assert.deepEqual(specsDto([{ key: ' ', value: 'x' }, 'junk']), [])
   assert.deepEqual(specsDto(null), [])
+})
+
+test('name, description and specs are read live from the item and its build, not the offer', () => {
+  const stale = { ...row, title: 'Old typed title', blurb: 'Old typed blurb', specs: [{ key: 'Note', value: 'typed extra' }] }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- a hand-built row, as above
+  const dto = offerDto(stale as any, pricing, { tier: STANDARD_TIER, flowDefaults: FLOW_DEFAULTS_FALLBACK, today: new Date('2026-10-01T12:00:00Z') })
+  assert.equal(dto.title, 'WS 5090')
+  assert.equal(dto.blurb, 'Fast.')
+  assert.deepEqual(dto.specs, [
+    { key: 'GPU', value: 'RTX 5090 32GB' },
+    { key: 'Maker', value: 'VFXnow' },
+    { key: 'Model', value: 'W1' },
+    { key: 'Category', value: 'Workstations' },
+    { key: 'Note', value: 'typed extra' },
+  ])
 })

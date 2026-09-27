@@ -15,7 +15,17 @@ export type OfferImage = { id: string; alt: string | null; width: number; height
  * Uploads go to /api/portal-images, where each file is checked and re-encoded
  * (lib/portal/images.ts); what comes back here is what the portal will get.
  */
-export function PortalOfferImages({ offerId, images, max }: { offerId: string; images: OfferImage[]; max: number }) {
+export function PortalOfferImages({
+  offerId,
+  images,
+  max,
+  canEdit,
+}: {
+  offerId: string;
+  images: OfferImage[];
+  max: number;
+  canEdit: boolean;
+}) {
   const router = useRouter();
   const input = useRef<HTMLInputElement>(null);
   const [busy, startTransition] = useTransition();
@@ -81,6 +91,7 @@ export function PortalOfferImages({ offerId, images, max }: { offerId: string; i
               />
               <input
                 defaultValue={image.alt ?? ""}
+                disabled={!canEdit}
                 placeholder="Alt text"
                 maxLength={200}
                 onBlur={(e) => {
@@ -96,7 +107,7 @@ export function PortalOfferImages({ offerId, images, max }: { offerId: string; i
                 <span className="flex gap-2">
                   <button
                     type="button"
-                    disabled={busy || index === 0}
+                    disabled={!canEdit || busy || index === 0}
                     onClick={() => run(() => movePortalOfferImage(image.id, "up"))}
                     className="text-accent-text hover:underline disabled:opacity-40"
                     aria-label="Move earlier"
@@ -105,7 +116,7 @@ export function PortalOfferImages({ offerId, images, max }: { offerId: string; i
                   </button>
                   <button
                     type="button"
-                    disabled={busy || index === images.length - 1}
+                    disabled={!canEdit || busy || index === images.length - 1}
                     onClick={() => run(() => movePortalOfferImage(image.id, "down"))}
                     className="text-accent-text hover:underline disabled:opacity-40"
                     aria-label="Move later"
@@ -114,7 +125,7 @@ export function PortalOfferImages({ offerId, images, max }: { offerId: string; i
                   </button>
                   <button
                     type="button"
-                    disabled={busy}
+                    disabled={!canEdit || busy}
                     onClick={() => run(() => deletePortalOfferImage(image.id))}
                     className="text-destructive hover:underline disabled:opacity-40"
                   >
@@ -126,8 +137,9 @@ export function PortalOfferImages({ offerId, images, max }: { offerId: string; i
           ))}
         </ul>
       ) : (
-        <p className="text-detail text-ink-muted">No images yet. The portal shows the product without one.</p>
+        <p className="text-detail text-ink-muted">No images yet. The portal shows it without one.</p>
       )}
+      {canEdit ? (
       <div className="flex flex-wrap items-center gap-2">
         <input
           ref={input}
@@ -142,6 +154,7 @@ export function PortalOfferImages({ offerId, images, max }: { offerId: string; i
           JPEG, PNG or WebP, up to 15 MB · {images.length}/{max}
         </span>
       </div>
+      ) : null}
       {uploading ? <span className="text-detail text-ink-muted">Uploading…</span> : null}
       {message ? <span className="text-detail text-ink-muted">{message}</span> : null}
       {error ? <span className="text-detail text-destructive">{error}</span> : null}

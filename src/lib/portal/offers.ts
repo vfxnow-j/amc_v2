@@ -16,6 +16,7 @@ import type { FlowPricingDefaults } from '@/lib/flow/defaults'
 import { publicRange } from './price-ranges'
 import { allowedSolutions, allowedTerms, priceQuote, type OfferComponent, type OfferPricing, type QuoteRequestLine } from './quote'
 import { PORTAL_SOLUTIONS, type CreditTier, type PortalSolution } from './tiers'
+import { buildSpecs, jsonSpecs, mergeSpecs } from './live-specs'
 
 type Db = Pick<PrismaClient, 'portalOffer' | 'assetUnit'>
 
@@ -47,8 +48,11 @@ export const OFFER_SELECT = {
       name: true,
       manufacturer: true,
       model: true,
+      description: true,
+      specs: true,
       retiredAt: true,
       category: { select: { id: true, name: true } },
+      components: { where: { isDefault: true }, orderBy: { sortOrder: 'asc' as const }, select: { slot: true, quantity: true, label: true, componentAsset: { select: { name: true } } } },
       ...RATE_SELECT,
     },
   },
@@ -56,6 +60,7 @@ export const OFFER_SELECT = {
     select: {
       id: true,
       name: true,
+      description: true,
       isActive: true,
       items: {
         orderBy: { sortOrder: 'asc' as const },
@@ -67,7 +72,7 @@ export const OFFER_SELECT = {
           rate: true,
           pricingType: true,
           isOneTime: true,
-          asset: { select: { name: true, category: { select: { id: true, name: true } }, ...RATE_SELECT } },
+          asset: { select: { name: true, specs: true, category: { select: { id: true, name: true } }, components: { where: { isDefault: true }, orderBy: { sortOrder: 'asc' as const }, select: { slot: true, quantity: true, label: true, componentAsset: { select: { name: true } } } }, ...RATE_SELECT } },
           service: { select: { name: true, defaultRate: true } },
         },
       },
@@ -82,6 +87,39 @@ export type OfferFilters = { solution?: string | null; category?: string | null;
 
 async function loadOfferRows(db: Db, where: Prisma.PortalOfferWhereInput) {
   return db.portalOffer.findMany({ where, select: OFFER_SELECT, orderBy: [{ sortOrder: 'asc' }, { title: 'asc' }] })
+}
+
+/**
+ * Specs, live: an item's base build (one line per slot), its own specs and its
+ * maker, model and category; a package's contents and the builds of its items
+ * merged by slot. Lines typed on the offer (older offers) are added last.
+ */
+function liveSpecs(row: OfferRow): { key: string; value: string }[] {
+  const typed = specsDto(row.specs)
+  if (row.asset) {
+    const a = row.asset
+    return mergeSpecs([
+      ...buildSpecs(a.components),
+      ...jsonSpecs(a.specs),
+      ...[
+        { key: 'Maker', value: a.manufacturer ?? '' },
+        { key: 'Model', value: a.model ?? '' },
+        { key: 'Category', value: a.category?.name ?? '' },
+      ].filter((s) => s.value.trim()),
+      ...typed,
+    ])
+  }
+  if (row.packageTemplate) {
+    const items = row.packageTemplate.items
+    return mergeSpecs([
+      ...(items.length
+        ? [{ key: 'Includes', value: items.map((i) => `${Math.max(1, i.quantity)}× ${i.description || i.asset?.name || i.service?.name || 'Item'}`).join(' · ') }]
+        : []),
+      ...items.flatMap((i) => (i.asset ? [...buildSpecs(i.asset.components), ...jsonSpecs(i.asset.specs)] : [])),
+      ...typed,
+    ])
+  }
+  return typed
 }
 
 /** The offer's category: the asset's, or a package's when all its gear shares one. */
@@ -263,8 +301,10 @@ export function offerDto(row: OfferRow, pricing: OfferPricing, ctx: RangeContext
     id: row.id,
     slug: row.slug,
     kind: row.kind,
-    title: row.title,
-    blurb: row.blurb ?? null,
+    // Read live from the item or package (owner, 2026-09-26): nothing is copied,
+    // so a renamed item or a changed build shows in the portal straight away.
+    title: row.asset?.name ?? row.packageTemplate?.name ?? row.title,
+    blurb: (row.asset ? row.asset.description : row.packageTemplate ? row.packageTemplate.description : row.blurb) ?? null,
     category: offerCategory(row),
     product: row.asset ? { name: row.asset.name, manufacturer: row.asset.manufacturer ?? null, model: row.asset.model ?? null } : null,
     items: (row.packageTemplate?.items ?? []).map((i) => ({
@@ -272,7 +312,7 @@ export function offerDto(row: OfferRow, pricing: OfferPricing, ctx: RangeContext
       quantity: Math.max(1, i.quantity),
     })),
     pool: row.pool ? { slug: row.pool.slug, name: row.pool.name, unit_label: row.pool.unitLabel } : null,
-    specs: specsDto(row.specs),
+    specs: liveSpecs(row),
     software: row.software,
     solutions: allowedSolutions(pricing, ctx.tier).map((solution) => ({
       solution,

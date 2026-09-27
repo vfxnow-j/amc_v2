@@ -14,8 +14,8 @@ import { FLOW_DEFAULTS_FALLBACK } from '@/lib/flow/defaults'
 
 const cat = { id: 'c1', name: 'Workstations' }
 const asset = (id: string, monthlyRate: number | null, extra: Record<string, unknown> = {}) => ({
-  id, name: `Asset ${id}`, manufacturer: 'VFXnow', model: 'W1', retiredAt: null, category: cat,
-  dailyRate: null, weeklyRate: null, monthlyRate, ...extra,
+  id, name: `Asset ${id}`, manufacturer: 'VFXnow', model: 'W1', description: null, specs: null, retiredAt: null, category: cat,
+  components: [], dailyRate: null, weeklyRate: null, monthlyRate, ...extra,
 })
 const base = {
   blurb: null, termsBySolution: null, software: ['Nuke'], specs: [{ key: 'GPU', value: 'RTX' }],
@@ -28,9 +28,9 @@ const rows = [
   {
     ...base, id: 'off_pkg', slug: 'pkg', kind: 'PACKAGE', title: 'Kit', solutions: ['rental'], isPublic: false, isVisible: true, asset: null,
     packageTemplate: {
-      id: 't1', name: 'Kit', isActive: true,
+      id: 't1', name: 'Kit', description: null, isActive: true,
       items: [
-        { assetId: 'a2', serviceId: null, description: null, quantity: 1, rate: 90, pricingType: 'WEEKLY', isOneTime: false, asset: { name: 'Asset a2', category: cat, dailyRate: null, weeklyRate: null, monthlyRate: 500 }, service: null },
+        { assetId: 'a2', serviceId: null, description: null, quantity: 1, rate: 90, pricingType: 'WEEKLY', isOneTime: false, asset: { name: 'Asset a2', specs: null, components: [], category: cat, dailyRate: null, weeklyRate: null, monthlyRate: 500 }, service: null },
         { assetId: null, serviceId: 's1', description: null, quantity: 1, rate: null, pricingType: null, isOneTime: false, asset: null, service: { name: 'Setup', defaultRate: 150 } },
       ],
     },

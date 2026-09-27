@@ -1,7 +1,10 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { PackageEditor } from "@/components/packages/package-editor";
 import { PageHeader } from "@/components/shell/page-header";
+import { CardSkeleton } from "@/components/record/record-card";
+import { PortalListingCard } from "@/components/portal/portal-listing-card";
 import { getTemplate } from "@/lib/queries/packages";
 
 type Params = { params: Promise<{ id: string }> };
@@ -50,6 +53,12 @@ export default async function PackagePage({ params }: Params) {
           totals: template.totals,
         }}
       />
+      {/* In the client portal: as many packages as its scarcest item allows. */}
+      <div className="grid gap-3 lg:grid-cols-[minmax(0,420px)_1fr]">
+        <Suspense fallback={<CardSkeleton title="Client portal" rows={3} />}>
+          <PortalListingCard target={{ kind: "PACKAGE", id: template.id }} />
+        </Suspense>
+      </div>
     </>
   );
 }

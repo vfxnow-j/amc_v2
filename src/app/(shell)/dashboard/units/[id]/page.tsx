@@ -89,11 +89,21 @@ export default async function UnitRecordPage({ params }: Params) {
 
       <Whereabouts unit={unit} />
 
-      <div className="grid flex-1 gap-3 lg:grid-cols-[1.4fr_1fr_1fr]">
+      <div className="grid flex-1 items-start gap-3 lg:grid-cols-[1.4fr_1fr_1fr]">
         <div className="flex min-h-0 flex-col gap-3">
           <Suspense fallback={<CardSkeleton title="Movements" rows={10} />}>
             <MovementsCard id={id} />
           </Suspense>
+          {/* What the portal may offer this unit as. Out-of-fleet units keep
+              their last setting but can't be changed. */}
+          <Card title="Offered as">
+            <UnitOfferingControl
+              target="unit"
+              id={unit.id}
+              initial={unit.offeredAs}
+              canEdit={!outOfFleet && !!user && canEdit(user.role)}
+            />
+          </Card>
         </div>
 
         <div className="flex min-h-0 flex-col gap-3">
@@ -118,16 +128,6 @@ export default async function UnitRecordPage({ params }: Params) {
           >
             <OwnershipCard id={id} />
           </Suspense>
-          {/* What the portal may offer this unit as. Out-of-fleet units keep
-              their last setting but can't be changed. */}
-          <Card title="Offered as">
-            <UnitOfferingControl
-              target="unit"
-              id={unit.id}
-              initial={unit.offeredAs}
-              canEdit={!outOfFleet && !!user && canEdit(user.role)}
-            />
-          </Card>
           {unit.notes ? (
             <Card title="Notes">
               <p className="whitespace-pre-line px-4 pb-4 text-detail text-ink-muted">

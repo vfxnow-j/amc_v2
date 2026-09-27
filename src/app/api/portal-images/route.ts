@@ -54,6 +54,6 @@ export async function POST(request: NextRequest) {
       userId: auth.userId,
     });
   }
-  revalidatePath("/dashboard/settings/portal-offers");
+  revalidatePath("/dashboard", "layout");
   return NextResponse.json({ stored: stored.length, refused }, { status: stored.length ? 200 : 422 });
 }
