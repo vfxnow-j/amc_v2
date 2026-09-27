@@ -1,5 +1,12 @@
-import type { AssetStatus, DeliveryMethod, ReservationStatus } from "@/generated/prisma/client";
+import type {
+  AssetStatus,
+  BillingCycleType,
+  DeliveryMethod,
+  ReservationStatus,
+  ReservationType,
+} from "@/generated/prisma/client";
 import { holidayOn } from "@/lib/calendar/holidays";
+import { termEnd } from "@/lib/billing/payment-schedule";
 
 /**
  * Capacity for the portal: what we can promise, per asset and summed over a
@@ -78,6 +85,19 @@ export type CapacityOrder = {
   returnTrackingNumber: string | null;
   /** Units already checked back in. Only read once the order is out. */
   checkedInCount?: number;
+  /**
+   * What kind of order this is, and how it bills — together they say whether
+   * `endDate` is a real end (a one-time rental) or only a billing-period
+   * boundary (a recurring rental/cloud order, which stays out until its
+   * committed term ends, or forever if it has none). See `expectedReturnOf`.
+   */
+  reservationType: ReservationType;
+  billingCycleType: BillingCycleType;
+  isRecurring: boolean;
+  /** The committed term, in months, of a recurring RENTAL/CLOUD order. */
+  termMonths: number | null;
+  /** The committed term, in months, of a FLOW order — its `endDate` is already `startDate + flowTermMonths`. */
+  flowTermMonths: number | null;
 };
 
 export type CapacityUnit = {
@@ -148,6 +168,38 @@ export function addBusinessDays(from: Date, days: number): Date {
     if (isWorkingDay(day)) left--;
   }
   return day;
+}
+
+/**
+ * When an order's units are due back, or `null` when none will ever be
+ * promised. A scheduled `returnDate` always wins. Otherwise:
+ *
+ * - RENT_TO_OWN and SALE: the gear does not come back to the fleet — no
+ *   candidate, ever.
+ * - FLOW: `endDate` is already `startDate + flowTermMonths` (the builder sets
+ *   it with the same month-stepping arithmetic as `termEnd`), so it is used
+ *   directly once that agrees; a mismatch (stale data) falls back to the
+ *   recomputed term end rather than trust a wrong stored date.
+ * - RENTAL/CLOUD, not recurring (billingCycleType ONE_TIME): `endDate` is a
+ *   real end date, same as always.
+ * - RENTAL/CLOUD, recurring: `endDate` is only a billing-period boundary, not
+ *   a return — using it is the bug this fixes (an active monthly rental read
+ *   as "170 days overdue" once it rolled past its first period end). The real
+ *   promise is the end of the committed term (`termMonths`), if the order has
+ *   one; an open-ended recurring order (no term, no scheduled return) is
+ *   never promised back.
+ */
+function expectedReturnOf(order: CapacityOrder): Date | null {
+  if (order.returnDate) return order.returnDate;
+  if (order.reservationType === "SALE" || order.reservationType === "RENT_TO_OWN") return null;
+  if (order.reservationType === "FLOW") {
+    const computed = order.flowTermMonths ? termEnd(order.startDate, order.flowTermMonths) : null;
+    if (computed && dayOf(computed) === dayOf(order.endDate)) return order.endDate;
+    return computed ?? order.endDate;
+  }
+  // RENTAL / CLOUD.
+  if (!order.isRecurring) return order.endDate;
+  return order.termMonths ? termEnd(order.startDate, order.termMonths) : null;
 }
 
 /* ── The calculation ─────────────────────────────────────────────────────── */
@@ -221,7 +273,13 @@ function assetFigures(
     if (!CAPACITY_HOLDS_STOCK.includes(order.status)) continue;
     if (startDay > toDay) continue;
 
-    const expectedReturn = order.returnDate ?? order.endDate;
+    const expectedReturn = expectedReturnOf(order);
+    if (expectedReturn === null) {
+      // Never promised back (financed RTO/SALE, or an open-ended recurring
+      // order with no committed term): the units stay reserved, no event.
+      reserved += quantity;
+      continue;
+    }
     if (dayOf(expectedReturn) < todayDay) {
       // Overdue if it is out: reserved, and never promised back.
       if (OUT_WITH_CLIENT.includes(order.status)) reserved += quantity;

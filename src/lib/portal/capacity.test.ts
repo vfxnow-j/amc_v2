@@ -24,6 +24,11 @@ const order = (over: Partial<CapacityOrder>): CapacityOrder => ({
   returnDate: null,
   returnMethod: "CUSTOMER_DROPOFF",
   returnTrackingNumber: null,
+  reservationType: "RENTAL",
+  billingCycleType: "ONE_TIME",
+  isRecurring: false,
+  termMonths: null,
+  flowTermMonths: null,
   ...over,
 });
 
@@ -235,6 +240,139 @@ test("units already checked back in are not reserved", () => {
   );
   assert.equal(result.pool.reserved, 1);
   assert.equal(result.pool.available_now, 1);
+});
+
+test("a one-time rental is unchanged: endDate is the return, overdue if past", () => {
+  const result = computeCapacity(
+    [
+      asset({
+        units: units(1),
+        orders: [
+          order({
+            reservationType: "RENTAL",
+            billingCycleType: "ONE_TIME",
+            isRecurring: false,
+            endDate: day("2026-09-25"), // before TODAY: overdue
+          }),
+        ],
+      }),
+    ],
+    TODAY,
+  );
+  assert.equal(result.pool.reserved, 1);
+  assert.deepEqual(result.pool.next_available, { date: null, status: "none" });
+});
+
+test("a recurring rental with no committed term and no scheduled return is never promised", () => {
+  const result = computeCapacity(
+    [
+      asset({
+        units: units(1),
+        orders: [
+          order({
+            reservationType: "RENTAL",
+            billingCycleType: "MONTHLY",
+            isRecurring: true,
+            termMonths: null,
+            startDate: day("2026-01-01"),
+            // A billing-period end long past — must NOT read as overdue/stale.
+            endDate: day("2026-08-30"),
+          }),
+        ],
+      }),
+    ],
+    TODAY,
+  );
+  assert.equal(result.pool.reserved, 1);
+  assert.equal(result.pool.available_now, 0);
+  assert.deepEqual(result.pool.next_available, { date: null, status: "none" });
+});
+
+test("a recurring rental with a committed term is promised back at the term's end", () => {
+  const result = computeCapacity(
+    [
+      asset({
+        units: units(1),
+        orders: [
+          order({
+            reservationType: "RENTAL",
+            billingCycleType: "MONTHLY",
+            isRecurring: true,
+            termMonths: 1,
+            startDate: day("2026-09-01"),
+            endDate: day("2026-09-30"), // just the first period's end, not the term
+          }),
+        ],
+      }),
+    ],
+    TODAY,
+  );
+  assert.deepEqual(result.pool.next_available, { date: "2026-10-01", status: "expected" });
+});
+
+test("a recurring rental's scheduled return still wins over the committed term", () => {
+  const result = computeCapacity(
+    [
+      asset({
+        units: units(1),
+        orders: [
+          order({
+            reservationType: "RENTAL",
+            billingCycleType: "MONTHLY",
+            isRecurring: true,
+            termMonths: 6,
+            startDate: day("2026-09-01"),
+            returnDate: day("2026-09-29"),
+          }),
+        ],
+      }),
+    ],
+    TODAY,
+  );
+  assert.deepEqual(result.pool.next_available, { date: "2026-09-29", status: "confirmed" });
+});
+
+test("rent-to-own gear never returns: reserved, and no candidate", () => {
+  const result = computeCapacity(
+    [
+      asset({
+        units: units(1),
+        orders: [
+          order({
+            reservationType: "RENT_TO_OWN",
+            billingCycleType: "MONTHLY",
+            isRecurring: true,
+            endDate: day("2026-09-20"), // long past — must not matter either way
+          }),
+        ],
+      }),
+    ],
+    TODAY,
+  );
+  assert.equal(result.pool.reserved, 1);
+  assert.deepEqual(result.pool.next_available, { date: null, status: "none" });
+});
+
+test("a Flow order is promised back at its term end (endDate already is start + flowTermMonths)", () => {
+  const result = computeCapacity(
+    [
+      asset({
+        units: units(1),
+        orders: [
+          order({
+            reservationType: "FLOW",
+            billingCycleType: "MONTHLY",
+            isRecurring: true,
+            flowTermMonths: 6,
+            startDate: day("2026-06-01"),
+            endDate: day("2026-12-01"), // start + 6 months, as the builder computes it
+          }),
+        ],
+      }),
+    ],
+    TODAY,
+  );
+  assert.deepEqual(result.pool.next_available, { date: "2026-12-01", status: "expected" });
 });
 
 test("an order promising more than the fleet is capped at the fleet", () => {
