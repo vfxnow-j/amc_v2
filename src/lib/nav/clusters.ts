@@ -159,6 +159,15 @@ export const NAV_CLUSTERS: NavCluster[] = [
         from: ["/dashboard/settings/locations"],
       },
       {
+        // New in v2 (owner, 2026-09-26; docs/inventory-map.md): the fleet on a
+        // globe, out at delivery addresses and stock at its location, with a
+        // Clients layer beside it. Shows client addresses; the page refuses
+        // VIEWER on top of this cluster's roles.
+        id: "map",
+        label: "Map",
+        href: "/dashboard/map",
+      },
+      {
         // TODO(step 4): one screen, two tabs.
         id: "audits",
         label: "Audits & scan lists",
