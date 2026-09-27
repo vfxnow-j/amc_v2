@@ -1,10 +1,46 @@
-# Inventory → Map — proposal (2026-09-26)
+# Inventory → Map (proposed and built 2026-09-26)
 
 Owner's ask: "a simple map that allows us to see where hardware is in the world … open source globe/map
 function > added to Inventory nav > Map … look around and have an idea at where our hardware is and have
 another fun way to see lists of orders in areas but see how we reach in another aspect."
 
-Status: **planned, not built. Waiting on the owner's decisions at the bottom.**
+Status: **MVP built 2026-09-26** (branch `feat/inventory-map`), on the owner's decisions at the bottom. Not yet seen
+drawing in a real browser — the box has no WebGL — so the globe, tiles, clusters and dark-mode swap still need a look.
+
+### What the MVP has
+
+- `/dashboard/map` (Inventory → Map). SUPER_ADMIN, ADMIN and STAFF only; VIEWER and FLOW_USER are sent to the
+  dashboard, because the screen shows client addresses.
+- **Inventory | Clients** layer toggle; the layers never mix. Inventory has **Now** and **Reach** modes, never mixed.
+  - Now: units on an ACTIVE checkout at their order's delivery address — no client-address fallback — and stock
+    (available / reserved / maintenance) at its location. A unit with two ACTIVE checkouts counts once, on the
+    latest; a unit marked out with no ACTIVE checkout is counted as "not on an order" and listed as unplaced.
+  - Reach: COMPLETED orders at their delivery address, with the units that went out or were sold on them. Sold
+    units not linked to an order are counted in the coverage line, never placed.
+  - Clients: each client with a sent quote or later (drafts don't count) at `Client.address`, else
+    `billingAddress`; sized by order count, coloured by whether one is active. 83 such clients today.
+- MapLibre GL 5 (client-only), globe by default with a Flat toggle, clusters summed by units, colours from the app's
+  tokens re-tinted on theme and mode changes, OpenFreeMap positron / dark tiles.
+- Always-visible coverage line; Unplaced tab linking each order, client or location to its record; reach strip
+  (countries, states/provinces, cities) from placed rows only, counts only — no revenue. Stock is not reach.
+- Offline geocoding (ZIP / Canadian FSA centroid, then city/state) into the v2-only `geocodes` cache; nothing leaves
+  the box at runtime. "TBD" addresses are skipped. An editor can pin a not-found address by typing coordinates
+  (`source=MANUAL`, never overwritten).
+- v2-only tables `geocodes` and `postal_centroids` (`prisma/manual/2026-09-26-geocodes.sql`). The GeoNames data
+  (CC-BY 4.0) lives in the gitignored `.superpowers/geonames/` and is loaded once by
+  `scripts/load-postal-centroids.ts --apply` — the only step that downloads anything.
+
+### Not in the MVP
+
+- **On-save geocode hooks.** A new or edited address shows as "Not geocoded yet" until the script runs (below).
+- Client Tracker temperature on the Clients layer; the status ring on clusters; linking unplaced orders straight to
+  the Shipping card (they open the order); everything under Phase 2.
+
+### Operational note
+
+**Run `npx tsx scripts/geocode-addresses.ts --apply` after editing addresses and after every v1 sync.** The sync
+writes addresses without any save hook, and there are no on-save hooks yet, so until the script runs a changed address
+shows as unplaced. It is offline, idempotent, and never overwrites a manual pin.
 
 ## The data, measured 2026-09-26 (v2 database)
 

@@ -3151,4 +3151,59 @@ model PortalRequestLog {
   @@index([createdAt])
   @@index([portalClientId, createdAt])
   @@map("portal_request_log")
+
+// ─── Map geocoding (v2-only, 2026-09-26; docs/inventory-map.md) ───────────────
+// Offline, on-box geocoding: an address's ZIP/postal code looked up in GeoNames
+// centroids. Never written by the v1 sync. prisma/manual/2026-09-26-geocodes.sql
+
+enum GeocodePrecision {
+  POSTAL
+  CITY
+  MANUAL
+}
+
+enum GeocodeSource {
+  GEONAMES
+  MANUAL
+}
+
+enum GeocodeStatus {
+  OK
+  NOT_FOUND
+  SKIPPED
+}
+
+/// One free-text address, resolved once. Keyed by the normalised text, so a
+/// changed address simply geocodes again. MANUAL rows are never overwritten.
+model Geocode {
+  id          String           @id @default(cuid())
+  addressKey  String           @unique
+  addressText String
+  lat         Float?
+  lng         Float?
+  precision   GeocodePrecision?
+  source      GeocodeSource    @default(GEONAMES)
+  status      GeocodeStatus
+  countryCode String?
+  region      String?
+  city        String?
+  postalCode  String?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@map("geocodes")
+}
+
+/// GeoNames postal-code centroids (CC-BY 4.0), US and Canada.
+model PostalCentroid {
+  countryCode String
+  postalCode  String
+  place       String
+  admin1Code  String?
+  lat         Float
+  lng         Float
+
+  @@id([countryCode, postalCode])
+  @@index([countryCode, admin1Code, place])
+  @@map("postal_centroids")
 }
