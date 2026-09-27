@@ -127,6 +127,8 @@ async function nowLayer(f: MapFilters): Promise<LayerBody> {
           },
           select: {
             id: true,
+            assetUnit: { select: { id: true, barcode: true, asset: { select: { name: true } } } },
+            client: { select: { name: true } },
             reservation: {
               select: {
                 id: true,
@@ -149,13 +151,15 @@ async function nowLayer(f: MapFilters): Promise<LayerBody> {
           orderBy: [{ checkoutDate: "desc" }, { id: "desc" }],
         })
       : [],
-    // Out by its status but with no ACTIVE checkout: out somewhere nobody
-    // recorded. Counted, never placed.
+    // Out by its status but with no ACTIVE checkout: marked out by hand or by
+    // import, never scanned out on an order. Listed one by one, never placed.
     wantOrders && unfiltered
-      ? prisma.assetUnit.count({
+      ? prisma.assetUnit.findMany({
           where: { status: "CHECKED_OUT", checkouts: { none: { status: "ACTIVE" } } },
+          orderBy: { barcode: "asc" },
+          select: { id: true, barcode: true, asset: { select: { name: true } } },
         })
-      : 0,
+      : [],
     wantStock
       ? prisma.assetUnit.groupBy({
           by: ["locationId"],
@@ -175,12 +179,24 @@ async function nowLayer(f: MapFilters): Promise<LayerBody> {
 
   // Units out, per order.
   const orders = new Map<string, Candidate>();
-  let noOrder = outNoCheckout;
+  // Units out with no order behind them, one row each so they can be fixed:
+  // marked out without a checkout, or checked out to a client with no order.
+  const noOrderUnits: { id: string; barcode: string; name: string; why: string }[] = outNoCheckout.map((u) => ({
+    id: u.id,
+    barcode: u.barcode,
+    name: u.asset.name,
+    why: "marked out, never scanned out on an order",
+  }));
   for (const c of checkouts) {
     if (!latest.has(c.id)) continue;
     const r = c.reservation;
     if (!r) {
-      noOrder += 1;
+      noOrderUnits.push({
+        id: c.assetUnit.id,
+        barcode: c.assetUnit.barcode,
+        name: c.assetUnit.asset.name,
+        why: `checked out${c.client?.name ? ` to ${c.client.name}` : ""} with no order`,
+      });
       continue;
     }
     const row = orders.get(r.id);
@@ -227,14 +243,15 @@ async function nowLayer(f: MapFilters): Promise<LayerBody> {
   }
 
   const outRows = [...orders.values()];
-  if (noOrder > 0) {
+  const noOrder = noOrderUnits.length;
+  for (const u of noOrderUnits) {
     unplacedExtra.push({
-      id: "out:no-order",
+      id: `out:no-order:${u.id}`,
       kind: "RENTAL",
-      title: "Out with no order",
-      subtitle: `${plural(noOrder, "unit")} out with no order behind them`,
-      href: "/dashboard/units?view=out",
-      weight: noOrder,
+      title: u.barcode,
+      subtitle: `${u.name} · ${u.why}`,
+      href: `/dashboard/units/${u.id}`,
+      weight: 1,
       reason: "NO_ADDRESS",
       address: null,
     });
