@@ -7,6 +7,7 @@ import type {
 } from "@/generated/prisma/client";
 import { holidayOn } from "@/lib/calendar/holidays";
 import { termEnd } from "@/lib/billing/payment-schedule";
+import { HOLDS_STOCK_STATUSES } from "@/lib/inventory/availability";
 
 /**
  * Capacity for the portal: what we can promise, per asset and summed over a
@@ -45,10 +46,12 @@ import { termEnd } from "@/lib/billing/payment-schedule";
  */
 
 /**
- * Orders that hold stock. Must equal `HOLDS_STOCK` in lib/queries/order-builder
- * (the loader filters with that one; this copy keeps the pure module Prisma-free).
+ * Orders that hold stock — the same list the order builder's `HOLDS_STOCK`
+ * wraps in a `Prisma.ReservationWhereInput`. Both read from
+ * `lib/inventory/availability.ts`, which has no Prisma value import, so this
+ * module stays testable with no database.
  */
-export const CAPACITY_HOLDS_STOCK: ReservationStatus[] = ["APPROVED", "PREPARING", "SHIPPED", "ACTIVE"];
+export const CAPACITY_HOLDS_STOCK: ReservationStatus[] = HOLDS_STOCK_STATUSES;
 /** Out with the client: their units can be overdue. */
 const OUT_WITH_CLIENT: ReservationStatus[] = ["SHIPPED", "ACTIVE"];
 const OUT_OF_FLEET: AssetStatus[] = ["RETIRED", "SOLD"];

@@ -1,6 +1,6 @@
 import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
-import { OUT_OF_FLEET } from "@/lib/inventory/availability";
+import { HOLDS_STOCK_STATUSES, OUT_OF_FLEET } from "@/lib/inventory/availability";
 
 /**
  * Availability behind the new-order builder.
@@ -14,10 +14,12 @@ import { OUT_OF_FLEET } from "@/lib/inventory/availability";
 /**
  * Orders that hold stock. Quotes don't — nobody has agreed to them. Exported
  * for the portal's capacity loader (`lib/portal/capacity-load.ts`), which must
- * count commitment exactly as the builder does.
+ * count commitment exactly as the builder does. The statuses themselves live
+ * in `lib/inventory/availability.ts` (Prisma-value-free) so tests can read
+ * them with no database.
  */
 export const HOLDS_STOCK: Prisma.ReservationWhereInput = {
-  status: { in: ["APPROVED", "PREPARING", "SHIPPED", "ACTIVE"] },
+  status: { in: HOLDS_STOCK_STATUSES },
 };
 
 export type AssetAvailability = {

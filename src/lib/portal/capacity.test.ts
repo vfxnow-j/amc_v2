@@ -9,7 +9,7 @@ import {
   type CapacityOrder,
   type CapacityUnit,
 } from "./capacity";
-import { HOLDS_STOCK } from "@/lib/queries/order-builder";
+import { HOLDS_STOCK_STATUSES } from "@/lib/inventory/availability";
 
 const day = (s: string) => new Date(`${s}T12:00:00Z`);
 // A Monday, clear of carrier holidays for the fortnight after it.
@@ -460,9 +460,11 @@ test("a genuine partial return (not a swap) frees the returned unit", () => {
   assert.equal(result.pool.available_now, 1);
 });
 
-test("CAPACITY_HOLDS_STOCK is pinned to the order builder's HOLDS_STOCK", () => {
-  const builderStatuses = (HOLDS_STOCK.status as { in: string[] }).in;
-  assert.deepEqual([...CAPACITY_HOLDS_STOCK].sort(), [...builderStatuses].sort());
+test("CAPACITY_HOLDS_STOCK is the shared HOLDS_STOCK_STATUSES list", () => {
+  // Both capacity.ts and the order builder's HOLDS_STOCK read this same
+  // constant from lib/inventory/availability.ts, so there is nothing left
+  // to pin against — this just guards that capacity.ts still points at it.
+  assert.deepEqual([...CAPACITY_HOLDS_STOCK].sort(), [...HOLDS_STOCK_STATUSES].sort());
 });
 
 test("an order promising more than the fleet is capped at the fleet", () => {
