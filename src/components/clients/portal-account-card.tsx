@@ -12,7 +12,8 @@ import { PortalAccountRelink } from "@/components/clients/portal-account-relink"
  * just pointed inward. `createdHere: false` is the one thing worth a staff
  * member's attention: it means someone re-linked this account onto a client
  * that already existed, so the portal's company/contact writes on this
- * client stopped mirroring (src/lib/portal/accounts.ts, "provenance marker").
+ * client stopped mirroring (clientId no longer equals createdClientId,
+ * src/lib/portal/accounts.ts `isMirroring`).
  */
 
 const VERIFICATION_LABEL: Record<string, string> = {
@@ -63,7 +64,7 @@ export async function PortalAccountCard({
       <p className="mx-4 mb-3 text-detail text-ink-muted">
         {panel.createdHere
           ? "Created by the client portal — its company and contact fields mirror here on every PUT."
-          : "Re-linked to this client by staff — the portal's company and contact fields are stored on the account only, and are no longer written onto this client."}
+          : "Re-linked to this client by staff — the portal's company and contact updates are no longer written onto this client."}
       </p>
 
       {panel.sites.length ? (

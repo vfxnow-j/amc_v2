@@ -2,12 +2,11 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   AccountPutBodySchema,
-  DEFAULT_SITE_MARKER,
   assertRelinkAllowed,
+  defaultSiteId,
+  isMirroring,
   mapAccountResponse,
   planSiteReplacement,
-  portalOriginAccountId,
-  portalOriginMarker,
   sitesDefaultError,
 } from './accounts'
 
@@ -31,6 +30,17 @@ test('a minimal body validates: company only', () => {
 test('company is required', () => {
   assert.throws(() => AccountPutBodySchema.parse({}), isZodError)
   assert.throws(() => AccountPutBodySchema.parse({ company: '' }), isZodError)
+})
+
+test('contact_email must be an email address', () => {
+  assert.throws(() => AccountPutBodySchema.parse({ company: 'Acme', contact_email: 'not-an-email' }), isZodError)
+  const body = AccountPutBodySchema.parse({ company: 'Acme', contact_email: '  ops@acme.example  ' })
+  assert.equal(body.contact_email, 'ops@acme.example')
+})
+
+test('sites: more than 50 fails validation', () => {
+  const sites = Array.from({ length: 51 }, (_, i) => ({ external_site_id: `s${i}`, label: 'S', is_default: i === 0 }))
+  assert.throws(() => AccountPutBodySchema.parse({ company: 'Acme', sites }), isZodError)
 })
 
 test('contact fields are optional and null collapses to undefined', () => {
@@ -132,8 +142,8 @@ test('mapAccountResponse: shape matches the contract and carries no unsafe keys'
     'ext-1',
     { verificationLevel: 'id_verified', creditTier: 'standard' },
     [
-      { externalSiteId: 'b', name: 'Annex', address: null, region: null },
-      { externalSiteId: 'a', name: 'HQ', address: '1 Main St', region: DEFAULT_SITE_MARKER },
+      { externalSiteId: 'b', name: 'Annex', address: null, isDefault: false },
+      { externalSiteId: 'a', name: 'HQ', address: '1 Main St', isDefault: true },
     ],
     true,
   )
@@ -154,8 +164,8 @@ test('mapAccountResponse: exactly one is_default survives the mapper', () => {
     'ext-1',
     { verificationLevel: 'none', creditTier: 'standard' },
     [
-      { externalSiteId: 'a', name: 'HQ', address: null, region: DEFAULT_SITE_MARKER },
-      { externalSiteId: 'b', name: 'Annex', address: null, region: null },
+      { externalSiteId: 'a', name: 'HQ', address: null, isDefault: true },
+      { externalSiteId: 'b', name: 'Annex', address: null, isDefault: false },
     ],
     false,
   )
@@ -163,19 +173,34 @@ test('mapAccountResponse: exactly one is_default survives the mapper', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Provenance marker (survives a re-link because it never lives on the
-// portal_accounts row — see the file header in accounts.ts)
+// Mirroring rule: only while the linked client is the one the portal created
 // ---------------------------------------------------------------------------
 
-test('portalOriginMarker round-trips through portalOriginAccountId', () => {
-  const notes = portalOriginMarker('pacc_123')
-  assert.equal(portalOriginAccountId(notes), 'pacc_123')
+test('isMirroring: the client the portal created, still linked, mirrors', () => {
+  assert.equal(isMirroring({ clientId: 'c1', createdClientId: 'c1' }), true)
 })
 
-test('portalOriginAccountId: null, empty and unrelated notes all read as no marker', () => {
-  assert.equal(portalOriginAccountId(null), null)
-  assert.equal(portalOriginAccountId(''), null)
-  assert.equal(portalOriginAccountId('Called about a Flow renewal.'), null)
+test('isMirroring: after a re-link to another client, mirroring stops', () => {
+  assert.equal(isMirroring({ clientId: 'c2', createdClientId: 'c1' }), false)
+})
+
+test('isMirroring: no createdClientId (never portal-created) never mirrors', () => {
+  assert.equal(isMirroring({ clientId: 'c1', createdClientId: null }), false)
+})
+
+// ---------------------------------------------------------------------------
+// Default site
+// ---------------------------------------------------------------------------
+
+test('defaultSiteId: names the one default, null for an empty set', () => {
+  assert.equal(
+    defaultSiteId([
+      { external_site_id: 'a', is_default: false },
+      { external_site_id: 'b', is_default: true },
+    ]),
+    'b',
+  )
+  assert.equal(defaultSiteId([]), null)
 })
 
 // ---------------------------------------------------------------------------

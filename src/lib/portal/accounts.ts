@@ -11,25 +11,21 @@
  *     while the account is still linked to the client it created. Staff can
  *     re-link an account to a pre-existing client from the client record
  *     (`relinkPortalAccount`); once that happens the portal's company/contact
- *     fields are stored on the account but never written onto that client —
+ *     fields are validated but dropped (portal_accounts has no column for them) —
  *     staff own that client's identity from then on. `PUT` itself never
  *     merges or re-links (owner, 2026-09-26).
  *
- * "Still linked to the client it created" needs a durable fact that survives
- * a re-link even though `portal_accounts.clientId` moves — there is no spare
- * column for it (schema.prisma is out of scope for this chunk), so it rides
- * on `Client.notes` as a small machine-readable marker
- * (`portalOriginMarker` / `portalOriginAccountId`), set once at creation and
- * never touched again. A staff member editing that client's notes away loses
- * the signal — accepted, see the chunk report.
+ * "Still linked to the client it created" is `clientId === createdClientId`
+ * (`isMirroring`): `portal_accounts.createdClientId` is set once, when PUT
+ * creates the client, and never changed — a re-link moves `clientId` only,
+ * so mirroring stops (and resumes only if staff re-link it back).
  *
  * Sites are a replace-set keyed by `external_site_id`: every PUT with a
  * `sites` array upserts what's present and deletes what's absent, with
- * exactly one `is_default`. `PortalAccountSite` has no `isDefault` column
- * either (same schema constraint), so the default marker is stored in its
- * otherwise portal-unused `region` text column (`DEFAULT_SITE_MARKER`) —
- * again, a stand-in for a real Boolean field, not a design choice. See
- * prisma/manual/2026-09-26-portal-accounts-default-site.sql.
+ * exactly one `is_default`, stored in `portal_account_sites."isDefault"`. A
+ * partial unique index allows at most one default per account, so a PUT that
+ * moves the default clears the old one before setting the new one (same
+ * transaction). See prisma/manual/2026-09-26-portal-accounts-columns.sql.
  *
  * Like quote.ts and offers.ts, this module never imports the live `prisma`
  * singleton itself — every DB-touching export takes it (or a transaction
@@ -94,7 +90,7 @@ const SitesInputSchema = z
 export const AccountPutBodySchema = z.object({
   company: trimmed(200),
   contact_name: trimmed(200).nullish().transform((v) => v ?? undefined),
-  contact_email: trimmed(200).nullish().transform((v) => v ?? undefined),
+  contact_email: z.string().trim().max(200).pipe(z.email()).nullish().transform((v) => v ?? undefined),
   contact_phone: trimmed(50).nullish().transform((v) => v ?? undefined),
   verification_level: z.enum(VERIFICATION_LEVELS).optional(),
   credit_tier: trimmed(40).optional(),
@@ -116,32 +112,29 @@ export function planSiteReplacement(
   return { toDelete: existingExternalIds.filter((id) => !keep.has(id)) }
 }
 
-// ---------------------------------------------------------------------------
-// Client provenance marker (see file header)
-// ---------------------------------------------------------------------------
-
-const PORTAL_ORIGIN_RE = /^\[portal:([^\]]+)\]/
-
-export function portalOriginMarker(portalAccountRowId: string): string {
-  return `[portal:${portalAccountRowId}] Created via the client portal. Company and contact fields here are mirrored from the portal while this link holds; re-linking the account (on this record) stops that.`
+/**
+ * Pure: the external_site_id to be the default, or null for an empty set.
+ * Validation guarantees exactly one when `sites` is non-empty.
+ */
+export function defaultSiteId(sites: { external_site_id: string; is_default: boolean }[]): string | null {
+  return sites.find((s) => s.is_default)?.external_site_id ?? null
 }
 
-/** The PortalAccount row id this client was created for, or null. */
-export function portalOriginAccountId(notes: string | null | undefined): string | null {
-  if (!notes) return null
-  const match = PORTAL_ORIGIN_RE.exec(notes)
-  return match ? match[1] : null
-}
+// ---------------------------------------------------------------------------
+// Mirroring rule (see file header)
+// ---------------------------------------------------------------------------
 
-/** The stand-in for PortalAccountSite.isDefault — see file header. */
-export const DEFAULT_SITE_MARKER = 'portal_default'
+/** Pure: PUT mirrors company/contact onto the linked client only while it is the one the portal created. */
+export function isMirroring(account: { clientId: string; createdClientId: string | null }): boolean {
+  return account.createdClientId !== null && account.clientId === account.createdClientId
+}
 
 // ---------------------------------------------------------------------------
 // Response DTO
 // ---------------------------------------------------------------------------
 
 type AccountRow = { verificationLevel: string; creditTier: string }
-type SiteRow = { externalSiteId: string; name: string; address: string | null; region: string | null }
+type SiteRow = { externalSiteId: string; name: string; address: string | null; isDefault: boolean }
 
 export type AccountResponseDto = {
   portal_account_id: string
@@ -168,7 +161,7 @@ export function mapAccountResponse(
         external_site_id: s.externalSiteId,
         label: s.name,
         address: s.address,
-        is_default: s.region === DEFAULT_SITE_MARKER,
+        is_default: s.isDefault,
       })),
     client_linked: clientLinked,
   }
@@ -180,8 +173,20 @@ export function mapAccountResponse(
 // PUT /v1/accounts/{portal_account_id}
 // ---------------------------------------------------------------------------
 
-const ACCOUNT_SELECT = { id: true, clientId: true, verificationLevel: true, creditTier: true } as const
-type AccountForWrite = { id: string; clientId: string; verificationLevel: string; creditTier: string }
+const ACCOUNT_SELECT = {
+  id: true,
+  clientId: true,
+  createdClientId: true,
+  verificationLevel: true,
+  creditTier: true,
+} as const
+type AccountForWrite = {
+  id: string
+  clientId: string
+  createdClientId: string | null
+  verificationLevel: string
+  creditTier: string
+}
 
 async function replaceSites(tx: Prisma.TransactionClient, accountId: string, sites: SiteInput[]): Promise<void> {
   const existing = await tx.portalAccountSite.findMany({ where: { accountId }, select: { externalSiteId: true } })
@@ -192,11 +197,19 @@ async function replaceSites(tx: Prisma.TransactionClient, accountId: string, sit
   if (toDelete.length) {
     await tx.portalAccountSite.deleteMany({ where: { accountId, externalSiteId: { in: toDelete } } })
   }
+  // The partial unique index ("portal_account_sites_one_default") is checked
+  // per statement, so any other default must be cleared before the upserts
+  // below set the new one.
+  const newDefault = defaultSiteId(sites)
+  await tx.portalAccountSite.updateMany({
+    where: { accountId, isDefault: true, ...(newDefault ? { externalSiteId: { not: newDefault } } : {}) },
+    data: { isDefault: false },
+  })
   for (const site of sites) {
     const data = {
       name: site.label,
       address: site.address,
-      region: site.is_default ? DEFAULT_SITE_MARKER : null,
+      isDefault: site.is_default,
     }
     await tx.portalAccountSite.upsert({
       where: { accountId_externalSiteId: { accountId, externalSiteId: site.external_site_id } },
@@ -231,7 +244,6 @@ export async function putPortalAccount(
     })
 
     let account: AccountForWrite
-    let clientLinked: boolean
 
     if (!existing) {
       const client = await tx.client.create({
@@ -248,18 +260,13 @@ export async function putPortalAccount(
           portalClientId,
           portalAccountId,
           clientId: client.id,
+          createdClientId: client.id,
           verificationLevel: body.verification_level ?? 'none',
           creditTier: body.credit_tier ?? 'standard',
         },
         select: ACCOUNT_SELECT,
       })
-      // Set once, at creation — see the "provenance marker" note above.
-      await tx.client.update({ where: { id: client.id }, data: { notes: portalOriginMarker(account.id) } })
-      clientLinked = true
     } else {
-      const client = await tx.client.findUniqueOrThrow({ where: { id: existing.clientId }, select: { notes: true } })
-      clientLinked = portalOriginAccountId(client.notes) === existing.id
-
       const accountData: Prisma.PortalAccountUpdateInput = {}
       if (body.verification_level !== undefined) accountData.verificationLevel = body.verification_level
       if (body.credit_tier !== undefined) accountData.creditTier = body.credit_tier
@@ -267,13 +274,13 @@ export async function putPortalAccount(
         ? await tx.portalAccount.update({ where: { id: existing.id }, data: accountData, select: ACCOUNT_SELECT })
         : existing
 
-      if (clientLinked) {
+      if (isMirroring(existing)) {
         const clientData: Prisma.ClientUpdateInput = { name: body.company, companyName: body.company }
         if (body.contact_email !== undefined) clientData.email = body.contact_email
         if (body.contact_phone !== undefined) clientData.phone = body.contact_phone
         await tx.client.update({ where: { id: existing.clientId }, data: clientData })
       }
-      // Not clientLinked: staff re-linked this account to a pre-existing
+      // Not mirroring: staff re-linked this account to a pre-existing
       // client. Its portal_accounts fields above still update; its client's
       // company/contact fields are staff's to own from here, so we leave
       // them alone.
@@ -283,10 +290,10 @@ export async function putPortalAccount(
 
     const sites = await tx.portalAccountSite.findMany({
       where: { accountId: account.id },
-      select: { externalSiteId: true, name: true, address: true, region: true },
+      select: { externalSiteId: true, name: true, address: true, isDefault: true },
     })
 
-    return { id: account.id, dto: mapAccountResponse(portalAccountId, account, sites, clientLinked) }
+    return { id: account.id, dto: mapAccountResponse(portalAccountId, account, sites, isMirroring(account)) }
   })
 }
 
@@ -296,7 +303,7 @@ export async function putPortalAccount(
 
 export type PortalAccountPanel =
   | { kind: 'none' }
-  /** No live link, but this client's notes still carry the portal's origin marker. */
+  /** No live link, but the portal created this client and its account was re-linked elsewhere. */
   | { kind: 'origin_only' }
   | {
       kind: 'linked'
@@ -315,16 +322,17 @@ export type PortalAccountPanel =
 
 /** Everything the client-record "Portal account" panel needs, in one query. */
 export async function getPortalAccountPanel(
-  db: Pick<PrismaClient, 'client'>,
+  db: Pick<PrismaClient, 'client' | 'portalAccount'>,
   clientId: string,
 ): Promise<PortalAccountPanel> {
   const client = await db.client.findUnique({
     where: { id: clientId },
     select: {
-      notes: true,
       portalAccount: {
         select: {
           id: true,
+          clientId: true,
+          createdClientId: true,
           portalClientId: true,
           portalAccountId: true,
           verificationLevel: true,
@@ -333,7 +341,7 @@ export async function getPortalAccountPanel(
           updatedAt: true,
           portalClient: { select: { name: true } },
           sites: {
-            select: { externalSiteId: true, name: true, address: true, region: true },
+            select: { externalSiteId: true, name: true, address: true, isDefault: true },
             orderBy: { externalSiteId: 'asc' },
           },
         },
@@ -342,9 +350,9 @@ export async function getPortalAccountPanel(
   })
   if (!client) return { kind: 'none' }
 
-  const originId = portalOriginAccountId(client.notes)
   if (!client.portalAccount) {
-    return originId ? { kind: 'origin_only' } : { kind: 'none' }
+    const created = await db.portalAccount.findFirst({ where: { createdClientId: clientId }, select: { id: true } })
+    return created ? { kind: 'origin_only' } : { kind: 'none' }
   }
 
   const a = client.portalAccount
@@ -362,9 +370,9 @@ export async function getPortalAccountPanel(
       externalSiteId: s.externalSiteId,
       label: s.name,
       address: s.address,
-      isDefault: s.region === DEFAULT_SITE_MARKER,
+      isDefault: s.isDefault,
     })),
-    createdHere: originId === a.id,
+    createdHere: isMirroring(a),
   }
 }
 
@@ -406,6 +414,7 @@ export async function relinkPortalAccount(
     if (target.id === account.clientId) return { fromClientId: account.clientId }
 
     assertRelinkAllowed(target, account.portalClientId)
+    // clientId only: createdClientId stays, so PUT stops mirroring onto the new client (isMirroring).
     await tx.portalAccount.update({ where: { id: account.id }, data: { clientId: target.id } })
     return { fromClientId: account.clientId }
   })
