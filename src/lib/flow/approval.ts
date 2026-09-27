@@ -7,6 +7,7 @@
  * Pure — no prisma, no 'use server', no next/*.
  */
 import { validateSignerName } from '@/lib/quotes/signer-name'
+import { FLOW_SCHEDULE_HASH_PATTERN } from '@/lib/pricing/flow-schedule-hash'
 
 export const FLOW_AUTOPAY_METHODS = ['ACH', 'CARD'] as const
 export type FlowAutopayMethod = (typeof FLOW_AUTOPAY_METHODS)[number]
@@ -27,7 +28,16 @@ export type FlowApprovalInput = {
    */
   displayedTermsVersion?: unknown
   currentTermsVersion?: number
+  /**
+   * The schedule fingerprint (flowScheduleHash) the client's page was sent, and
+   * the one recomputed from the order as it stands now. Same opt-in as the terms
+   * version: approveQuote always supplies `currentScheduleHash`.
+   */
+  displayedScheduleHash?: unknown
+  currentScheduleHash?: string
 }
+
+export const FLOW_SCHEDULE_CHANGED = 'This quote changed since you opened it — please reload to review it.'
 
 export type FlowApprovalResult =
   | { ok: true; signerName: string; autopayMethod: FlowAutopayMethod }
@@ -62,6 +72,16 @@ export function checkFlowApproval(input: FlowApprovalInput): FlowApprovalResult 
     const isValidInteger = typeof displayed === 'number' && Number.isInteger(displayed)
     if (!isValidInteger || displayed !== input.currentTermsVersion) {
       return { ok: false, error: 'These terms were updated — please reload the quote to review them.' }
+    }
+  }
+
+  // The schedule shown to the client must be the schedule being approved. The
+  // terms version only moves when staff edit the settings; a re-price of the
+  // order (a line, a knob, the discount) changes the figures without it.
+  if (input.currentScheduleHash !== undefined) {
+    const shown = input.displayedScheduleHash
+    if (typeof shown !== 'string' || !FLOW_SCHEDULE_HASH_PATTERN.test(shown) || shown !== input.currentScheduleHash) {
+      return { ok: false, error: FLOW_SCHEDULE_CHANGED }
     }
   }
 

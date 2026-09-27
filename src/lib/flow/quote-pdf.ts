@@ -53,7 +53,9 @@ export async function renderFlowQuotePdf(
     projectName: reservation.projectName || undefined,
     quoteExpiresAt: reservation.quoteExpiresAt ? formatDate(reservation.quoteExpiresAt) : undefined,
     notes: reservation.notes || undefined,
-    gear: items.map((item) => {
+    // A cloud host's component rows (parentId + cloudProductId) are hidden config,
+    // left off exactly as the client's online quote leaves them off.
+    gear: items.filter((item) => !(item.parentId && item.cloudProductId)).map((item) => {
       const { title, spec } = lineTitle(item)
       return { description: title, spec, quantity: item.quantity || 1, isComponent: !!item.parentId }
     }),

@@ -10,6 +10,7 @@ import { prisma } from '@/lib/prisma'
 import { computeReservationFinancials } from '@/lib/pricing/financials'
 import { flowQuoteForOrder } from '@/lib/pricing/flow-quote-view'
 import type { FlowClientQuote } from '@/lib/pricing/flow-client-quote'
+import { flowScheduleHash } from '@/lib/pricing/flow-schedule-hash'
 import {
   mergeFlowTermsSettings,
   renderFlowTerms,
@@ -92,6 +93,12 @@ export async function flowQuoteProblem(reservationId: string): Promise<string | 
 async function renderLive(reservationId: string): Promise<RenderedFlowTerms | null> {
   const state = await flowClientQuoteForReservation(reservationId)
   if (!state || state.problem || !state.quote.feasible) return null
+  return renderFromState(state)
+}
+
+async function renderFromState(
+  state: NonNullable<Awaited<ReturnType<typeof flowClientQuoteForReservation>>>,
+): Promise<RenderedFlowTerms> {
   const { reservation, quote } = state
   const settings = await loadFlowTermsSettings()
   return renderFlowTerms(settings, {
@@ -119,4 +126,24 @@ export async function buildFlowTermsSnapshot(reservationId: string): Promise<Ren
   const live = await renderLive(reservationId)
   if (!live) throw new Error('This Flow order cannot be approved until its schedule can be quoted.')
   return { ...live, acceptedAt: new Date().toISOString() }
+}
+
+/**
+ * What approval freezes, and the fingerprint of the schedule it freezes — from
+ * one read of the order, so the snapshot and the hash describe the same price.
+ * approveQuote refuses when the hash differs from the one the client's page was
+ * sent (flowQuotePayload.flowScheduleHash).
+ */
+export async function buildFlowApprovalBasis(
+  reservationId: string,
+): Promise<{ snapshot: RenderedFlowTerms; scheduleHash: string }> {
+  const state = await flowClientQuoteForReservation(reservationId)
+  if (!state || state.problem || !state.quote.feasible) {
+    throw new Error('This Flow order cannot be approved until its schedule can be quoted.')
+  }
+  const live = await renderFromState(state)
+  return {
+    snapshot: { ...live, acceptedAt: new Date().toISOString() },
+    scheduleHash: flowScheduleHash(state.quote, live.extension),
+  }
 }

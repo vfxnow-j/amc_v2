@@ -4,18 +4,27 @@ import { prisma } from '@/lib/prisma'
 import type { Prisma } from '@/generated/prisma/client'
 import { requireEditor } from '@/lib/auth-utils'
 import { serialize } from '@/lib/utils'
-import { calculatePeriods } from '@/lib/actions/reservations'
-import { computeItemSubtotal } from '@/lib/pricing/periods'
 import { computeReservationFinancials, deriveItemAmount } from '@/lib/pricing/financials'
+import { calculateReservationTotals } from '@/lib/pricing/reservation-totals'
 import crypto from 'crypto'
 import { portalQuoteHold, quoteGate } from '@/lib/approvals/core'
 import { lineTitle } from '@/lib/quotes/line-title'
 import { paymentLineForOption } from '@/lib/billing/payment-schedule'
 import { getBillingAnchor } from '@/lib/settings/business'
 import { flowQuotePayload } from '@/lib/pricing/flow-client-payload'
-import { buildFlowTermsSnapshot, flowQuoteProblem, flowTermsForReservation } from '@/lib/flow-terms-server'
+import { buildFlowApprovalBasis, flowQuoteProblem, flowTermsForReservation } from '@/lib/flow-terms-server'
 import { checkFlowApproval } from '@/lib/flow/approval'
 import { validateSignerName } from '@/lib/quotes/signer-name'
+import {
+  QUOTE_ANSWERABLE_STATUSES,
+  cleanAnswerNote,
+  quoteAnswerProblem,
+  validateApprovalChoice,
+  type ApprovalChoice,
+} from '@/lib/quotes/quote-answer'
+
+/** The status guard every answer writes through: only a live quote can move. */
+const ANSWERABLE = { in: [...QUOTE_ANSWERABLE_STATUSES] }
 
 const TOKEN_EXPIRY_DAYS = 30
 
@@ -444,7 +453,10 @@ export async function approveQuote(
   autopay?: { method: 'ACH' | 'CARD' },
   /** The Flow terms `version` the client's page displayed when they signed. */
   termsVersion?: unknown,
+  /** The Flow schedule fingerprint the client's page was sent (flowQuotePayload). */
+  scheduleHash?: unknown,
 ) {
+  if (typeof token !== 'string' || !token) throw new Error('Quote not found')
   const quoteToken = await prisma.quoteToken.findUnique({
     where: { token },
     include: {
@@ -469,8 +481,6 @@ export async function approveQuote(
   })
 
   if (!quoteToken) throw new Error('Quote not found')
-  if (quoteToken.expiresAt < new Date()) throw new Error('Quote link expired')
-  if (quoteToken.usedAt) throw new Error('Quote already responded to')
 
   // The signature is drawn on the page and arrives as a PNG data URL. It is put
   // straight into the signed PDF, whose renderer would fetch a remote URL, so
@@ -485,9 +495,10 @@ export async function approveQuote(
 
   const { reservation } = quoteToken
 
-  if (reservation.status !== 'DRAFT' && reservation.status !== 'QUOTE_SENT') {
-    throw new Error('This quote can no longer be approved')
-  }
+  // Early, friendly refusal. The same rules are enforced atomically inside the
+  // transaction below (token claim + status guard), which is what actually holds.
+  const linkProblem = quoteAnswerProblem(quoteToken, reservation.status)
+  if (linkProblem) throw new Error(linkProblem)
 
   // The name of record from here on: trimmed, non-empty, sane length. Every
   // downstream write (autopay authorization, signed document, signed PDF,
@@ -505,16 +516,19 @@ export async function approveQuote(
   // client agreed to frozen onto the order. The terms are rendered here from the
   // current settings — never taken from the browser — and built before the
   // transaction opens, because the render reads through the global client. The
-  // version rendered here is also what the client's displayed version must match
-  // (checkFlowApproval): terms edited by staff after the client opened the quote
-  // must not be silently frozen onto an order the client never saw.
+  // version and schedule fingerprint rendered here are also what the client's
+  // page must have shown (checkFlowApproval): terms edited by staff, or an order
+  // re-priced, after the client opened the quote must not be silently frozen
+  // onto an order the client never saw.
   let flowApproval: {
-    snapshot: Awaited<ReturnType<typeof buildFlowTermsSnapshot>>
+    snapshot: Awaited<ReturnType<typeof buildFlowApprovalBasis>>['snapshot']
     autopayMethod: 'ACH' | 'CARD'
     signerName: string
   } | null = null
+  // The rental path's option and quantity choice, checked against this order.
+  let choice: ApprovalChoice = { switchTo: null, scopePackageId: null, changes: [] }
   if (reservation.reservationType === 'FLOW') {
-    const snapshot = await buildFlowTermsSnapshot(reservation.id)
+    const { snapshot, scheduleHash: currentScheduleHash } = await buildFlowApprovalBasis(reservation.id)
     const check = checkFlowApproval({
       signerName: validatedSignerName,
       quantityChanges,
@@ -523,12 +537,39 @@ export async function approveQuote(
       autopayMethod: autopay && typeof autopay === 'object' ? (autopay as { method?: unknown }).method : undefined,
       displayedTermsVersion: termsVersion,
       currentTermsVersion: snapshot.version,
+      displayedScheduleHash: scheduleHash,
+      currentScheduleHash,
     })
     if (!check.ok) throw new Error(check.error)
     flowApproval = { snapshot, autopayMethod: check.autopayMethod, signerName: check.signerName }
-    // Nothing below may re-rate a Flow line with rental maths.
-    quantityChanges = undefined
-    selectedPackageId = undefined
+    // Nothing below may re-rate a Flow line with rental maths: `choice` stays empty.
+  } else {
+    const activePackageId = reservation.packages.find((p) => p.isActive)?.id ?? null
+    const checked = validateApprovalChoice({
+      selectedPackageId,
+      quantityChanges,
+      packageIds: reservation.packages.map((p) => p.id),
+      activePackageId,
+      lines: reservation.items.map((item) => ({
+        id: item.id,
+        packageId: item.packageId,
+        quantity: item.quantity,
+        // A cloud host's config rows are hidden from the client (buildQuote).
+        editable: !(item.parentId && item.cloudProductId),
+      })),
+    })
+    if (!checked.ok) throw new Error(checked.error)
+    choice = checked
+
+    for (const change of choice.changes) {
+      const item = reservation.items.find((i) => i.id === change.itemId)!
+      if (item.assetId && item.asset) {
+        const max = item.quantity + (item.asset.units?.length ?? 0)
+        if (change.newQuantity > max) {
+          throw new Error(`Not enough units available for "${item.asset.name}". Max: ${max}`)
+        }
+      }
+    }
   }
 
   await prisma.$transaction(async (tx) => {
@@ -545,76 +586,17 @@ export async function approveQuote(
       throw new Error('This quote has already been answered.')
     }
 
-    // Switch active package if client selected a different one
-    if (selectedPackageId) {
-      const currentActive = reservation.packages.find((p) => p.isActive)
-      if (currentActive && currentActive.id !== selectedPackageId) {
-        await tx.package.updateMany({
-          where: { reservationId: reservation.id },
-          data: { isActive: false },
-        })
-        await tx.package.update({
-          where: { id: selectedPackageId },
-          data: { isActive: true },
-        })
-      }
-    }
-
-    // Apply quantity changes if any
-    if (quantityChanges && quantityChanges.length > 0) {
-      let newSubtotal = 0
-
-      for (const item of reservation.items) {
-        const change = quantityChanges.find((c) => c.itemId === item.id)
-        const newQty = change ? change.newQuantity : item.quantity
-
-        // Validate availability
-        if (item.assetId && item.asset) {
-          const availableCount = item.asset.units?.length ?? 0
-          if (newQty > item.quantity + availableCount) {
-            throw new Error(
-              `Not enough units available for "${item.asset.name}". Max: ${item.quantity + availableCount}`
-            )
-          }
-        }
-
-        const periods = item.isOneTime ? 1 : await calculatePeriods(reservation.startDate, reservation.endDate, item.pricingType, reservation.isRecurring)
-        const itemSubtotal = computeItemSubtotal(Number(item.rate), newQty, periods)
-        newSubtotal += itemSubtotal
-
-        if (change) {
-          await tx.reservationItem.update({
-            where: { id: item.id },
-            data: { quantity: newQty, subtotal: itemSubtotal },
-          })
-        }
-      }
-
-      // Recalculate totals (include logistics)
-      const discountAmount = Number(reservation.discountAmount)
-      const taxRate = Number(reservation.taxRate)
-      const afterDiscount = newSubtotal - discountAmount
-      const taxAmount = afterDiscount * (taxRate / 100)
-      const logistics = (Number(reservation.deliveryCost) || 0) + (Number(reservation.returnCost) || 0)
-      const total = afterDiscount + taxAmount + logistics
-
-      await tx.reservation.update({
-        where: { id: reservation.id },
-        data: {
-          subtotal: newSubtotal,
-          taxAmount,
-          total,
-        },
-      })
-    }
-
-    // Approve the reservation
-    await tx.reservation.update({
-      where: { id: reservation.id },
+    // Only one approval per order: the token claim above is per link, so two
+    // links for one order could each claim their own. The status guard is the
+    // order-level claim — whichever approval moves the order out of a quote
+    // status first wins, and the other writes nothing.
+    const now = new Date()
+    const approved = await tx.reservation.updateMany({
+      where: { id: reservation.id, status: ANSWERABLE },
       data: {
         status: 'APPROVED',
-        approvedAt: new Date(),
-        confirmedAt: new Date(),
+        approvedAt: now,
+        confirmedAt: now,
         actionRequired: false,
         actionRequiredNote: null,
         ...(flowApproval ? {
@@ -622,10 +604,81 @@ export async function approveQuote(
           flowTermsVersion: flowApproval.snapshot.version,
           flowAutopayMethod: flowApproval.autopayMethod,
           flowAutopayAuthorizedBy: flowApproval.signerName,
-          flowAutopayAuthorizedAt: new Date(),
+          flowAutopayAuthorizedAt: now,
         } : {}),
       },
     })
+    if (approved.count !== 1) {
+      throw new Error('This quote can no longer be approved')
+    }
+
+    // Switch to the option the client chose — validated above as one of this
+    // order's own, and scoped to it again here.
+    if (choice.switchTo) {
+      await tx.package.updateMany({
+        where: { reservationId: reservation.id },
+        data: { isActive: false },
+      })
+      await tx.package.updateMany({
+        where: { id: choice.switchTo, reservationId: reservation.id },
+        data: { isActive: true },
+      })
+    }
+
+    // A new option or new quantities re-price the order the way every staff edit
+    // does (setActivePackage, updateReservationItemQuantity): the option's lines
+    // only, each derived (a part included in its parent charges nothing), then
+    // calculateReservationTotals for discount, credit, tax and shipping margin.
+    if (choice.switchTo || choice.changes.length > 0) {
+      const scoped = choice.scopePackageId
+        ? reservation.items.filter((item) => item.packageId === choice.scopePackageId)
+        : reservation.items
+      let newSubtotal = 0
+      for (const item of scoped) {
+        const change = choice.changes.find((c) => c.itemId === item.id)
+        const quantity = change ? change.newQuantity : item.quantity
+        const amount = deriveItemAmount({ ...item, quantity }, reservation)
+        newSubtotal += amount
+        if (change) {
+          await tx.reservationItem.updateMany({
+            where: { id: item.id, reservationId: reservation.id },
+            data: { quantity, subtotal: amount },
+          })
+        }
+      }
+
+      // Switching option brings that option's delivery and return with it, as
+      // setActivePackage does; otherwise the order's own stand.
+      const switchedTo = choice.switchTo ? reservation.packages.find((p) => p.id === choice.switchTo) : null
+      const deliveryCost = Number(switchedTo ? switchedTo.deliveryCost : reservation.deliveryCost) || 0
+      const returnCost = Number(switchedTo ? switchedTo.returnCost : reservation.returnCost) || 0
+      const { discountAmount, taxAmount, total } = calculateReservationTotals({
+        itemsSubtotal: newSubtotal,
+        discountType: reservation.discountType,
+        discountValue: Number(reservation.discountValue) || 0,
+        taxRate: Number(reservation.taxRate) || 0,
+        deliveryCost,
+        returnCost,
+        shippingMarginType: reservation.shippingMarginType || null,
+        shippingMargin: Number(reservation.shippingMargin) || 0,
+        rentalCreditAmount: Number(reservation.rentalCreditAmount) || 0,
+      })
+
+      await tx.reservation.update({
+        where: { id: reservation.id },
+        data: {
+          subtotal: newSubtotal,
+          discountAmount,
+          taxAmount,
+          total,
+          ...(switchedTo ? { deliveryCost, returnCost } : {}),
+          // Rent-to-own payments follow the total (reservations.ts maybeRecalcRto).
+          ...(reservation.reservationType === 'RENT_TO_OWN' && reservation.rtoTermMonths && total > 0
+            ? { rtoMonthlyPayment: total / reservation.rtoTermMonths, rtoBuyoutPrice: total }
+            : {}),
+        },
+      })
+    }
 
     // Store signature on the proposal document if one exists
     const proposalDoc = await tx.document.findFirst({
@@ -651,7 +704,8 @@ export async function approveQuote(
 
   // Generate signed quote PDF document
   try {
-    const { generateSignedQuoteDocument } = await import('./documents')
+    // Plain server module (moved out of the 'use server' documents.ts so it is not a callable action).
+    const { generateSignedQuoteDocument } = await import('@/lib/documents/signed-quote')
     await generateSignedQuoteDocument(reservation.id, signatureDataUrl, validatedSignerName)
   } catch (error) {
     console.error('Failed to generate signed quote document:', error)
@@ -724,24 +778,39 @@ export async function approveQuote(
  * Request changes to a quote (NO AUTH).
  */
 export async function requestQuoteChanges(token: string, changeNotes: string) {
+  if (typeof token !== 'string' || !token) throw new Error('Quote not found')
+  const noteCheck = cleanAnswerNote(changeNotes, { required: true })
+  if (!noteCheck.ok) throw new Error(noteCheck.error)
+  changeNotes = noteCheck.note!
+
   const quoteToken = await prisma.quoteToken.findUnique({
     where: { token },
     include: { reservation: { include: { client: true } } },
   })
 
   if (!quoteToken) throw new Error('Quote not found')
-  if (quoteToken.expiresAt < new Date()) throw new Error('Quote link expired')
+  const previousStatus = quoteToken.reservation.status
+  const linkProblem = quoteAnswerProblem(quoteToken, previousStatus)
+  if (linkProblem) throw new Error(linkProblem)
 
-  const reservation = await prisma.reservation.findUnique({ where: { id: quoteToken.reservationId } })
-  const previousStatus = reservation?.status || 'QUOTE_SENT'
+  // A link answers once, and only while the order is still a quote: claim the
+  // link, then move the order only if it has not moved since it was read.
+  await prisma.$transaction(async (tx) => {
+    const claimed = await tx.quoteToken.updateMany({
+      where: { id: quoteToken.id, usedAt: null },
+      data: { usedAt: new Date() },
+    })
+    if (claimed.count !== 1) throw new Error('This quote has already been answered.')
 
-  await prisma.reservation.update({
-    where: { id: quoteToken.reservationId },
-    data: {
-      status: 'REVISION',
-      actionRequired: true,
-      actionRequiredNote: changeNotes,
-    },
+    const moved = await tx.reservation.updateMany({
+      where: { id: quoteToken.reservationId, status: ANSWERABLE },
+      data: {
+        status: 'REVISION',
+        actionRequired: true,
+        actionRequiredNote: changeNotes,
+      },
+    })
+    if (moved.count !== 1) throw new Error('This quote can no longer be answered.')
   })
 
   // Record status history
@@ -897,31 +966,41 @@ export async function sendQuoteLinkEmail(
  * Deny/decline a quote (NO AUTH).
  */
 export async function denyQuote(token: string, reason?: string) {
+  if (typeof token !== 'string' || !token) throw new Error('Quote not found')
+  const noteCheck = cleanAnswerNote(reason, { required: false })
+  if (!noteCheck.ok) throw new Error(noteCheck.error)
+  reason = noteCheck.note ?? undefined
+
   const quoteToken = await prisma.quoteToken.findUnique({
     where: { token },
     include: { reservation: { include: { client: true } } },
   })
 
   if (!quoteToken) throw new Error('Quote not found')
-  if (quoteToken.expiresAt < new Date()) throw new Error('Quote link expired')
 
   const reservation = quoteToken.reservation
   const previousStatus = reservation.status
+  const linkProblem = quoteAnswerProblem(quoteToken, previousStatus)
+  if (linkProblem) throw new Error(linkProblem)
 
+  // Same one-answer rule as approval: claim the link, then move the order only
+  // while it is still a quote — a spent or stale link can never lose an order.
   await prisma.$transaction(async (tx) => {
-    await tx.reservation.update({
-      where: { id: reservation.id },
+    const claimed = await tx.quoteToken.updateMany({
+      where: { id: quoteToken.id, usedAt: null },
+      data: { usedAt: new Date() },
+    })
+    if (claimed.count !== 1) throw new Error('This quote has already been answered.')
+
+    const moved = await tx.reservation.updateMany({
+      where: { id: reservation.id, status: ANSWERABLE },
       data: {
         status: 'LOST',
         actionRequired: false,
         actionRequiredNote: reason ? `Client declined: ${reason}` : 'Client declined the quote',
       },
     })
-
-    await tx.quoteToken.update({
-      where: { id: quoteToken.id },
-      data: { usedAt: new Date() },
-    })
+    if (moved.count !== 1) throw new Error('This quote can no longer be answered.')
   })
 
   // Record status history

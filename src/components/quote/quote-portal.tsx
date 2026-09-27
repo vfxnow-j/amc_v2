@@ -96,6 +96,8 @@ export type QuoteData = {
   flowTerms?: RenderedFlowTerms;
   /** Flow only — the gear, names and quantities only (no line prices). */
   flowGear?: FlowGearCategory[];
+  /** Flow only — fingerprint of the schedule shown; sent back on approval so a re-priced quote is refused. */
+  flowScheduleHash?: string;
 };
 
 export type FlowGearCategory = {
@@ -423,6 +425,7 @@ export function QuotePortal({
                   hasPackages ? selectedPackageId : undefined,
                   flow && autopayMethod ? { method: autopayMethod } : undefined,
                   flow ? quote.flowTerms?.version : undefined,
+                  flow ? quote.flowScheduleHash : undefined,
                 );
                 setAnswer("approved");
               } catch (problem) {

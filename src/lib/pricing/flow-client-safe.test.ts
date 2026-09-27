@@ -4,6 +4,7 @@ import { flowQuotePayload, FLOW_QUOTE_UNAVAILABLE } from './flow-client-payload'
 import { flowQuoteForOrder } from './flow-quote-view'
 import { renderFlowTerms, FLOW_TERMS_DEFAULTS } from './flow-terms'
 import { checkFlowApproval } from '@/lib/flow/approval'
+import { flowScheduleHash } from './flow-schedule-hash'
 
 /**
  * A Flow order the way the database hands it over: stored knobs, internal
@@ -216,4 +217,25 @@ test('a Flow approval is refused when the terms moved on after the client saw th
     const r = checkFlowApproval({ ...base, displayedTermsVersion: bad, currentTermsVersion: 3 })
     assert.equal(r.ok, false, `accepted ${JSON.stringify(bad)} as a version`)
   }
+})
+
+test('the payload carries the fingerprint of the schedule it shows', () => {
+  const { payload, quote, terms } = build()
+  assert.ok(!('error' in payload))
+  assert.equal(payload.flowScheduleHash, flowScheduleHash(quote, terms.extension))
+  assert.match(payload.flowScheduleHash, /^[0-9a-f]{64}$/)
+})
+
+test("a cloud host's hidden config rows are not listed in the gear", () => {
+  const withCloud = [
+    ...leasedGear,
+    { ...leasedGear[1], id: 'cfg_1', parentId: 'line_1', cloudProductId: 'cp_1', description: 'Hidden vCPU row' },
+    { ...leasedGear[1], id: 'part_1', parentId: 'line_1', cloudProductId: null, description: 'Visible component' },
+  ]
+  const { terms } = build()
+  const payload = flowQuotePayload({ order, lines: withCloud, extras, terms, issuedAt: null, tokenExpiresAt: null })
+  assert.ok(!('error' in payload))
+  const ids = payload.flowGear.flatMap((g) => g.items.map((i) => i.id))
+  assert.ok(!ids.includes('cfg_1'))
+  assert.ok(ids.includes('part_1'))
 })

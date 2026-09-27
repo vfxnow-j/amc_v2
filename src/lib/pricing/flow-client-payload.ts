@@ -12,6 +12,7 @@
 import { flowQuoteForOrder, type FlowQuoteExtras, type FlowQuoteOrderLine } from './flow-quote-view'
 import type { RenderedFlowTerms } from './flow-terms'
 import { lineTitle } from '@/lib/quotes/line-title'
+import { flowScheduleHash } from './flow-schedule-hash'
 
 export const FLOW_QUOTE_UNAVAILABLE = 'This quote is being updated. Please contact VFXnow for a new link.'
 
@@ -42,6 +43,8 @@ export type FlowPayloadLine = FlowQuoteOrderLine & {
   id: string
   quantity: number
   parentId?: string | null
+  /** Set on a cloud host's hidden config rows (with parentId); never shown to the client. */
+  cloudProductId?: string | null
   asset?: { name?: string | null; category?: { name?: string | null } | null } | null
   category?: string | null
 }
@@ -59,7 +62,10 @@ export function flowQuotePayload(input: {
   if (problem || !flow.feasible || !terms) return { error: FLOW_QUOTE_UNAVAILABLE } as const
 
   const groups = new Map<string, { id: string; name: string; spec?: string; quantity: number; isComponent: boolean }[]>()
+  // A cloud host's component rows (parentId + cloudProductId) are hidden config,
+  // skipped exactly as the rental quote skips them (buildQuote's groupByCategory).
   for (const line of lines) {
+    if (line.parentId && line.cloudProductId) continue
     const category = line.asset?.category?.name || line.category || 'Uncategorized'
     const { title, spec } = lineTitle({ description: line.description, asset: line.asset?.name ? { name: line.asset.name } : null })
     const list = groups.get(category) ?? []
@@ -107,5 +113,8 @@ export function flowQuotePayload(input: {
     flow,
     flowTerms: terms,
     flowGear,
+    // Handed back on approval; the server recomputes it and refuses a mismatch
+    // (checkFlowApproval), so a re-priced schedule is never approved unseen.
+    flowScheduleHash: flowScheduleHash(flow, terms.extension),
   }
 }
