@@ -67,3 +67,6 @@ next-env.d.ts
 
 # Database dumps — customer data, never committed
 /backups
+
+# Analysis exports (spreadsheets, rate card PDFs) — business data, never committed
+/reports
