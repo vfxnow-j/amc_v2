@@ -36,6 +36,8 @@ const TYPE_LABEL: Record<DocumentType, string> = {
   LEASE_AGREEMENT: "Lease agreement",
   STATEMENT: "Statement",
   PAYOFF_LETTER: "Payoff letter",
+  VENDOR_QUOTE: "Vendor quote",
+  COVERAGE_AGREEMENT: "Coverage agreement",
   OTHER: "Document",
 };
 

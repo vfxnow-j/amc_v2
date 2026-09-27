@@ -17,6 +17,7 @@ import {
   POUnitsCard,
 } from "@/components/accounting/po-cards";
 import { POControls } from "@/components/procurement/po-controls";
+import { POAttachmentsCard } from "@/components/documents/attachment-cards";
 import { POFinancingCard } from "@/components/procurement/po-financing";
 import { dayYear, moneyExact } from "@/lib/format";
 import { getPOHeader, getPOLines } from "@/lib/queries/po-record";
@@ -239,6 +240,9 @@ export default async function PurchaseOrderRecordPage({ params }: Params) {
             ) : null}
           </Card>
 
+          <Suspense fallback={<CardSkeleton title="Attachments" rows={2} />}>
+            <POAttachmentsCard id={id} />
+          </Suspense>
           <Suspense fallback={<CardSkeleton title="Documents" rows={3} />}>
             <PODocumentsCard id={id} />
           </Suspense>

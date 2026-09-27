@@ -67,6 +67,8 @@ export async function POST(request: NextRequest) {
   }
 
   if (entityType === "LEASE") revalidatePath(`/dashboard/leases/${entityId}`);
+  if (entityType === "PURCHASE_ORDER") revalidatePath(`/dashboard/purchase-orders/${entityId}`);
+  if (entityType === "UNIT_COVERAGE") revalidatePath(`/dashboard/units/${entityId}`);
   revalidatePath("/dashboard/settings/documents");
   return NextResponse.json({ stored, refused }, { status: stored.length ? 200 : 400 });
 }

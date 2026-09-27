@@ -1617,6 +1617,10 @@ enum DocumentType {
   LEASE_AGREEMENT
   STATEMENT
   PAYOFF_LETTER
+  // Attached to a purchase order (owner, 2026-09-26): the vendor quote it was raised from.
+  VENDOR_QUOTE
+  // Attached to a unit's coverage: the plan's agreement or certificate.
+  COVERAGE_AGREEMENT
   OTHER
 }
 

@@ -24,6 +24,10 @@ import type { DocumentType } from "@/generated/prisma/client";
 /** Entities that accept uploads, and the table that proves the id is real. */
 export const UPLOAD_ENTITIES = {
   LEASE: { folder: "leases", exists: (id: string) => prisma.lease.count({ where: { id } }) },
+  // The vendor quote a PO was raised from, the invoice, the packing slip.
+  PURCHASE_ORDER: { folder: "purchase-orders", exists: (id: string) => prisma.purchaseOrder.count({ where: { id } }) },
+  // A unit's coverage paperwork — the plan agreement or certificate, the receipt.
+  UNIT_COVERAGE: { folder: "coverage", exists: (id: string) => prisma.assetUnit.count({ where: { id } }) },
 } as const;
 
 export type UploadEntity = keyof typeof UPLOAD_ENTITIES;
@@ -33,6 +37,17 @@ export const UPLOAD_TYPES: Record<UploadEntity, { value: DocumentType; label: st
     { value: "LEASE_AGREEMENT", label: "Agreement" },
     { value: "STATEMENT", label: "Statement" },
     { value: "PAYOFF_LETTER", label: "Payoff letter" },
+    { value: "OTHER", label: "Other" },
+  ],
+  PURCHASE_ORDER: [
+    { value: "VENDOR_QUOTE", label: "Vendor quote" },
+    { value: "INVOICE", label: "Invoice" },
+    { value: "DELIVERY_NOTE", label: "Packing slip" },
+    { value: "OTHER", label: "Other" },
+  ],
+  UNIT_COVERAGE: [
+    { value: "COVERAGE_AGREEMENT", label: "Plan agreement" },
+    { value: "INVOICE", label: "Receipt" },
     { value: "OTHER", label: "Other" },
   ],
 };

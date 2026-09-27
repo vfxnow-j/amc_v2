@@ -164,7 +164,9 @@ export async function getPOAssets(id: string) {
 
 export async function getPODocuments(id: string) {
   const documents = await prisma.document.findMany({
-    where: { entityType: "PURCHASE_ORDER", entityId: id, deletedAt: null },
+    // AMC's own generated PO snapshots only; uploads (vendor quote, invoice,
+    // packing slip) are listed on the Attachments card.
+    where: { entityType: "PURCHASE_ORDER", entityId: id, deletedAt: null, documentType: "PURCHASE_ORDER" },
     orderBy: { createdAt: "desc" },
     select: {
       id: true,

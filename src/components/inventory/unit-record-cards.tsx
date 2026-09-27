@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { CoverageDocuments } from "@/components/documents/attachment-cards";
 import { Card, CardEmpty, Field, Unset } from "@/components/record/record-card";
 import { Figure } from "@/components/inventory/record-cards";
 import { dayYear, money } from "@/lib/format";
@@ -248,6 +249,12 @@ export async function CoverageCard({ id }: { id: string }) {
     coverage.coverages.filter((row) => row.live).length +
     plans.filter((row) => row.covers).length;
   const total = coverage.coverages.length + plans.length;
+  // The manufacturer's date lives on the unit; an extended warranty (AppleCare+
+  // and the like) is a plan. "None on file" only when neither says so — the
+  // live plan that ends last stands in when the unit has no date of its own.
+  const warrantyPlan = plans
+    .filter((row) => row.type === "EXTENDED_WARRANTY" && row.covers)
+    .sort((a, b) => (b.endDate?.getTime() ?? Infinity) - (a.endDate?.getTime() ?? Infinity))[0];
 
   if (total === 0 && !coverage.warrantyExpiry) {
     return (
@@ -259,6 +266,7 @@ export async function CoverageCard({ id }: { id: string }) {
           below.
         </CardEmpty>
         <UnitPlans unitId={id} rows={[]} />
+        <CoverageDocuments unitId={id} />
       </Card>
     );
   }
@@ -276,6 +284,11 @@ export async function CoverageCard({ id }: { id: string }) {
             >
               {coverage.warrantyLive ? "Until " : "Expired "}
               {dayYear(coverage.warrantyExpiry)}
+            </span>
+          ) : warrantyPlan ? (
+            <span>
+              {warrantyPlan.name}
+              {warrantyPlan.endDate ? ` until ${dayYear(warrantyPlan.endDate)}` : " (dates not yet confirmed)"}
             </span>
           ) : (
             <Unset>None on file</Unset>
@@ -321,6 +334,7 @@ export async function CoverageCard({ id }: { id: string }) {
         </ul>
       ) : null}
       <UnitPlans unitId={id} rows={plans} />
+      <CoverageDocuments unitId={id} />
     </Card>
   );
 }
