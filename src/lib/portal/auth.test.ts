@@ -232,3 +232,20 @@ test('noStore sets no-store, and copies a response whose headers are immutable',
   assert.equal(copied.headers.get('cache-control'), 'no-store')
   assert.equal(copied.headers.get('location'), 'https://example.com/')
 })
+
+test('clientIpConfigFromEnv, relay: a long enough secret wins over the other settings', () => {
+  const secret = 'r'.repeat(40)
+  assert.deepEqual(clientIpConfigFromEnv({ PORTAL_RELAY_SECRET: secret, PORTAL_CLIENT_IP_HEADER: 'x-real-ip' }), { mode: 'relay', secret })
+  assert.deepEqual(clientIpConfigFromEnv({ PORTAL_RELAY_SECRET: 'short' }), { mode: 'none' })
+})
+
+test('clientIp, relay mode: trusts x-real-ip only with the matching stamp', () => {
+  const cfg = { mode: 'relay', secret: 's'.repeat(40) } as const
+  const stamped = { 'x-portal-relay': 's'.repeat(40), 'x-real-ip': '10.8.0.1' }
+  assert.deepEqual(clientIp(headers(stamped), cfg), { ip: '10.8.0.1', verifiable: true })
+  // A caller that skips the relay and sets the headers itself gets nothing.
+  assert.deepEqual(clientIp(headers({ 'x-real-ip': '10.8.0.1' }), cfg), { ip: null, verifiable: true })
+  assert.deepEqual(clientIp(headers({ 'x-portal-relay': 'x'.repeat(40), 'x-real-ip': '10.8.0.1' }), cfg), { ip: null, verifiable: true })
+  assert.deepEqual(clientIp(headers({ 'x-portal-relay': 'short', 'x-real-ip': '10.8.0.1' }), cfg), { ip: null, verifiable: true })
+  assert.deepEqual(clientIp(headers({ ...stamped, 'x-real-ip': '10.8.0.1, 10.8.0.9' }), cfg), { ip: null, verifiable: true })
+})

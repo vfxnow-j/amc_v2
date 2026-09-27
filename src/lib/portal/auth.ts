@@ -68,7 +68,7 @@ export async function authorizePortal(req: NextRequest | Request, scope: PortalS
     if (gate.code === 'ip_unverifiable' && !warnedUnverifiable) {
       warnedUnverifiable = true
       console.error(
-        '[portal] A portal client has an address allowlist but neither PORTAL_CLIENT_IP_HEADER nor PORTAL_TRUSTED_PROXY_HOPS is set, so its requests are refused (ip_unverifiable). See docs/portal-api-plan.md, Hosting checklist.',
+        '[portal] A portal client has an address allowlist but none of PORTAL_RELAY_SECRET, PORTAL_CLIENT_IP_HEADER or PORTAL_TRUSTED_PROXY_HOPS is set, so its requests are refused (ip_unverifiable). See docs/portal-api-plan.md, Hosting checklist.',
       )
     }
     return {

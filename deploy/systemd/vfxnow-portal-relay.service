@@ -1,0 +1,32 @@
+# The Portal API relay (scripts/portal-relay.mjs): WireGuard 10.8.0.2:3002 →
+# v2 on 127.0.0.1:3001, /v1/ only, stamping the caller's real address.
+# Stand-in until hosting puts a reverse proxy in front of v2.
+#
+# Bound to the tunnel: it needs 10.8.0.2 to exist, starts when the tunnel
+# starts and stops with it. Runs as the project's user, read-only.
+#
+#   sudo install -m 644 deploy/systemd/vfxnow-portal-relay.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now vfxnow-portal-relay
+#   journalctl -u vfxnow-portal-relay -f
+
+[Unit]
+Description=VFXnow v2 Portal API relay (WireGuard to v2, /v1 only)
+After=wg-quick@wg-portal.service
+BindsTo=wg-quick@wg-portal.service
+
+[Service]
+Type=simple
+User=docker
+Group=docker
+WorkingDirectory=/home/docker/projects/vfxnow-amc-v2
+ExecStart=/home/docker/.nvm/versions/node/v20.20.0/bin/node scripts/portal-relay.mjs
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+
+[Install]
+WantedBy=wg-quick@wg-portal.service

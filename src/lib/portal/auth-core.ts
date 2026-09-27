@@ -50,15 +50,28 @@ export function parseBearer(header: string | null | undefined): string | null {
  *   is the one the outermost trusted proxy saw; anything to its left is the
  *   caller's own claim and is ignored.
  *
- * With neither set the address is unverifiable: a client with an allowlist
+ * - `PORTAL_RELAY_SECRET` (≥ 32 characters): the tunnel relay
+ *   (scripts/portal-relay.mjs) is the proxy. It listens only on the WireGuard
+ *   address, overwrites `x-real-ip` with the TCP socket's address and stamps
+ *   `x-portal-relay` with this secret. The address is trusted only when the
+ *   stamp matches, so a caller reaching the app directly cannot forge it.
+ *   Takes precedence over the other two.
+ *
+ * With none set the address is unverifiable: a client with an allowlist
  * is refused (`ip_unverifiable`), a client without one is not checked.
  */
 export type ClientIpConfig =
+  | { mode: 'relay'; secret: string }
   | { mode: 'header'; header: string }
   | { mode: 'hops'; hops: number }
   | { mode: 'none' }
 
+export const RELAY_SECRET_HEADER = 'x-portal-relay'
+export const RELAY_ADDRESS_HEADER = 'x-real-ip'
+
 export function clientIpConfigFromEnv(env: Record<string, string | undefined> = process.env): ClientIpConfig {
+  const secret = env.PORTAL_RELAY_SECRET?.trim()
+  if (secret && secret.length >= 32) return { mode: 'relay', secret }
   const header = env.PORTAL_CLIENT_IP_HEADER?.trim().toLowerCase()
   if (header) return { mode: 'header', header }
   const hopsRaw = env.PORTAL_TRUSTED_PROXY_HOPS?.trim()
@@ -70,6 +83,17 @@ export function clientIpConfigFromEnv(env: Record<string, string | undefined> = 
 export type ClientIp = { ip: string | null; verifiable: boolean }
 
 export function clientIp(headers: { get(name: string): string | null }, config: ClientIpConfig): ClientIp {
+  if (config.mode === 'relay') {
+    const stamp = headers.get(RELAY_SECRET_HEADER) ?? ''
+    const a = Buffer.from(stamp)
+    const b = Buffer.from(config.secret)
+    // Not through the relay (or a forged stamp): the address is unknown, so an
+    // allowlisted client is refused rather than trusted.
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return { ip: null, verifiable: true }
+    const value = headers.get(RELAY_ADDRESS_HEADER)?.trim()
+    if (!value || value.includes(',')) return { ip: null, verifiable: true }
+    return { ip: normalizeIp(value), verifiable: true }
+  }
   if (config.mode === 'header') {
     const value = headers.get(config.header)?.trim()
     // The proxy overwrites this header with one address; a list means it didn't.
