@@ -3151,6 +3151,7 @@ model PortalRequestLog {
   @@index([createdAt])
   @@index([portalClientId, createdAt])
   @@map("portal_request_log")
+}
 
 // ─── Map geocoding (v2-only, 2026-09-26; docs/inventory-map.md) ───────────────
 // Offline, on-box geocoding: an address's ZIP/postal code looked up in GeoNames
