@@ -1,6 +1,10 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // No on-screen Next.js badge in development (owner, 2026-09-26). Compile
+  // and runtime errors still show.
+  devIndicators: false,
+
   // `next dev` already listens on every interface, but it blocks cross-origin
   // requests for dev-only assets (HMR, /_next/*) from any host other than the
   // one it was initialised with. These are the addresses this box answers on,
