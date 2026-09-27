@@ -338,3 +338,10 @@ Before /v1 is reachable from anywhere but this box:
 
 Decisions 3 (verification levels), 4 (which orders an account sees), 6 (capacity pools) and 7 (default numbers) take
 the recommended defaults unless the owner says otherwise.
+
+## Owner answers, round 2 (2026-09-26)
+
+- **RTO on the portal:** held off. `rto` is not offered until the owner defines what a portal RTO price is based on.
+  (In the app, the RTO payment is the order total ÷ term, which is not the monthly rental rate.)
+- **Public price bands:** keep ±10% / $25. The owner: "doesn't matter — we'll be porting rates and products from the
+  inventory system," so the portal's catalog prices come from AMC anyway.
