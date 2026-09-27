@@ -13,6 +13,15 @@ const nextConfig: NextConfig = {
   ],
 
   /**
+   * The Portal API contract (docs/portal-api.md) lives under `/v1`; its
+   * handlers live at `src/app/api/v1/portal/**`. The proxy runs before
+   * rewrites, so its matcher excludes `v1/` too (src/proxy.ts).
+   */
+  async rewrites() {
+    return [{ source: "/v1/:path*", destination: "/api/v1/portal/:path*" }];
+  },
+
+  /**
    * v1 URLs that v2 no longer has a screen for. Kept as permanent redirects so
    * bookmarks, emailed links and muscle memory all still land somewhere useful
    * — the old paths are recorded in `NavPage.from` in lib/nav/clusters.ts.

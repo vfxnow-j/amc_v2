@@ -29,7 +29,9 @@ const PUBLIC_PREFIXES = [
 ];
 
 /** Authenticated by key or cron secret, not by session cookie. */
-const KEYED_PREFIXES = ["/api/auth", "/api/v1", "/api/cron"];
+// `/v1` is the Portal API's public path, rewritten to `/api/v1/portal`
+// (next.config.ts); it is also excluded by the matcher below.
+const KEYED_PREFIXES = ["/api/auth", "/api/v1", "/api/cron", "/v1"];
 
 const STATIC = /^\/_next\/|^\/favicon|\.(css|js|png|jpg|jpeg|gif|svg|ico|woff2?|ttf|eot)$/;
 
@@ -90,7 +92,11 @@ export default auth((req) => {
  * whole of `api/v1` retires a trap rather than adding a line per route: every
  * future integration endpoint is covered on the day it is written, instead of
  * on the day somebody works out why a large submission arrived truncated.
+ *
+ * `v1/` is the Portal API's public path (rewritten to `api/v1/portal` in
+ * next.config.ts). The proxy runs before rewrites, so without this exclusion
+ * the portal's requests would be matched — and buffered — under `/v1`.
  */
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|brand/|api/v1).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|brand/|api/v1|v1/).*)"],
 };

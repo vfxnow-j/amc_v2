@@ -240,10 +240,14 @@ model AssetCategory {
   // Component categories (e.g. RAM, Storage, GPU) can be attached as sub-items to a configurable parent.
   isConfigurable            Boolean            @default(false)
   isComponent               Boolean            @default(false)
+  /// Portal next_available: days a returned unit spends in refurb before it
+  /// can go out again (plan §3; default 2, workstations and laptops 3).
+  refurbBufferDays          Int                @default(2)
   createdAt                 DateTime           @default(now())
   updatedAt                 DateTime           @updatedAt
 
-  assets Asset[]
+  assets        Asset[]
+  capacityPools PortalCapacityPool[]
 
   @@map("asset_categories")
 }
@@ -407,6 +411,9 @@ model Asset {
 
   // Coverage every unit of this model comes with. See AssetCoverage.
   coverages AssetCoverage[]
+
+  // Curated portal catalog entries pointing at this asset. See PortalOffer.
+  portalOffers PortalOffer[]
 
   @@index([familyId])
   @@map("assets")
@@ -742,6 +749,7 @@ model Client {
   asks              ClientAsk[]
   environment       EnvironmentItem[]
   fundingRequests   FundingRequest[]
+  portalAccount     PortalAccount?
 
   @@index([ownerId])
   @@map("clients")
@@ -2875,7 +2883,8 @@ model PackageTemplate {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  items PackageTemplateItem[]
+  items        PackageTemplateItem[]
+  portalOffers PortalOffer[]
 
   @@map("package_templates")
 }
@@ -2979,4 +2988,161 @@ model CoverageEnrollment {
   @@index([status])
   @@index([purchaseOrderId])
   @@map("coverage_enrollments")
+}
+
+// ============================================
+// PORTAL API (docs/portal-api.md, docs/portal-api-plan.md)
+// v2-only; prisma/manual/2026-09-26-portal-api-phase1.sql
+// ============================================
+
+/// A portal server that calls /v1 with a scoped service token. Never an
+/// ApiKey: an ApiKey carries a staff role, a portal token has scopes only.
+model PortalClient {
+  id               String    @id @default(cuid())
+  name             String
+  tokenHash        String    @unique
+  tokenPrefix      String
+  /// portal:read | portal:quote | portal:write | portal:billing
+  scopes           String[]  @default([])
+  webhookUrl       String?
+  /// AES-256-GCM under PORTAL_SECRET_KEY; recoverable because HMAC needs it.
+  webhookSecretEnc String?
+  /// Empty = no IP restriction; otherwise the caller must match one (fail closed).
+  allowedCidrs     String[]  @default([])
+  rateLimitPerMin  Int       @default(300)
+  isActive         Boolean   @default(true)
+  expiresAt        DateTime?
+  lastUsedAt       DateTime?
+  createdById      String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  accounts PortalAccount[]
+
+  @@index([tokenPrefix])
+  @@map("portal_clients")
+}
+
+/// A portal account, linked to exactly one Client. A new portalAccountId
+/// creates a new Client; staff re-link, PUT never auto-merges.
+model PortalAccount {
+  id                String       @id @default(cuid())
+  portalClientId    String
+  portalClient      PortalClient @relation(fields: [portalClientId], references: [id], onDelete: Restrict)
+  portalAccountId   String
+  clientId          String       @unique
+  client            Client       @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  /// none | id_verified | agreement_and_coi
+  verificationLevel String       @default("none")
+  creditTier        String       @default("standard")
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  sites      PortalAccountSite[]
+  rateQuotes PortalRateQuote[]
+
+  @@unique([portalClientId, portalAccountId])
+  @@map("portal_accounts")
+}
+
+model PortalAccountSite {
+  id             String        @id @default(cuid())
+  accountId      String
+  account        PortalAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  /// The portal's own id for the site.
+  externalSiteId String
+  name           String
+  address        String?
+  city           String?
+  region         String?
+  postalCode     String?
+  country        String?
+  isActive       Boolean       @default(true)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@unique([accountId, externalSiteId])
+  @@map("portal_account_sites")
+}
+
+/// A curated, opt-in catalog entry. kind ASSET | PACKAGE | POOL names which
+/// target id is set.
+model PortalOffer {
+  id                String              @id @default(cuid())
+  slug              String              @unique
+  kind              String
+  assetId           String?
+  asset             Asset?              @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  packageTemplateId String?
+  packageTemplate   PackageTemplate?    @relation(fields: [packageTemplateId], references: [id], onDelete: Cascade)
+  poolId            String?
+  pool              PortalCapacityPool? @relation(fields: [poolId], references: [id], onDelete: Cascade)
+  title             String
+  blurb             String?
+  solutions         String[]            @default([])
+  termsBySolution   Json?
+  software          String[]            @default([])
+  specs             Json?
+  isPublic          Boolean             @default(false)
+  isVisible         Boolean             @default(false)
+  sortOrder         Int                 @default(0)
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  @@index([assetId])
+  @@index([packageTemplateId])
+  @@index([poolId])
+  @@map("portal_offers")
+}
+
+/// A named set of server/GPU-node assets whose capacity is reported together.
+model PortalCapacityPool {
+  id         String         @id @default(cuid())
+  slug       String         @unique
+  name       String
+  assetIds   String[]       @default([])
+  categoryId String?
+  category   AssetCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  unitLabel  String         @default("node")
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+
+  offers PortalOffer[]
+
+  @@map("portal_capacity_pools")
+}
+
+/// A priced quote snapshot; id is the contract's rate_id. `lines` keeps the
+/// internal basis and knobs and is never returned as-is.
+model PortalRateQuote {
+  id                      String        @id @default(cuid())
+  accountId               String
+  account                 PortalAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  requestHash             String
+  request                 Json
+  lines                   Json
+  total                   Decimal       @db.Decimal(12, 2)
+  validUntil              DateTime
+  consumedByReservationId String?
+  createdAt               DateTime      @default(now())
+
+  @@index([accountId])
+  @@index([requestHash])
+  @@map("portal_rate_quotes")
+}
+
+/// One row per /v1 request. Never bodies. No foreign keys on purpose.
+model PortalRequestLog {
+  id             String   @id @default(cuid())
+  method         String
+  path           String
+  status         Int
+  ms             Int
+  portalClientId String?
+  accountId      String?
+  createdAt      DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([portalClientId, createdAt])
+  @@map("portal_request_log")
 }
