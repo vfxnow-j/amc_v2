@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import {
   priceQuote,
   parseQuoteRequest,
+  offerCapacity,
   FLOW_QUOTE_VALID_MS,
   QUOTE_VALID_MS,
   type OfferPricing,
@@ -67,8 +68,24 @@ const mixed: OfferPricing = {
   ],
 }
 
+// A package with no physical asset anywhere in it: one recurring service line
+// (no assetId, no serviceId — priced as loadTemplateIntoOrder prices a plain
+// template line) plus a one-time line. assetsByOffer would give this offer `[]`
+// (offers.ts filters template items to those with an assetId), exactly like a
+// package built entirely from services or free-text lines.
+const servicesOnly: OfferPricing = {
+  id: 'off_svc',
+  visible: true,
+  solutions: ['rental'],
+  termsBySolution: null,
+  components: [
+    { assetId: null, name: 'Managed IT support', quantity: 1, assetRates: null, overrideRate: 500, overridePricingType: 'MONTHLY', isOneTime: false, flowBasis: null, templateLine: true },
+    { assetId: null, name: 'Onboarding', quantity: 1, assetRates: null, overrideRate: 250, overridePricingType: 'MONTHLY', isOneTime: true, flowBasis: null, templateLine: true },
+  ],
+}
+
 const ctx = (over: Partial<QuoteContext> = {}): QuoteContext => ({
-  offers: new Map([ws, hidden, rentalOnly, noRate, pkg, mixed].map((o) => [o.id, o])),
+  offers: new Map([ws, hidden, rentalOnly, noRate, pkg, mixed, servicesOnly].map((o) => [o.id, o])),
   tier: STANDARD_TIER,
   verificationLevel: 'agreement_and_coi',
   flowDefaults: FLOW_DEFAULTS_FALLBACK,
@@ -231,6 +248,57 @@ test('unknown capacity fails closed', () => {
   assert.equal(q.lines[0].allowed, false)
   assert.equal(q.lines[0].reason, 'insufficient_capacity')
   assert.ok(q.lines[0].unit_price! > 0)
+})
+
+test('offerCapacity: no physical asset component → not applicable, never unknown', () => {
+  assert.deepEqual(offerCapacity(undefined, new Map()), { available: Infinity, demand: 'normal' })
+  assert.deepEqual(offerCapacity([], new Map()), { available: Infinity, demand: 'normal' })
+})
+
+test('offerCapacity: a physical asset whose capacity cannot be read still fails closed', () => {
+  assert.equal(offerCapacity([{ assetId: 'a_ws', quantity: 1 }], new Map()), null)
+})
+
+test('offerCapacity: a mixed package checks only its physical components, scarcest wins', () => {
+  const perAsset = new Map([
+    ['a_ws', { available: 10, demand: 'normal' as const }],
+    ['a_tab', { available: 3, demand: 'normal' as const }],
+  ])
+  // 2 tablets per unit, 3 available → 1 unit; the package's service/one-time lines
+  // carry no asset and are never part of this check.
+  assert.deepEqual(
+    offerCapacity([{ assetId: 'a_ws', quantity: 1 }, { assetId: 'a_tab', quantity: 2 }], perAsset),
+    { available: 1, demand: 'normal' },
+  )
+})
+
+test('a services-only package needs no capacity check: allowed even though nothing about it can be read', () => {
+  const perAsset = new Map<string, { available: number; demand: 'normal' | 'high' }>() // nothing readable at all
+  const q = priceQuote([line('off_svc', 'rental', null, 3)], ctx({ capacity: () => offerCapacity([], perAsset) }))
+  assert.equal(q.lines[0].allowed, true)
+  assert.equal(q.lines[0].reason, null)
+  assert.equal(q.lines[0].demand, 'normal')
+})
+
+test('an asset offer whose capacity cannot be read is still refused — the no-gear fix does not weaken this', () => {
+  const perAsset = new Map<string, { available: number; demand: 'normal' | 'high' }>() // a_ws not present
+  const q = priceQuote([line('off_ws', 'rental')], ctx({ capacity: () => offerCapacity([{ assetId: 'a_ws', quantity: 1 }], perAsset) }))
+  assert.equal(q.lines[0].allowed, false)
+  assert.equal(q.lines[0].reason, 'insufficient_capacity')
+})
+
+test('a mixed package checks capacity only for its physical components; short stock there still refuses it', () => {
+  const parts = [{ assetId: 'a_ws', quantity: 1 }, { assetId: 'a_tab', quantity: 2 }]
+  const enough = new Map([['a_ws', { available: 5, demand: 'normal' as const }], ['a_tab', { available: 10, demand: 'normal' as const }]])
+  const short = new Map([['a_ws', { available: 5, demand: 'normal' as const }], ['a_tab', { available: 3, demand: 'normal' as const }]])
+
+  const q1 = priceQuote([line('off_mixed', 'rental', null, 2)], ctx({ capacity: () => offerCapacity(parts, enough) }))
+  assert.equal(q1.lines[0].allowed, true)
+
+  // 2 units × 2 tablets/unit = 4 needed; only 3 available.
+  const q2 = priceQuote([line('off_mixed', 'rental', null, 2)], ctx({ capacity: () => offerCapacity(parts, short) }))
+  assert.equal(q2.lines[0].allowed, false)
+  assert.equal(q2.lines[0].reason, 'insufficient_capacity')
 })
 
 test('a hidden or unknown offer never has its capacity read, so it leaks no demand', () => {

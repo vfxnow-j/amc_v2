@@ -113,9 +113,13 @@ export type OfferPricing = {
 }
 
 /**
- * Units of an offer free over the window, and its demand. `null` = unknown (no
- * capacity could be read). Unknown fails CLOSED: the line is priced but refused
- * as insufficient_capacity, since the portal must not promise gear it can't see.
+ * Units of an offer free over the window, and its demand. `null` = unknown — a
+ * physical asset behind the offer whose capacity could not be read. Unknown fails
+ * CLOSED: the line is priced but refused as insufficient_capacity, since the portal
+ * must not promise gear it can't see. An offer with no physical asset component at
+ * all (a services-only package, or any offer whose components carry no asset) has
+ * nothing to check capacity against: `available: Infinity` — never null — so it is
+ * never refused for capacity it doesn't need.
  */
 export type CapacitySignal = { available: number; demand: Demand } | null
 
@@ -426,14 +430,17 @@ export function capacityWindowEnd(window: QuoteWindow, lines: QuoteRequestLine[]
 }
 
 /**
- * An offer's capacity is its scarcest part: whole offers the units allow. Unknown
- * when the offer has no gear or any part's capacity could not be read.
+ * An offer's capacity is its scarcest physical part: whole offers the units allow.
+ * No physical asset component (a services-only package, a free-text package line,
+ * or any offer whose components carry no asset) means capacity does not apply —
+ * available is unbounded, not unknown. Unknown (null) is reserved for an offer that
+ * DOES have a physical asset whose capacity could not be read.
  */
 export function offerCapacity(
   parts: { assetId: string; quantity: number }[] | undefined,
   perAsset: Map<string, { available: number; demand: Demand }>,
 ): CapacitySignal {
-  if (!parts?.length) return null
+  if (!parts?.length) return { available: Infinity, demand: 'normal' }
   let available = Infinity
   let demand: Demand = 'normal'
   for (const p of parts) {
