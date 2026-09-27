@@ -271,3 +271,42 @@ export async function revokePortalClient(id: string): Promise<void> {
   })
   revalidatePath(PATH)
 }
+
+/**
+ * Removes a revoked portal client for good, with its request-log rows (they
+ * carry no foreign key, so they would otherwise point at nothing). Super admin
+ * only, like deleting an API key. Refused while the client is live — revoke
+ * first — and while it has accounts: those are linked to real clients, so the
+ * row stays revoked instead. The audit entry keeps its name and prefix.
+ */
+export async function deletePortalClient(id: string): Promise<void> {
+  const result = await requireAdmin()
+  if (!result.authorized || !result.userId) throw new Error(result.error ?? 'Admin access required')
+  if (result.role !== 'SUPER_ADMIN') throw new Error('Only a super admin can delete a portal client.')
+  const userId = result.userId
+
+  const existing = await prisma.portalClient.findUnique({
+    where: { id: parseOrThrow(idSchema, id) },
+    select: { id: true, name: true, tokenPrefix: true, scopes: true, isActive: true, _count: { select: { accounts: true } } },
+  })
+  if (!existing) throw new Error('That portal client no longer exists — refresh the page.')
+  if (existing.isActive) throw new Error('Revoke the portal client before deleting it.')
+  if (existing._count.accounts) {
+    throw new Error(
+      `It has ${existing._count.accounts} portal account${existing._count.accounts === 1 ? '' : 's'} linked to clients, so it stays revoked rather than deleted.`,
+    )
+  }
+
+  await prisma.$transaction([
+    prisma.portalRequestLog.deleteMany({ where: { portalClientId: existing.id } }),
+    prisma.portalClient.delete({ where: { id: existing.id } }),
+  ])
+  await logAudit({
+    action: 'DELETE',
+    entityType: 'Portal',
+    entityId: existing.id,
+    oldValues: { kind: 'portal_client', name: existing.name, tokenPrefix: existing.tokenPrefix, scopes: existing.scopes },
+    userId,
+  })
+  revalidatePath(PATH)
+}

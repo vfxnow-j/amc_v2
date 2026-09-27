@@ -74,7 +74,9 @@ export default async function ApiKeysPage() {
     <>
       <SettingsHeader id="api-keys" />
 
-      <div className="grid min-h-0 flex-1 items-start gap-3 lg:grid-cols-[minmax(0,380px)_1fr]">
+      {/* Two stacked sections, so neither may shrink to the viewport (the
+          one-section settings pages use min-h-0 flex-1): <main> scrolls. */}
+      <div className="grid shrink-0 items-start gap-3 lg:grid-cols-[minmax(0,380px)_1fr]">
         <div className="flex flex-col gap-3">
           <Card title="Issue a key" meta="shown once, then never again">
             <ApiKeyConsole canDelete={canDelete} />
@@ -111,12 +113,12 @@ export default async function ApiKeysPage() {
         </Suspense>
       </div>
 
-      <div className="mt-3 grid min-h-0 items-start gap-3 lg:grid-cols-[minmax(0,380px)_1fr]">
+      <div className="grid shrink-0 items-start gap-3 lg:grid-cols-[minmax(0,380px)_1fr]">
         <Card title="Portal clients" meta="scoped tokens for /v1, shown once">
           <PortalClientConsole secretKeySet={secretKeySet} />
         </Card>
         <Suspense fallback={<ListTableSkeleton rows={3} />}>
-          <PortalTable secretKeySet={secretKeySet} />
+          <PortalTable secretKeySet={secretKeySet} canDelete={canDelete} />
         </Suspense>
       </div>
     </>
@@ -215,7 +217,13 @@ async function Table({ canDelete }: { canDelete: boolean }) {
  * (docs/portal-api.md). They carry scopes, never a staff role, so they sit in
  * their own table rather than among the keys above.
  */
-async function PortalTable({ secretKeySet }: { secretKeySet: boolean }) {
+async function PortalTable({
+  secretKeySet,
+  canDelete,
+}: {
+  secretKeySet: boolean;
+  canDelete: boolean;
+}) {
   const clients = await getPortalClientRows();
   const now = new Date();
 
@@ -283,6 +291,7 @@ async function PortalTable({ secretKeySet }: { secretKeySet: boolean }) {
                 name={client.name}
                 isActive={client.isActive}
                 secretKeySet={secretKeySet}
+                canDelete={canDelete}
               />
             ),
           },

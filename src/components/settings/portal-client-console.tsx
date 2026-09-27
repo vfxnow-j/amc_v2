@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   createPortalClient,
+  deletePortalClient,
   revokePortalClient,
   rotatePortalClientToken,
   rotatePortalWebhookSecret,
@@ -220,22 +221,25 @@ export function PortalClientConsole({ secretKeySet }: { secretKeySet: boolean })
   );
 }
 
-/** Rotate token, rotate secret, revoke — per row. */
+/** Rotate token, rotate secret, revoke — per row; delete once revoked. */
 export function PortalClientRowActions({
   id,
   name,
   isActive,
   secretKeySet,
+  canDelete,
 }: {
   id: string;
   name: string;
   isActive: boolean;
   secretKeySet: boolean;
+  canDelete: boolean;
 }) {
   const router = useRouter();
   const [busy, startTransition] = useTransition();
   const [shown, setShown] = useState<Shown | null>(null);
   const [error, setError] = useState("");
+  const [confirming, setConfirming] = useState(false);
 
   function run(work: () => Promise<Shown | null>) {
     setError("");
@@ -250,7 +254,38 @@ export function PortalClientRowActions({
     });
   }
 
-  if (!isActive) return <span className="text-ink-faint">Revoked</span>;
+  if (!isActive) {
+    if (!canDelete) return <span className="text-ink-faint">Revoked</span>;
+    return (
+      <div className="flex flex-col items-end gap-1">
+        {error ? <span className="text-destructive">{error}</span> : null}
+        {confirming ? (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() =>
+              run(async () => {
+                await deletePortalClient(id);
+                return null;
+              })
+            }
+            className="text-destructive hover:underline disabled:opacity-50"
+            title={`Delete ${name} and its request log for good`}
+          >
+            Really delete
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setConfirming(true)}
+            className="text-ink-muted hover:underline"
+          >
+            Delete
+          </button>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col items-end gap-1">
