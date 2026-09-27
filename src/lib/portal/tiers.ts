@@ -18,7 +18,7 @@ import { FLOW_TERMS } from '@/lib/flow/terms'
 
 export const PORTAL_CREDIT_TIERS_KEY = 'portal_credit_tiers'
 
-export const PORTAL_SOLUTIONS = ['rental', 'rto', 'flow'] as const
+export const PORTAL_SOLUTIONS = ['rental', 'rto', 'flow', 'sale'] as const
 export type PortalSolution = (typeof PORTAL_SOLUTIONS)[number]
 
 /**
@@ -37,7 +37,8 @@ export type PortalSolution = (typeof PORTAL_SOLUTIONS)[number]
  * quote is priced from, price it with the same total ÷ term the order uses and add
  * 'rto' back here.
  */
-export const QUOTABLE_SOLUTIONS: readonly PortalSolution[] = ['rental', 'flow']
+// Sale added 2026-09-26 (owner): a one-time price from the product's sale price.
+export const QUOTABLE_SOLUTIONS: readonly PortalSolution[] = ['rental', 'flow', 'sale']
 
 /** The contract offers Flow 12–48 months: the app's FLOW_TERMS without 60. */
 export const PORTAL_FLOW_TERMS: readonly number[] = FLOW_TERMS.filter((t) => t <= 48)
@@ -79,7 +80,7 @@ export const STANDARD_TIER: CreditTier = {
   priceAdjustPct: 0,
   flowMarginPct: null,
   maxOrderTotal: null,
-  requiresVerification: { rental: 'none', rto: 'none', flow: 'agreement_and_coi' },
+  requiresVerification: { rental: 'none', rto: 'none', flow: 'agreement_and_coi', sale: 'none' },
 }
 
 export const CREDIT_TIERS_DEFAULT: CreditTiers = {

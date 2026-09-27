@@ -57,9 +57,9 @@ export function portalError(
   return NextResponse.json(body, { status, headers: options.headers })
 }
 
-/** `{ data }` with the given status. The only success shape. */
-export function portalOk<T>(data: T, status = 200, headers?: Record<string, string>): NextResponse {
-  return NextResponse.json({ data }, { status, headers })
+/** `{ data }` with the given status — plus `next_cursor` on a paged list. The only success shape. */
+export function portalOk<T>(data: T, status = 200, headers?: Record<string, string>, nextCursor?: string | null): NextResponse {
+  return NextResponse.json(nextCursor === undefined ? { data } : { data, next_cursor: nextCursor }, { status, headers })
 }
 
 export const notFound = (what = 'Not found') => new PortalError(404, 'not_found', what)

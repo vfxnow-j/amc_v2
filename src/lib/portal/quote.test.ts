@@ -373,7 +373,7 @@ test('parseQuoteRequest refuses hostile input', () => {
     { ...ok, lines: [{ offer_id: 'off_ws', qty: 0, solution: 'rental' }] },
     { ...ok, lines: [{ offer_id: 'off_ws', qty: 1000, solution: 'rental' }] },
     { ...ok, lines: [{ offer_id: 'off_ws', qty: 1.5, solution: 'rental' }] },
-    { ...ok, lines: [{ offer_id: 'off_ws', qty: 1, solution: 'sale' }] },
+    { ...ok, lines: [{ offer_id: 'off_ws', qty: 1, solution: 'lease' }] },
     { ...ok, lines: [{ offer_id: 'off_ws', qty: 1, solution: 'flow', term_months: 60 }] },
     { ...ok, lines: [{ offer_id: 'off_ws', qty: 1, solution: 'flow', term_months: '24' }] },
     { ...ok, lines: [{ offer_id: { $ne: 1 }, qty: 1, solution: 'rental' }] },
@@ -383,4 +383,61 @@ test('parseQuoteRequest refuses hostile input', () => {
   for (const b of bad) assert.equal(parseQuoteRequest(b, NOW).ok, false, JSON.stringify(b)?.slice(0, 120))
   const flow = parseQuoteRequest({ account_id: 'acct_1', window: { start: '2026-10-01' }, lines: [{ offer_id: 'o', qty: 2, solution: 'flow', term_months: 48 }] }, NOW)
   assert.ok(flow.ok && flow.value.lines[0].term === 48 && flow.value.window.end === null)
+})
+
+test('a solution draws only on units ticked for it, and all lines still share the offer', () => {
+  // 5 units overall; only 2 ticked for flow.
+  const capacity = (_id: string, solution?: string) =>
+    solution === 'flow' ? { available: 2, demand: 'normal' as const } : { available: 5, demand: 'normal' as const }
+  const q = priceQuote([line('off_ws', 'flow', 24, 3)], ctx({ capacity }))
+  assert.equal(q.lines[0].reason, 'insufficient_capacity')
+  const ok = priceQuote([line('off_ws', 'rental', null, 3), line('off_ws', 'flow', 24, 2)], ctx({ capacity }))
+  assert.deepEqual(ok.lines.map((l) => l.allowed), [true, true])
+  const over = priceQuote([line('off_ws', 'rental', null, 4), line('off_ws', 'flow', 24, 2)], ctx({ capacity }))
+  assert.deepEqual(over.lines.map((l) => l.allowed), [false, false])
+})
+
+// Sale (owner, 2026-09-26): one-time, from Asset.salePrice.
+const forSale: OfferPricing = {
+  ...ws,
+  id: 'off_sale',
+  solutions: ['rental', 'sale'],
+  components: [{ ...ws.components[0], salePrice: '2500.00' }],
+}
+const saleCtx = (over: Partial<QuoteContext> = {}) =>
+  ctx({ offers: new Map([forSale, ws, pkg].map((o) => [o.id, o])), ...over })
+
+test('sale: the asset sale price per unit, one-time, no term, no tier adjustment', () => {
+  const tier: CreditTier = { ...STANDARD_TIER, priceAdjustPct: 20 }
+  const q = priceQuote([line('off_sale', 'sale', null, 2)], saleCtx({ tier }))
+  assert.deepEqual(q.lines[0], {
+    offer_id: 'off_sale', solution: 'sale', term_months: null, qty: 2,
+    unit_price: 2500, line_total: 5000, one_time: 5000, demand: 'normal', allowed: true, reason: null,
+  })
+  assert.equal(q.total, 5000)
+  assert.equal(q.validForMs, QUOTE_VALID_MS)
+  assert.equal(q.internal[0].components?.[0].pricingType, 'PROJECT')
+  assert.equal(q.internal[0].components?.[0].isOneTime, true)
+})
+
+test('sale: no sale price on file is unpriced, never invented; not offered as sale is refused', () => {
+  assert.equal(priceQuote([line('off_ws', 'sale')], saleCtx()).lines[0].reason, 'solution_not_allowed')
+  const noPrice: OfferPricing = { ...forSale, id: 'off_np', components: [{ ...ws.components[0], salePrice: null }] }
+  const q = priceQuote([line('off_np', 'sale')], ctx({ offers: new Map([[noPrice.id, noPrice]]) }))
+  assert.equal(q.lines[0].reason, 'unpriced')
+  assert.equal(q.lines[0].unit_price, null)
+})
+
+test('sale: a request needs no window end', () => {
+  const parsed = parseQuoteRequest({ account_id: 'acct_1', window: { start: '2026-10-01' }, lines: [{ offer_id: 'off_sale', qty: 1, solution: 'sale' }] })
+  assert.equal(parsed.ok, true)
+  if (parsed.ok) assert.equal(parsed.value.lines[0].term, null)
+})
+
+test('sale: its public band is one-time, with no terms', () => {
+  const bands = offerRanges(forSale, { tier: STANDARD_TIER, flowDefaults: FLOW_DEFAULTS_FALLBACK, today: new Date('2026-10-01T12:00:00Z') })
+  const sale = bands.find((b) => b.solution === 'sale')!
+  assert.equal(sale.per, 'one_time')
+  assert.equal(sale.term_months, null)
+  assert.ok(sale.low <= 2500 && sale.high >= 2500)
 })

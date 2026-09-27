@@ -14,9 +14,9 @@ import { requireAdmin } from '@/lib/auth-utils'
 import { logAudit } from '@/lib/actions/audit'
 
 const PATH = '/dashboard/settings/portal-offers'
-// Rent-to-own is not offered: the portal has no RTO price until the owner defines
-// its basis (lib/portal/tiers.ts QUOTABLE_SOLUTIONS). TODO(owner decision: portal RTO basis).
-const SOLUTIONS = ['rental', 'flow'] as const
+// Rent-to-own is never offered in the portal (owner, 2026-09-26): it stays a
+// staff-only order type in AMC. Sale is one-time, from the product's sale price.
+const SOLUTIONS = ['rental', 'flow', 'sale'] as const
 const TERMS: Record<'flow', number[]> = { flow: [12, 24, 36, 48] }
 
 export type PortalOfferInput = {

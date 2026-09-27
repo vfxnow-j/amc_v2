@@ -27,6 +27,10 @@ import { isConfirmedPrice } from "@/lib/market-price";
 import { getAssetHeader } from "@/lib/queries/asset-record";
 import { getFamilyOfAsset } from "@/lib/queries/families";
 import { depreciationCategoryLabels } from "@/lib/types";
+import { UnitOfferingControl } from "@/components/inventory/unit-offering-control";
+import { UNIT_OFFERINGS, type UnitOfferingValue } from "@/lib/inventory/unit-offering";
+import { getSessionUser } from "@/lib/roles";
+import { canEdit } from "@/lib/auth";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -144,6 +148,9 @@ export default async function AssetRecordPage({ params }: Params) {
 
         <div className="flex min-h-0 flex-col gap-3">
           <Details asset={asset} />
+          <Suspense fallback={<CardSkeleton title="Offered as" rows={3} />}>
+            <OfferingCard id={id} />
+          </Suspense>
           {/* Where the units came from: PO → funding request → loan. */}
           <Suspense fallback={<CardSkeleton title="Bought on" rows={3} />}>
             <AssetTrailCard id={id} />
@@ -437,6 +444,42 @@ async function CoverageCard({ id }: { id: string }) {
           lists them unit by unit.
         </p>
       ) : null}
+    </Card>
+  );
+}
+
+/**
+ * What this model's units may be offered as — rental, sale, Flow. The portal
+ * lists the product under a solution only while units carry it. Set here for
+ * every in-fleet unit at once; a single unit is changed on its own screen.
+ */
+async function OfferingCard({ id }: { id: string }) {
+  const [user, units] = await Promise.all([
+    getSessionUser(),
+    prisma.assetUnit.findMany({
+      where: { assetId: id, status: { notIn: ["SOLD", "RETIRED"] } },
+      select: { offeredAs: true },
+    }),
+  ]);
+  const counts = { RENTAL: 0, SALE: 0, FLOW: 0, RENT_TO_OWN: 0, total: units.length };
+  for (const unit of units) for (const o of unit.offeredAs) counts[o] += 1;
+  // Start from what every unit already shares, so applying unchanged is a no-op.
+  const shared: UnitOfferingValue[] = UNIT_OFFERINGS.filter(
+    (o) => units.length > 0 && counts[o] === units.length,
+  );
+  return (
+    <Card title="Offered as" meta={`${units.length} in fleet`}>
+      {units.length ? (
+        <UnitOfferingControl
+          target="asset"
+          id={id}
+          initial={shared}
+          counts={counts}
+          canEdit={!!user && canEdit(user.role)}
+        />
+      ) : (
+        <CardEmpty>No units in the fleet to offer.</CardEmpty>
+      )}
     </Card>
   );
 }

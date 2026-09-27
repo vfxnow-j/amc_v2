@@ -121,7 +121,12 @@ export type CapacityUnit = {
    * or null when none is set. Only read when the unit is in MAINTENANCE.
    */
   maintenanceReady: Date | null;
+  /** What the unit may be offered as (AssetUnit.offeredAs). Absent = the column default. */
+  offeredAs?: readonly string[];
 };
+
+/** AssetUnit.offeredAs's database default, for units read without it. */
+export const DEFAULT_OFFERED_AS: readonly string[] = ["RENTAL", "FLOW"];
 
 export type CapacityHold = { quantity: number; from: Date; to: Date };
 
@@ -401,4 +406,33 @@ function nextAvailable(counts: Counts, events: ReadyEvent[], fromDay: string, qt
     if (free >= qty) return { date: event.day, status: firm ? "confirmed" : "expected" };
   }
   return { date: null, status: "none" };
+}
+
+/**
+ * The asset's figures narrowed to the units ticked for one offering (RENTAL,
+ * SALE, FLOW). Orders book a quantity of the asset, not particular units — a
+ * unit is only picked at checkout — so this is a ceiling, never a guess: no
+ * more can be offered than the asset has free overall, nor than it has units
+ * ticked for the offering. Staff can still put rentals on the other units.
+ */
+export function figuresForOffering(
+  asset: Pick<CapacityAsset, "units">,
+  figures: CapacityFigures,
+  offering: string,
+  qty = 1,
+): CapacityFigures {
+  const eligible = asset.units.filter((unit) => (unit.offeredAs ?? DEFAULT_OFFERED_AS).includes(offering)).length;
+  if (eligible === 0) {
+    return { total: 0, reserved: 0, tentative: 0, available_now: 0, next_available: { date: null, status: "none" }, demand: "normal" };
+  }
+  const reserved = Math.min(figures.reserved, eligible);
+  return {
+    total: eligible,
+    reserved,
+    tentative: Math.min(figures.tentative, eligible - reserved),
+    available_now: Math.min(figures.available_now, eligible),
+    // Never enough ticked units for the ask: nothing coming back changes that.
+    next_available: eligible < qty ? { date: null, status: "none" } : figures.next_available,
+    demand: figures.demand,
+  };
 }

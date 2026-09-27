@@ -19,6 +19,9 @@ import {
 import { dayYear } from "@/lib/format";
 import { UNIT_STATUS_LABEL } from "@/lib/inventory/labels";
 import { getUnitHeader } from "@/lib/queries/unit-record";
+import { UnitOfferingControl } from "@/components/inventory/unit-offering-control";
+import { getSessionUser } from "@/lib/roles";
+import { canEdit } from "@/lib/auth";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -43,8 +46,9 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
  */
 export default async function UnitRecordPage({ params }: Params) {
   const { id } = await params;
-  const unit = await getUnitHeader(id);
+  const [unit, user] = await Promise.all([getUnitHeader(id), getSessionUser()]);
   if (!unit) notFound();
+  const outOfFleet = unit.status === "SOLD" || unit.status === "RETIRED";
 
   return (
     <>
@@ -114,6 +118,16 @@ export default async function UnitRecordPage({ params }: Params) {
           >
             <OwnershipCard id={id} />
           </Suspense>
+          {/* What the portal may offer this unit as. Out-of-fleet units keep
+              their last setting but can't be changed. */}
+          <Card title="Offered as">
+            <UnitOfferingControl
+              target="unit"
+              id={unit.id}
+              initial={unit.offeredAs}
+              canEdit={!outOfFleet && !!user && canEdit(user.role)}
+            />
+          </Card>
           {unit.notes ? (
             <Card title="Notes">
               <p className="whitespace-pre-line px-4 pb-4 text-detail text-ink-muted">

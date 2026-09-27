@@ -21,10 +21,14 @@ type Db = Pick<PrismaClient, 'portalOffer' | 'assetUnit'>
 
 export const OFFER_KINDS = ['ASSET', 'PACKAGE', 'POOL'] as const
 
-const RATE_SELECT = { dailyRate: true, weeklyRate: true, monthlyRate: true } as const
+const RATE_SELECT = { dailyRate: true, weeklyRate: true, monthlyRate: true, salePrice: true } as const
 
 export const OFFER_SELECT = {
   id: true,
+  images: {
+    orderBy: { sortOrder: 'asc' },
+    select: { id: true, version: true, alt: true, width: true, height: true },
+  },
   slug: true,
   kind: true,
   title: true,
@@ -108,6 +112,7 @@ export function packageComponents(items: TemplateItemRow[], bases: Record<string
       name: i.description || i.asset?.name || i.service?.name || 'Item',
       quantity: Math.max(1, i.quantity),
       assetRates: i.asset ? { dailyRate: i.asset.dailyRate, weeklyRate: i.asset.weeklyRate, monthlyRate: i.asset.monthlyRate } : null,
+      salePrice: i.asset?.salePrice ?? null,
       overrideRate: i.rate == null ? null : Number(i.rate),
       overridePricingType: i.pricingType,
       isOneTime: i.isOneTime,
@@ -142,6 +147,7 @@ async function toPricing(db: Db, rows: OfferRow[], asOf: Date): Promise<Map<stri
         name: r.asset.name,
         quantity: 1,
         assetRates: { dailyRate: r.asset.dailyRate, weeklyRate: r.asset.weeklyRate, monthlyRate: r.asset.monthlyRate },
+        salePrice: r.asset.salePrice,
         overrideRate: null,
         overridePricingType: null,
         isOneTime: false,
@@ -156,25 +162,28 @@ async function toPricing(db: Db, rows: OfferRow[], asOf: Date): Promise<Map<stri
   return map
 }
 
-/** The offers a quote names, for pricing. Unknown ids are simply absent (offer_not_visible). */
-export async function loadOfferPricing(db: Db, offerIds: string[], asOf: Date = new Date()): Promise<{ pricing: Map<string, OfferPricing>; assetsByOffer: Map<string, { assetId: string; quantity: number }[]> }> {
-  const rows = await loadOfferRows(db, { id: { in: [...new Set(offerIds)] } })
-  const assetsByOffer = new Map<string, { assetId: string; quantity: number }[]>()
-  for (const r of rows) {
-    if (r.asset) assetsByOffer.set(r.id, [{ assetId: r.asset.id, quantity: 1 }])
-    else if (r.packageTemplate) {
-      assetsByOffer.set(
-        r.id,
-        r.packageTemplate.items.filter((i) => i.assetId).map((i) => ({ assetId: i.assetId!, quantity: Math.max(1, i.quantity) })),
-      )
-    }
+export type OfferPart = { assetId: string; quantity: number }
+
+/** The physical assets behind one offer, per offer unit. Empty = nothing to count stock of. */
+export function offerParts(r: OfferRow): OfferPart[] {
+  if (r.asset) return [{ assetId: r.asset.id, quantity: 1 }]
+  if (r.packageTemplate) {
+    return r.packageTemplate.items.filter((i) => i.assetId).map((i) => ({ assetId: i.assetId!, quantity: Math.max(1, i.quantity) }))
   }
+  return []
+}
+
+/** The offers a quote names, for pricing. Unknown ids are simply absent (offer_not_visible). */
+export async function loadOfferPricing(db: Db, offerIds: string[], asOf: Date = new Date()): Promise<{ pricing: Map<string, OfferPricing>; assetsByOffer: Map<string, OfferPart[]> }> {
+  const rows = await loadOfferRows(db, { id: { in: [...new Set(offerIds)] } })
+  const assetsByOffer = new Map<string, OfferPart[]>()
+  for (const r of rows) if (r.asset || r.packageTemplate) assetsByOffer.set(r.id, offerParts(r))
   return { pricing: await toPricing(db, rows, asOf), assetsByOffer }
 }
 
 export type RangeContext = { tier: CreditTier; flowDefaults: FlowPricingDefaults; today: Date }
 
-export type OfferRangeDto = { solution: PortalSolution; term_months: number[] | null; per: 'month'; currency: 'USD'; low: number; high: number }
+export type OfferRangeDto = { solution: PortalSolution; term_months: number[] | null; per: 'month' | 'one_time'; currency: 'USD'; low: number; high: number }
 
 /**
  * Price bands per solution at the default tier, from the same quote core the
@@ -189,7 +198,7 @@ export function offerRanges(offer: OfferPricing, ctx: RangeContext): OfferRangeD
   end.setUTCDate(end.getUTCDate() - 1)
   const out: OfferRangeDto[] = []
   for (const solution of allowedSolutions(offer, ctx.tier)) {
-    const terms = solution === 'rental' ? [null] : allowedTerms(offer, ctx.tier, solution)
+    const terms = solution === 'rental' || solution === 'sale' ? [null] : allowedTerms(offer, ctx.tier, solution)
     const req: QuoteRequestLine[] = terms.map((term) => ({ offerId: offer.id, qty: 1, solution, term }))
     if (!req.length) continue
     const q = priceQuote(req, {
@@ -206,8 +215,9 @@ export function offerRanges(offer: OfferPricing, ctx: RangeContext): OfferRangeD
     if (!range) continue
     out.push({
       solution,
-      term_months: solution === 'rental' ? null : (terms.filter((t, i) => q.lines[i].unit_price != null) as number[]),
-      per: 'month',
+      term_months: solution === 'flow' ? (terms.filter((t, i) => q.lines[i].unit_price != null) as number[]) : null,
+      // A sale band is the one-time price per unit; the rest are per month.
+      per: solution === 'sale' ? 'one_time' : 'month',
       currency: 'USD',
       ...range,
     })
@@ -243,6 +253,8 @@ export type OfferDto = {
   software: string[]
   solutions: { solution: PortalSolution; term_months: number[] | null }[]
   price_ranges: OfferRangeDto[]
+  /** In display order. Fetch GET /v1/images/{id}?v={version}; (id, version) never changes content. */
+  images: { id: string; version: string; alt: string | null; width: number; height: number }[]
 }
 
 /** The client's view of an offer. Explicit fields only: no rate, cost or basis. */
@@ -264,9 +276,10 @@ export function offerDto(row: OfferRow, pricing: OfferPricing, ctx: RangeContext
     software: row.software,
     solutions: allowedSolutions(pricing, ctx.tier).map((solution) => ({
       solution,
-      term_months: solution === 'rental' ? null : allowedTerms(pricing, ctx.tier, solution),
+      term_months: solution === 'rental' || solution === 'sale' ? null : allowedTerms(pricing, ctx.tier, solution),
     })),
     price_ranges: offerRanges(pricing, ctx),
+    images: row.images.map((i) => ({ id: i.id, version: i.version, alt: i.alt, width: i.width, height: i.height })),
   }
 }
 
@@ -287,9 +300,19 @@ export function parseOfferFilters(params: URLSearchParams): { ok: true; value: O
 
 /** Published offers, filtered, as DTOs. `publicOnly` narrows to isPublic ones. */
 export async function listOffers(db: Db, filters: OfferFilters, ctx: RangeContext, publicOnly = false): Promise<OfferDto[]> {
+  return (await listOfferEntries(db, filters, ctx, publicOnly)).map((e) => e.dto)
+}
+
+/** listOffers, keeping each offer's physical parts beside its DTO (for availability). */
+export async function listOfferEntries(
+  db: Db,
+  filters: OfferFilters,
+  ctx: RangeContext,
+  publicOnly = false,
+): Promise<{ dto: OfferDto; parts: OfferPart[] }[]> {
   const rows = await loadOfferRows(db, { isVisible: true, ...(publicOnly ? { isPublic: true } : {}) })
   const pricing = await toPricing(db, rows, ctx.today)
-  const out: OfferDto[] = []
+  const out: { dto: OfferDto; parts: OfferPart[] }[] = []
   for (const row of rows) {
     const p = pricing.get(row.id)!
     if (!p.visible) continue
@@ -300,7 +323,7 @@ export async function listOffers(db: Db, filters: OfferFilters, ctx: RangeContex
     }
     const dto = offerDto(row, p, ctx)
     if (filters.solution && !dto.solutions.some((s) => s.solution === filters.solution)) continue
-    out.push(dto)
+    out.push({ dto, parts: offerParts(row) })
   }
   return out
 }

@@ -175,6 +175,17 @@ model MfaTrustToken {
 // ASSET MANAGEMENT
 // ============================================
 
+/// What a unit may be offered to a client as (v2-only, 2026-09-26). Set per unit
+/// on the unit screen; the portal shows a product under a solution only while it
+/// has units ticked for it. docs/portal-api.md, Phase 2.
+enum UnitOffering {
+  RENTAL
+  SALE
+  FLOW
+  /// Staff-only in AMC: the portal never offers rent-to-own.
+  RENT_TO_OWN
+}
+
 enum AssetStatus {
   AVAILABLE
   CHECKED_OUT
@@ -503,6 +514,9 @@ model AssetUnit {
   barcode      String      @unique
   serialNumber String?     @unique
   status       AssetStatus @default(AVAILABLE)
+  /// What this unit can be bound to (v2-only; the v1 sync never writes it). Most
+  /// of the fleet is rental and Flow; Sale is opted in, typically for aged units.
+  offeredAs    UnitOffering[] @default([RENTAL, FLOW])
   locationId   String?
   location     Location?   @relation(fields: [locationId], references: [id])
   vendorId     String?
@@ -1129,6 +1143,9 @@ model Reservation {
   @@index([status])
   @@index([startDate, endDate])
   @@map("reservations")
+
+  // Placed through the client portal (v2-only). See PortalOrder.
+  portalOrder PortalOrder?
 }
 
 model Package {
@@ -3043,6 +3060,7 @@ model PortalAccount {
 
   sites      PortalAccountSite[]
   rateQuotes PortalRateQuote[]
+  orders     PortalOrder[]
 
   @@unique([portalClientId, portalAccountId])
   @@map("portal_accounts")
@@ -3094,11 +3112,33 @@ model PortalOffer {
   sortOrder         Int                 @default(0)
   createdAt         DateTime            @default(now())
   updatedAt         DateTime            @updatedAt
+  images            PortalOfferImage[]
 
   @@index([assetId])
   @@index([packageTemplateId])
   @@index([poolId])
   @@map("portal_offers")
+}
+
+/// A product image for a portal offer (Phase 2, 2026-09-26). The file is a
+/// re-encoded WebP under documents/portal-images/<offerId>/<id>.webp; the row
+/// is immutable — a new upload is a new row — so (id, version) caches forever.
+model PortalOfferImage {
+  id        String      @id @default(cuid())
+  offerId   String
+  offer     PortalOffer @relation(fields: [offerId], references: [id], onDelete: Cascade)
+  /// First 16 hex of the stored file's SHA-256.
+  version   String
+  alt       String?
+  width     Int
+  height    Int
+  bytes     Int
+  sortOrder Int         @default(0)
+  createdById String?
+  createdAt DateTime    @default(now())
+
+  @@index([offerId, sortOrder])
+  @@map("portal_offer_images")
 }
 
 /// A named set of server/GPU-node assets whose capacity is reported together.
@@ -3135,6 +3175,36 @@ model PortalRateQuote {
   @@index([accountId])
   @@index([requestHash])
   @@map("portal_rate_quotes")
+}
+
+/// An order placed through the portal (POST /v1/orders, Phase 2, 2026-09-26).
+/// The order itself is the Reservation (PRT- numbered); this row is the portal's
+/// side of it: which account and site, the rate it was placed on, and the
+/// Idempotency-Key that makes a retry return this same order.
+model PortalOrder {
+  id             String        @id @default(cuid())
+  portalClientId String
+  accountId      String
+  account        PortalAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  reservationId  String        @unique
+  reservation    Reservation   @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+  /// The rate_id it was placed on — one order per rate.
+  rateQuoteId    String        @unique
+  /// The Idempotency-Key header: the portal's quote id.
+  idempotencyKey String
+  /// SHA-256 of the canonical request body; the same key with a different body is refused.
+  requestHash    String
+  /// The account site (its external_site_id) it goes to.
+  siteExternalId String
+  poNumber       String?
+  /// What the customer was quoted and accepted (the rate's total), in USD.
+  quotedTotal    Decimal       @db.Decimal(12, 2)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@unique([portalClientId, idempotencyKey])
+  @@index([accountId])
+  @@map("portal_orders")
 }
 
 /// One row per /v1 request. Never bodies. No foreign keys on purpose.

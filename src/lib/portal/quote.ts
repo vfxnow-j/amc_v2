@@ -46,6 +46,7 @@ import {
   verificationMeets,
   type CreditTier,
   type PortalSolution,
+  type TermedSolution,
 } from './tiers'
 
 export const QUOTE_REASONS = [
@@ -91,6 +92,8 @@ export type OfferComponent = {
   isOneTime: boolean
   /** Landed-cost basis per unit, for Flow only (loadFlowBases). Never funding. */
   flowBasis: { basis: number; incomplete: boolean } | null
+  /** The asset's sale price per unit (Asset.salePrice), for a sale line. */
+  salePrice?: NumLike
   /**
    * A package template line (priced as loadTemplateIntoOrder adds it). Absent/false
    * = an ASSET offer's own asset (priced at the monthly ladder).
@@ -129,7 +132,12 @@ export type QuoteContext = {
   verificationLevel: string
   flowDefaults: FlowPricingDefaults
   window: QuoteWindow
-  capacity: (offerId: string) => CapacitySignal
+  /**
+   * Units free for this offer. With a solution, only units ticked for it count;
+   * without one, every in-fleet unit — what all its lines share, since a unit
+   * ticked for rental and Flow is still one unit.
+   */
+  capacity: (offerId: string, solution?: PortalSolution) => CapacitySignal
 }
 
 /** What the client sees per line. */
@@ -198,7 +206,7 @@ export type QuoteResult = {
 const MONTHLY = pricingTypeForBillingCycle('MONTHLY')
 
 /** The term list a line's solution may take for this offer at this tier. */
-export function allowedTerms(offer: Pick<OfferPricing, 'termsBySolution'>, tier: CreditTier, solution: 'rto' | 'flow'): number[] {
+export function allowedTerms(offer: Pick<OfferPricing, 'termsBySolution'>, tier: CreditTier, solution: TermedSolution): number[] {
   const tierTerms = tier.terms[solution] ?? []
   const own = offer.termsBySolution?.[solution]
   const offerTerms = Array.isArray(own) && own.length ? own : ALL_TERMS[solution]
@@ -293,6 +301,45 @@ function priceRental(offer: OfferPricing, qty: number, start: Date, end: Date, a
   }
 }
 
+/**
+ * A sale: one-time, per unit, at the asset's sale price (what a staff SALE order
+ * defaults an asset line to, reservations.ts). A package sells as the sum of its
+ * assets' sale prices plus its one-time service lines. Any asset without a sale
+ * price makes the offer unpriced for sale — AMC never invents one. The tier's
+ * rental adjustment does not apply.
+ */
+function priceSale(offer: OfferPricing, qty: number): Priced | null {
+  if (!offer.components.length) return null
+  let perUnit = 0
+  const components: SnapshotComponent[] = []
+  for (const c of offer.components) {
+    let rate: number
+    if (c.assetId) {
+      rate = Number(c.salePrice ?? 0)
+    } else if (c.serviceId) {
+      rate = c.overrideRate ?? c.serviceDefaultRate ?? 0
+    } else {
+      rate = c.overrideRate ?? 0
+    }
+    if (!Number.isFinite(rate) || rate <= 0) return null
+    const subtotal = computeItemSubtotal(rate, c.quantity * qty, 1)
+    perUnit += rate * c.quantity
+    components.push({
+      assetId: c.assetId,
+      serviceId: c.serviceId ?? null,
+      name: c.name,
+      quantity: c.quantity,
+      rate,
+      pricingType: 'PROJECT',
+      isOneTime: true,
+      periods: 1,
+      subtotal,
+    })
+  }
+  const lineTotal = roundMoney(perUnit * qty)
+  return { unitPrice: roundMoney(perUnit), lineTotal, oneTime: lineTotal, internal: { components, oneTime: lineTotal } }
+}
+
 function priceFlow(offer: OfferPricing, qty: number, term: number, tier: CreditTier, defaults: FlowPricingDefaults): Priced | null {
   if (!offer.components.length) return null
   const lines: NonNullable<QuoteLineInternal['flow']>['lines'] = []
@@ -334,16 +381,17 @@ function priceFlow(offer: OfferPricing, qty: number, term: number, tier: CreditT
 export function priceQuote(request: QuoteRequestLine[], ctx: QuoteContext): QuoteResult {
   const { tier, window } = ctx
   // Capacity is read only for an offer that passed the visibility check, so a
-  // hidden or retired offer leaks no demand. Cached: one read per offer.
+  // hidden or retired offer leaks no demand. Cached: one read per offer and solution.
   const capCache = new Map<string, CapacitySignal>()
-  const capacityOf = (offerId: string): CapacitySignal => {
-    if (!capCache.has(offerId)) capCache.set(offerId, ctx.capacity(offerId))
-    return capCache.get(offerId)!
+  const capacityFor = (offerId: string, solution?: PortalSolution): CapacitySignal => {
+    const key = `${offerId}|${solution ?? '*'}`
+    if (!capCache.has(key)) capCache.set(key, ctx.capacity(offerId, solution))
+    return capCache.get(key)!
   }
 
   const out: { line: QuoteLine; internal: QuoteLineInternal }[] = request.map((req) => {
     const offer = ctx.offers.get(req.offerId)
-    const term = req.solution === 'rental' ? null : req.term
+    const term = req.solution === 'rental' || req.solution === 'sale' ? null : req.term
     const base: QuoteLine = {
       offer_id: req.offerId,
       solution: req.solution,
@@ -359,7 +407,7 @@ export function priceQuote(request: QuoteRequestLine[], ctx: QuoteContext): Quot
     const internal: QuoteLineInternal = { offerId: req.offerId, solution: req.solution, term, qty: req.qty, unitPrice: null, lineTotal: null }
 
     if (!offer || !offer.visible) return { line: { ...base, reason: 'offer_not_visible' as const }, internal }
-    base.demand = capacityOf(offer.id)?.demand ?? 'normal'
+    base.demand = capacityFor(offer.id, req.solution)?.demand ?? 'normal'
     const refuse = (reason: QuoteReason) => ({ line: { ...base, reason }, internal })
 
     // RTO is refused here too (allowedSolutions never includes it) — owner decision pending.
@@ -369,6 +417,8 @@ export function priceQuote(request: QuoteRequestLine[], ctx: QuoteContext): Quot
     if (req.solution === 'flow') {
       if (term == null || !allowedTerms(offer, tier, 'flow').includes(term)) return refuse('term_not_allowed')
       priced = priceFlow(offer, req.qty, term, tier, ctx.flowDefaults)
+    } else if (req.solution === 'sale') {
+      priced = priceSale(offer, req.qty)
     } else if (req.solution === 'rental') {
       if (!window.end) return refuse('unpriced')
       priced = priceRental(offer, req.qty, window.start, window.end, tier.priceAdjustPct)
@@ -388,12 +438,23 @@ export function priceQuote(request: QuoteRequestLine[], ctx: QuoteContext): Quot
 
   // Capacity is per OFFER across the whole quote: two lines of the same offer draw
   // on the same units. Unknown capacity fails closed (see CapacitySignal).
-  const wanted = new Map<string, number>()
-  for (const o of out) if (o.line.allowed) wanted.set(o.line.offer_id, (wanted.get(o.line.offer_id) ?? 0) + o.line.qty)
+  // Two ceilings. Per offer: every line of it shares the same physical units.
+  // Per offer and solution: only units ticked for that solution can serve it.
+  const perSolution = (l: QuoteLine) => `${l.offer_id}|${l.solution}`
+  const wantedOffer = new Map<string, number>()
+  const wantedSolution = new Map<string, number>()
   for (const o of out) {
     if (!o.line.allowed) continue
-    const cap = capacityOf(o.line.offer_id)
-    if (!cap || wanted.get(o.line.offer_id)! > cap.available) o.line = { ...o.line, allowed: false, reason: 'insufficient_capacity' }
+    wantedOffer.set(o.line.offer_id, (wantedOffer.get(o.line.offer_id) ?? 0) + o.line.qty)
+    wantedSolution.set(perSolution(o.line), (wantedSolution.get(perSolution(o.line)) ?? 0) + o.line.qty)
+  }
+  for (const o of out) {
+    if (!o.line.allowed) continue
+    const all = capacityFor(o.line.offer_id)
+    const ticked = capacityFor(o.line.offer_id, o.line.solution as PortalSolution)
+    if (!all || !ticked || wantedOffer.get(o.line.offer_id)! > all.available || wantedSolution.get(perSolution(o.line))! > ticked.available) {
+      o.line = { ...o.line, allowed: false, reason: 'insufficient_capacity' }
+    }
   }
 
   // The credit limit is a whole-quote check: over it, every otherwise-allowed line is refused.
@@ -417,10 +478,17 @@ export function priceQuote(request: QuoteRequestLine[], ctx: QuoteContext): Quot
 // The quote route's pure parts — the handler only loads and stores around these.
 // ---------------------------------------------------------------------------
 
-/** The end of the capacity window: the rental end, or the longest Flow term's end. */
+/** A sold unit never comes back: a sale needs its units free this far ahead. */
+export const SALE_HORIZON_MS = 5 * 366 * 86_400_000
+
+/** The end of the capacity window: the rental end, the longest Flow term's end, or the sale horizon. */
 export function capacityWindowEnd(window: QuoteWindow, lines: QuoteRequestLine[]): Date {
   let to = window.end ?? window.start
   for (const l of lines) {
+    if (l.solution === 'sale') {
+      const end = new Date(window.start.getTime() + SALE_HORIZON_MS)
+      if (end > to) to = end
+    }
     if (l.solution === 'flow' && l.term != null) {
       const end = termEnd(window.start, l.term)
       if (end > to) to = end
@@ -542,6 +610,8 @@ export function parseQuoteRequest(body: unknown, now: Date = new Date()): { ok: 
       // Accepted so the line comes back refused (solution_not_allowed), not as a 422:
       // RTO has no portal price until the owner defines its basis.
       term = typeof l.term_months === 'number' && ALL_TERMS.rto.includes(l.term_months) ? l.term_months : null
+    } else if (solution === 'sale') {
+      // One-time: no term and no end — the window's start is the hand-over day.
     } else if (solution !== 'rental') {
       const all = ALL_TERMS[solution]
       if (typeof l.term_months !== 'number' || !all.includes(l.term_months)) {

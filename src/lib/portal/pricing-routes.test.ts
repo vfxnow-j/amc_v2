@@ -19,7 +19,7 @@ const asset = (id: string, monthlyRate: number | null, extra: Record<string, unk
 })
 const base = {
   blurb: null, termsBySolution: null, software: ['Nuke'], specs: [{ key: 'GPU', value: 'RTX' }],
-  sortOrder: 0, packageTemplate: null, pool: null, assetId: null,
+  sortOrder: 0, packageTemplate: null, pool: null, assetId: null, images: [],
 }
 const rows = [
   // Published and public; lists RTO, which must never come back.

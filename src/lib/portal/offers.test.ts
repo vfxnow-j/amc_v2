@@ -14,6 +14,7 @@ const row = {
   isPublic: true, isVisible: true, sortOrder: 0, assetId: 'a1',
   asset: { id: 'a1', name: 'WS 5090', manufacturer: 'VFXnow', model: 'W1', retiredAt: null, category: { id: 'c1', name: 'Workstations' }, dailyRate: null, weeklyRate: null, monthlyRate: 1200 },
   packageTemplate: null, pool: null,
+  images: [{ id: 'img_1', version: '0123456789abcdef', alt: 'Front', width: 1600, height: 900 }],
 }
 const pricing: OfferPricing = {
   id: 'off_1', visible: true, solutions: row.solutions, termsBySolution: row.termsBySolution,

@@ -5,6 +5,7 @@ import {
   CAPACITY_HOLDS_STOCK,
   computeCapacity,
   dayOf,
+  figuresForOffering,
   type CapacityAsset,
   type CapacityOrder,
   type CapacityUnit,
@@ -484,4 +485,33 @@ test("an order promising more than the fleet is capped at the fleet", () => {
   assert.equal(result.pool.tentative, 0);
   assert.equal(result.pool.available_now, 0);
   assert.equal(result.pool.demand, "high");
+});
+
+test("an offering sees only the units ticked for it, never more than is free overall", () => {
+  const mixed: CapacityUnit[] = [
+    ...units(3).map((u) => ({ ...u, offeredAs: ["RENTAL", "FLOW"] })),
+    ...units(2).map((u) => ({ ...u, offeredAs: ["RENTAL", "SALE"] })),
+  ];
+  const a = asset({ units: mixed, orders: [order({ quantity: 4, endDate: day("2026-12-31") })] });
+  const all = computeCapacity([a], TODAY).pool;
+  assert.equal(all.available_now, 1);
+
+  const sale = figuresForOffering(a, all, "SALE");
+  assert.equal(sale.total, 2);
+  assert.equal(sale.available_now, 1); // capped by what is free overall
+  const flow = figuresForOffering(a, all, "FLOW");
+  assert.equal(flow.total, 3);
+  assert.equal(flow.available_now, 1);
+
+  const free = computeCapacity([asset({ units: mixed })], TODAY).pool;
+  assert.equal(figuresForOffering({ units: mixed }, free, "SALE").available_now, 2); // capped by the ticked units
+  assert.deepEqual(figuresForOffering({ units: mixed }, free, "SALE", 3).next_available, { date: null, status: "none" });
+});
+
+test("no unit ticked for an offering: nothing to offer; untagged units use the default", () => {
+  const plain = units(2); // no offeredAs → RENTAL + FLOW
+  const figures = computeCapacity([asset({ units: plain })], TODAY).pool;
+  assert.equal(figuresForOffering({ units: plain }, figures, "SALE").available_now, 0);
+  assert.equal(figuresForOffering({ units: plain }, figures, "SALE").next_available.status, "none");
+  assert.equal(figuresForOffering({ units: plain }, figures, "RENTAL").available_now, 2);
 });

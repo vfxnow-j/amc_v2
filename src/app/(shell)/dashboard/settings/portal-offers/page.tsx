@@ -2,6 +2,8 @@ import { redirect } from "next/navigation";
 import { ListTable, type Column } from "@/components/list/list-table";
 import { Card } from "@/components/record/record-card";
 import { PortalOfferForm, type PortalOfferDraft } from "@/components/settings/portal-offer-form";
+import { PortalOfferImages } from "@/components/settings/portal-offer-images";
+import { MAX_IMAGES_PER_OFFER } from "@/lib/portal/images";
 import { SettingsDenied, SettingsHeader } from "@/components/settings/settings-chrome";
 import { prisma } from "@/lib/prisma";
 import { getSessionUser } from "@/lib/roles";
@@ -63,6 +65,7 @@ export default async function PortalOffersPage({
         asset: { select: { name: true } },
         packageTemplate: { select: { name: true } },
         pool: { select: { name: true } },
+        images: { orderBy: { sortOrder: "asc" }, select: { id: true, alt: true, width: true, height: true } },
       },
     }),
     prisma.asset.findMany({
@@ -101,17 +104,24 @@ export default async function PortalOffersPage({
     <>
       <SettingsHeader id="portal-offers" />
       <div className="grid min-h-0 flex-1 items-start gap-3 lg:grid-cols-[minmax(0,400px)_1fr]">
-        <Card
-          title={selected ? `Edit ${selected.title}` : "Add an offer"}
-          meta={selected ? undefined : "or pick a row to change one"}
-        >
-          <PortalOfferForm
-            key={selected?.id ?? "new"}
-            offer={draft}
-            assets={assets.map((a) => ({ id: a.id, name: a.name, priced: Number(a.monthlyRate ?? 0) > 0 }))}
-            packages={packages}
-          />
-        </Card>
+        <div className="flex flex-col gap-3">
+          <Card
+            title={selected ? `Edit ${selected.title}` : "Add an offer"}
+            meta={selected ? undefined : "or pick a row to change one"}
+          >
+            <PortalOfferForm
+              key={selected?.id ?? "new"}
+              offer={draft}
+              assets={assets.map((a) => ({ id: a.id, name: a.name, priced: Number(a.monthlyRate ?? 0) > 0 }))}
+              packages={packages}
+            />
+          </Card>
+          {selected ? (
+            <Card title="Images" meta="the first is shown first">
+              <PortalOfferImages offerId={selected.id} images={selected.images} max={MAX_IMAGES_PER_OFFER} />
+            </Card>
+          ) : null}
+        </div>
         <ListTable
           columns={COLUMNS}
           total={offers.length}

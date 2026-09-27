@@ -5,7 +5,9 @@ import { HOLDS_STOCK } from "@/lib/queries/order-builder";
 import {
   DEFAULT_REFURB_BUFFER_DAYS,
   computeCapacity,
+  figuresForOffering,
   type CapacityAsset,
+  type CapacityFigures,
   type CapacityOptions,
   type CapacityResult,
 } from "./capacity";
@@ -82,6 +84,7 @@ async function loadAssets(
         where: { status: { notIn: OUT_OF_FLEET } },
         select: {
           status: true,
+          offeredAs: true,
           checkouts: {
             where: { ...OPEN_CHECKOUT, reservationId: null },
             select: { expectedReturn: true },
@@ -142,6 +145,7 @@ async function loadAssets(
     refurbBufferDays: asset.category?.refurbBufferDays ?? DEFAULT_REFURB_BUFFER_DAYS,
     units: asset.units.map((unit) => ({
       status: unit.status,
+      offeredAs: unit.offeredAs,
       looseCheckout: unit.checkouts[0] ? { expectedReturn: unit.checkouts[0].expectedReturn } : null,
       maintenanceReady: latest(
         unit.maintenanceRecords.map((job) => job.returnDate ?? job.completionDate),
@@ -155,6 +159,33 @@ async function loadAssets(
     })),
     holds: [],
   }));
+}
+
+/** The offerings the portal sells: rent-to-own is staff-only and never offered. */
+export const PORTAL_OFFERINGS = ["RENTAL", "SALE", "FLOW"] as const;
+export type PortalOffering = (typeof PORTAL_OFFERINGS)[number];
+
+/**
+ * One asset's figures per portal offering, from a single read — plus `ALL`,
+ * every in-fleet unit, which the lines of one offer share. Each offering is the
+ * asset's overall figure narrowed to the units ticked for that offering
+ * (figuresForOffering). Null when the asset does not exist.
+ */
+export async function loadAssetCapacityByOffering(
+  assetId: string,
+  today: Date,
+  options: CapacityOptions = {},
+): Promise<Record<PortalOffering | "ALL", CapacityFigures> | null> {
+  const assets = await loadAssets({ id: assetId }, today, options);
+  if (!assets.length) return null;
+  const all = computeCapacity(assets, today, options).pool;
+  const qty = options.qty ?? 1;
+  return {
+    ALL: all,
+    RENTAL: figuresForOffering(assets[0], all, "RENTAL", qty),
+    SALE: figuresForOffering(assets[0], all, "SALE", qty),
+    FLOW: figuresForOffering(assets[0], all, "FLOW", qty),
+  };
 }
 
 /** The latest date among a unit's open jobs — it is ready when the last is done. Null if any is undated. */

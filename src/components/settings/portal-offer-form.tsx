@@ -24,11 +24,12 @@ export type PortalOfferDraft = {
   sortOrder: number;
 };
 
-// Rent-to-own is left out on purpose: the portal has no RTO price until the owner
-// defines its basis (lib/portal/tiers.ts QUOTABLE_SOLUTIONS).
+// Rent-to-own is never offered in the portal (owner, 2026-09-26). Sale is priced
+// from the product's sale price, and only units ticked for Sale count as stock.
 const SOLUTIONS = [
   { id: "rental", label: "Rental", terms: null },
   { id: "flow", label: "Flow", terms: [12, 24, 36, 48] },
+  { id: "sale", label: "Sale", terms: null },
 ] as const;
 
 const FIELD =

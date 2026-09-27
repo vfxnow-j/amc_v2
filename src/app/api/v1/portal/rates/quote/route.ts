@@ -4,24 +4,14 @@ import { prisma } from '@/lib/prisma'
 import { PortalError, badRequest, portalOk } from '@/lib/portal/errors'
 import { withPortal } from '@/lib/portal/with-portal'
 import { requireAccount } from '@/lib/portal/tenancy'
-import { loadOfferPricing } from '@/lib/portal/offers'
-import { loadCreditTiers, tierFor } from '@/lib/portal/tiers'
-import {
-  capacityWindowEnd,
-  offerCapacity,
-  parseQuoteRequest,
-  priceQuote,
-  quoteResponseBody,
-  quoteSnapshotLines,
-  type CapacitySignal,
-} from '@/lib/portal/quote'
-import { loadAssetCapacity } from '@/lib/portal/capacity-load'
-import { loadFlowDefaults } from '@/lib/flow/order-inputs'
+import { parseQuoteRequest, quoteResponseBody, quoteSnapshotLines } from '@/lib/portal/quote'
+import { priceForAccount } from '@/lib/portal/price-run'
 
 /**
  * POST /v1/rates/quote — account-specific prices from the existing engines
  * (docs/portal-api.md §4). Body: { account_id, window: { start, end? }, lines:
- * [{ offer_id, qty, solution: rental|rto|flow, term_months? }] }.
+ * [{ offer_id, qty, solution: rental|flow|sale, term_months? }] }. (rto is
+ * accepted only to be refused: it is never offered in the portal.)
  *
  * Every line comes back with unit_price (display: per unit per month; Flow =
  * month 1), line_total, one_time, demand, allowed and reason. `total` is the
@@ -48,34 +38,7 @@ export const POST = withPortal('portal:quote', async (req, { portal, setAccountI
   setAccountId(account.id)
 
   const now = new Date()
-  const [tiers, flowDefaults, loaded] = await Promise.all([
-    loadCreditTiers(prisma),
-    loadFlowDefaults(prisma),
-    loadOfferPricing(prisma, request.lines.map((l) => l.offerId), now),
-  ])
-
-  // Capacity over the whole quote window (the rental end, or the longest Flow term),
-  // read only for PUBLISHED offers: a hidden or retired offer's stock is never looked at.
-  const to = capacityWindowEnd(request.window, request.lines)
-  const liveOffers = [...loaded.assetsByOffer.keys()].filter((id) => loaded.pricing.get(id)?.visible)
-  const assetIds = [...new Set(liveOffers.flatMap((id) => loaded.assetsByOffer.get(id)!.map((a) => a.assetId)))]
-  const perAsset = new Map<string, { available: number; demand: 'normal' | 'high' }>()
-  for (const id of assetIds) {
-    const cap = await loadAssetCapacity(id, now, { from: request.window.start, to })
-    if (cap) perAsset.set(id, { available: cap.pool.available_now, demand: cap.pool.demand })
-  }
-  const capacity = (offerId: string): CapacitySignal =>
-    loaded.pricing.get(offerId)?.visible ? offerCapacity(loaded.assetsByOffer.get(offerId), perAsset) : null
-
-  const tier = tierFor(tiers, account.creditTier)
-  const result = priceQuote(request.lines, {
-    offers: loaded.pricing,
-    tier,
-    verificationLevel: account.verificationLevel,
-    flowDefaults,
-    window: request.window,
-    capacity,
-  })
+  const { tier, result } = await priceForAccount(account, request, now)
 
   const validUntil = new Date(now.getTime() + result.validForMs)
   const requestJson = {
