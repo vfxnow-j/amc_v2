@@ -39,7 +39,7 @@ export default async function MapPage({
         title="Map"
         blurb={
           filters.layer === "clients"
-            ? "Every client with an order, at its own address — the client base and the regions it covers."
+            ? "Every client with a sent quote or order, at its own address — the client base and the regions it covers."
             : filters.mode === "reach"
               ? "Where completed orders went — counts only, from orders with a located delivery address."
               : "Where the hardware is now — out at its order's delivery address, stock at its location."

@@ -115,8 +115,10 @@ async function nowLayer(f: MapFilters): Promise<LayerBody> {
   // Stock has no order, client, status or window — any of those filters means
   // the question is about orders.
   const wantStock = (!f.type || f.type === "STOCK") && !f.status && !f.clientId && !f.from && !f.to;
+  // Units out with no order behind them only belong to the unfiltered question.
+  const unfiltered = !f.type && !f.status && !f.clientId && !f.from && !f.to;
 
-  const [checkouts, stock] = await Promise.all([
+  const [checkouts, current, outNoCheckout, stock] = await Promise.all([
     wantOrders
       ? prisma.checkout.findMany({
           where: {
@@ -124,6 +126,7 @@ async function nowLayer(f: MapFilters): Promise<LayerBody> {
             reservation: orderWhere(f),
           },
           select: {
+            id: true,
             reservation: {
               select: {
                 id: true,
@@ -137,6 +140,22 @@ async function nowLayer(f: MapFilters): Promise<LayerBody> {
           },
         })
       : [],
+    // A unit can carry two ACTIVE checkouts (v1 left a few un-returned when
+    // the unit went out again). It is out once, on its latest checkout.
+    wantOrders
+      ? prisma.checkout.findMany({
+          where: { status: "ACTIVE" },
+          select: { id: true, assetUnitId: true },
+          orderBy: [{ checkoutDate: "desc" }, { id: "desc" }],
+        })
+      : [],
+    // Out by its status but with no ACTIVE checkout: out somewhere nobody
+    // recorded. Counted, never placed.
+    wantOrders && unfiltered
+      ? prisma.assetUnit.count({
+          where: { status: "CHECKED_OUT", checkouts: { none: { status: "ACTIVE" } } },
+        })
+      : 0,
     wantStock
       ? prisma.assetUnit.groupBy({
           by: ["locationId"],
@@ -146,10 +165,19 @@ async function nowLayer(f: MapFilters): Promise<LayerBody> {
       : [],
   ]);
 
+  const latest = new Set<string>();
+  const seenUnit = new Set<string>();
+  for (const c of current) {
+    if (seenUnit.has(c.assetUnitId)) continue;
+    seenUnit.add(c.assetUnitId);
+    latest.add(c.id);
+  }
+
   // Units out, per order.
   const orders = new Map<string, Candidate>();
-  let noOrder = 0;
+  let noOrder = outNoCheckout;
   for (const c of checkouts) {
+    if (!latest.has(c.id)) continue;
     const r = c.reservation;
     if (!r) {
       noOrder += 1;
@@ -169,6 +197,8 @@ async function nowLayer(f: MapFilters): Promise<LayerBody> {
       });
     }
   }
+
+  const unplacedExtra: UnplacedRow[] = [];
 
   // Stock, per location.
   const locationIds = stock.map((s) => s.locationId).filter((id): id is string => !!id);
@@ -197,11 +227,23 @@ async function nowLayer(f: MapFilters): Promise<LayerBody> {
   }
 
   const outRows = [...orders.values()];
+  if (noOrder > 0) {
+    unplacedExtra.push({
+      id: "out:no-order",
+      kind: "RENTAL",
+      title: "Out with no order",
+      subtitle: `${plural(noOrder, "unit")} out with no order behind them`,
+      href: "/dashboard/units?view=out",
+      weight: noOrder,
+      reason: "NO_ADDRESS",
+      address: null,
+    });
+  }
   const geo = await geocodesFor(prisma, [...outRows, ...stockRows].map((r) => r.address));
   const out = placeCandidates(outRows, geo);
   const shelf = placeCandidates(stockRows, geo);
 
-  const unplaced: UnplacedRow[] = [...out.unplaced, ...shelf.unplaced];
+  const unplaced: UnplacedRow[] = [...out.unplaced, ...unplacedExtra, ...shelf.unplaced];
   if (stockNoLocation > 0) {
     unplaced.push({
       id: "stock:no-location",
@@ -322,9 +364,16 @@ async function reachLayer(f: MapFilters): Promise<LayerBody> {
   };
 }
 
-/** Clients: each client with an order, at its own address (else billing). */
+/**
+ * Clients: each client with a real order, at its own address (else billing).
+ * "Real" is a quote that was sent or anything after it — a DRAFT nobody sent is
+ * not a client relationship, so it doesn't put a client on the map or count
+ * toward its size.
+ */
 async function clientsLayer(f: MapFilters): Promise<LayerBody> {
   const where = orderWhere(f);
+  if (!f.status) where.status = { not: "DRAFT" };
+  else if (f.status === "DRAFT") where.id = "__none__";
   const clients = await prisma.client.findMany({
     where: {
       ...(f.clientId ? { id: f.clientId } : {}),
@@ -370,7 +419,7 @@ async function clientsLayer(f: MapFilters): Promise<LayerBody> {
       text: coverageText({
         placed,
         total: rows.length,
-        noun: "clients with orders",
+        noun: "clients with a sent quote or order",
         unplaced: unplaced.map((u) => ({ ...u, weight: 1 })),
         addressNoun: "address",
       }),

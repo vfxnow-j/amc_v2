@@ -138,6 +138,8 @@ function regionName(country: string | null, region: string): string {
 /**
  * Countries, states/provinces and cities served, from placed rows only.
  * `records` counts items (orders or clients); `weight` sums their weights.
+ * Stock on our own shelf is not reach — a location is not a place served — so
+ * STOCK items are left out even where they share a point with an order.
  */
 export function reachFrom(places: MapPlace[]): {
   countries: ReachRow[];
@@ -161,17 +163,20 @@ export function reachFrom(places: MapPlace[]): {
   const cities = new Map<string, ReachRow>();
 
   for (const p of places) {
-    const n = p.items.length;
+    const served = p.items.filter((i) => i.kind !== "STOCK");
+    if (served.length === 0) continue;
+    const n = served.length;
+    const w = served.reduce((s, i) => s + i.weight, 0);
     const cc = p.countryCode;
-    if (cc) tally(countries, cc, COUNTRY_NAME[cc] ?? cc, n, p.weight);
-    if (p.region) tally(regions, `${cc}:${p.region}`, regionName(cc, p.region), n, p.weight);
+    if (cc) tally(countries, cc, COUNTRY_NAME[cc] ?? cc, n, w);
+    if (p.region) tally(regions, `${cc}:${p.region}`, regionName(cc, p.region), n, w);
     if (p.city) {
       tally(
         cities,
         `${cc}:${p.region}:${p.city.toLowerCase()}`,
         [p.city, p.region].filter(Boolean).join(", "),
         n,
-        p.weight,
+        w,
       );
     }
   }

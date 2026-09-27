@@ -119,6 +119,24 @@ test("reach counts placed rows only, by country, region and city", () => {
   assert.deepEqual(reach.cities[0], { key: "CA:BC:revelstoke", label: "Revelstoke, BC", records: 1, weight: 9 });
 });
 
+test("stock on our shelf is not reach, even at a point shared with an order", () => {
+  const geocodes = new Map<string, GeocodeResult>([["A", geo({})], ["B", geo({ lat: 40.74, lng: -74.0, city: "New York", region: "NY" })]]);
+  const { places } = placeCandidates(
+    [
+      row({ id: "loc:1", kind: "STOCK", weight: 500, address: "A" }),
+      row({ id: "o1", weight: 3, address: "A" }),
+      row({ id: "loc:2", kind: "STOCK", weight: 40, address: "B" }),
+    ],
+    geocodes,
+  );
+  const reach = reachFrom(places);
+  assert.deepEqual(
+    reach.cities.map((r) => [r.label, r.records, r.weight]),
+    [["Burbank, CA", 1, 3]],
+  );
+  assert.deepEqual(reach.countries.map((r) => [r.records, r.weight]), [[1, 3]]);
+});
+
 test("coverage line never implies full coverage", () => {
   const u = (reason: "NO_ADDRESS" | "TBD" | "NOT_FOUND", weight: number) => ({
     id: reason, kind: "RENTAL" as const, title: "", subtitle: "", href: "", weight, reason, address: null,
