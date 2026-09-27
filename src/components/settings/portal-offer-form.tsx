@@ -8,13 +8,15 @@ import { deletePortalOffer, savePortalOffer } from "@/lib/actions/portal-offers"
 
 export type PortalOfferDraft = {
   id: string;
-  kind: "ASSET" | "PACKAGE";
+  /** POOL offers are made elsewhere; here their kind and pool are shown, never changed. */
+  kind: "ASSET" | "PACKAGE" | "POOL";
+  poolName?: string | null;
   targetId: string;
   title: string;
   slug: string;
   blurb: string;
   solutions: string[];
-  termsBySolution: { rto: number[]; flow: number[] };
+  termsBySolution: { flow: number[] };
   software: string[];
   specs: { key: string; value: string }[];
   isPublic: boolean;
@@ -22,9 +24,10 @@ export type PortalOfferDraft = {
   sortOrder: number;
 };
 
+// Rent-to-own is left out on purpose: the portal has no RTO price until the owner
+// defines its basis (lib/portal/tiers.ts QUOTABLE_SOLUTIONS).
 const SOLUTIONS = [
   { id: "rental", label: "Rental", terms: null },
-  { id: "rto", label: "Rent-to-own", terms: [3, 6, 12, 24, 36] },
   { id: "flow", label: "Flow", terms: [12, 24, 36, 48] },
 ] as const;
 
@@ -50,15 +53,16 @@ export function PortalOfferForm({
   const [busy, startTransition] = useTransition();
   const [error, setError] = useState("");
   const [confirming, setConfirming] = useState(false);
-  const [kind, setKind] = useState<"ASSET" | "PACKAGE">(offer?.kind ?? "ASSET");
+  const isPool = offer?.kind === "POOL";
+  const [kind, setKind] = useState<"ASSET" | "PACKAGE" | "POOL">(offer?.kind ?? "ASSET");
   const [targetId, setTargetId] = useState(offer?.targetId ?? "");
   const [title, setTitle] = useState(offer?.title ?? "");
   const [slug, setSlug] = useState(offer?.slug ?? "");
   const [blurb, setBlurb] = useState(offer?.blurb ?? "");
-  const [solutions, setSolutions] = useState<string[]>(offer?.solutions ?? ["rental"]);
-  const [terms, setTerms] = useState<{ rto: number[]; flow: number[] }>(
-    offer?.termsBySolution ?? { rto: [12, 24, 36], flow: [12, 24, 36, 48] },
+  const [solutions, setSolutions] = useState<string[]>(
+    (offer?.solutions ?? ["rental"]).filter((s) => SOLUTIONS.some((o) => o.id === s)),
   );
+  const [terms, setTerms] = useState<{ flow: number[] }>(offer?.termsBySolution ?? { flow: [12, 24, 36, 48] });
   const [software, setSoftware] = useState((offer?.software ?? []).join(", "));
   const [specs, setSpecs] = useState(offer?.specs.length ? offer.specs : [{ key: "", value: "" }]);
   const [isVisible, setVisible] = useState(offer?.isVisible ?? false);
@@ -120,6 +124,13 @@ export function PortalOfferForm({
     <form onSubmit={submit} className="flex flex-col gap-3 px-4 pb-4">
       {error ? <Notice tone="error">{error}</Notice> : null}
 
+      {isPool ? (
+        <p className="text-detail text-ink-muted">
+          A capacity-pool offer{offer?.poolName ? ` for ${offer.poolName}` : ""}. Its pool is kept as it is; only
+          the details below can be changed here.
+        </p>
+      ) : (
+      <>
       <div className="flex gap-2">
         {(["ASSET", "PACKAGE"] as const).map((k) => (
           <button
@@ -148,6 +159,8 @@ export function PortalOfferForm({
           ))}
         </select>
       </label>
+      </>
+      )}
 
       <label className="flex flex-col gap-[3px]">
         <span className={LABEL}>Title</span>
@@ -185,7 +198,7 @@ export function PortalOfferForm({
               {on && s.terms ? (
                 <div className="flex flex-wrap gap-3 pl-6">
                   {s.terms.map((t) => {
-                    const key = s.id as "rto" | "flow";
+                    const key = s.id as "flow";
                     const checked = terms[key].includes(t);
                     return (
                       <label key={t} className="flex items-center gap-1 text-detail text-ink-muted">

@@ -2,9 +2,10 @@
  * Portal credit tiers — what an account may be quoted, and at what adjustment.
  *
  * The owner's answer (2026-09-26): ONE tier for now. Everyone gets list price and
- * every solution. The `portal_credit_tiers` Setting keeps the shape so tiers can be
- * added later without an API change; a stored row is merged over the coded
- * default (as mergeFlowDefaults does for Flow), never replaces it.
+ * every solution the portal can price (not RTO yet — see QUOTABLE_SOLUTIONS).
+ * The `portal_credit_tiers` Setting keeps the shape so tiers can be added later
+ * without an API change; a stored row is merged over the coded default (as
+ * mergeFlowDefaults does for Flow), never replaces it.
  *
  * Verification (decision 3, default): `none` may browse and quote; `id_verified`
  * may hold; `agreement_and_coi` may order and take Flow. So a Flow line quoted to a
@@ -20,9 +21,27 @@ export const PORTAL_CREDIT_TIERS_KEY = 'portal_credit_tiers'
 export const PORTAL_SOLUTIONS = ['rental', 'rto', 'flow'] as const
 export type PortalSolution = (typeof PORTAL_SOLUTIONS)[number]
 
+/**
+ * The solutions the portal may actually price. RTO is NOT one of them.
+ *
+ * The app's rent-to-own payment is the ORDER TOTAL ÷ rtoTermMonths, with the buyout
+ * equal to that total (reservations.ts maybeRecalcRto / createReservation; the
+ * builder shows total ÷ term). The portal has no order total to divide — what the
+ * RTO "total" should be for a portal offer (a sale price? the rental over the
+ * term?) is the owner's call, and AMC is the only price authority, so the portal
+ * does not invent one. Until then an RTO line is refused as solution_not_allowed,
+ * RTO never appears in an offer's solutions or its public bands, and a stored tier
+ * or offer that lists it is ignored.
+ *
+ * TODO(owner decision: portal RTO basis) — once the owner defines what an RTO
+ * quote is priced from, price it with the same total ÷ term the order uses and add
+ * 'rto' back here.
+ */
+export const QUOTABLE_SOLUTIONS: readonly PortalSolution[] = ['rental', 'flow']
+
 /** The contract offers Flow 12–48 months: the app's FLOW_TERMS without 60. */
 export const PORTAL_FLOW_TERMS: readonly number[] = FLOW_TERMS.filter((t) => t <= 48)
-/** Rent-to-own terms, matching the order builder's RTO_TERMS. */
+/** Rent-to-own terms, matching the order builder's RTO_TERMS. Not quotable yet (QUOTABLE_SOLUTIONS). */
 export const PORTAL_RTO_TERMS: readonly number[] = [3, 6, 12, 24, 36]
 
 /** Solutions that take a term in months. Rental is priced over its window instead. */
@@ -40,7 +59,7 @@ export type CreditTier = {
   label: string
   solutions: PortalSolution[]
   terms: Record<TermedSolution, number[]>
-  /** Applied to rental and RTO rates. 0 = list price. */
+  /** Applied to rental rates. 0 = list price. */
   priceAdjustPct: number
   /** Overrides the house Flow margin for this tier. Null = the house default. */
   flowMarginPct: number | null
@@ -55,7 +74,7 @@ export type CreditTiers = { defaultTier: string; tiers: Record<string, CreditTie
 export const STANDARD_TIER: CreditTier = {
   id: 'standard',
   label: 'Standard',
-  solutions: [...PORTAL_SOLUTIONS],
+  solutions: [...QUOTABLE_SOLUTIONS],
   terms: { rto: [...PORTAL_RTO_TERMS], flow: [...PORTAL_FLOW_TERMS] },
   priceAdjustPct: 0,
   flowMarginPct: null,
@@ -74,7 +93,7 @@ const finite = (v: unknown): number | null => (typeof v === 'number' && Number.i
 function mergeTier(id: string, raw: unknown, base: CreditTier): CreditTier {
   if (!isObj(raw)) return { ...base, id }
   const solutions = Array.isArray(raw.solutions)
-    ? PORTAL_SOLUTIONS.filter((s) => (raw.solutions as unknown[]).includes(s))
+    ? QUOTABLE_SOLUTIONS.filter((s) => (raw.solutions as unknown[]).includes(s))
     : base.solutions
   const terms = { ...base.terms }
   if (isObj(raw.terms)) {

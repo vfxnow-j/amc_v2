@@ -57,13 +57,14 @@ export const OFFER_SELECT = {
         orderBy: { sortOrder: 'asc' as const },
         select: {
           assetId: true,
+          serviceId: true,
           description: true,
           quantity: true,
           rate: true,
           pricingType: true,
           isOneTime: true,
           asset: { select: { name: true, category: { select: { id: true, name: true } }, ...RATE_SELECT } },
-          service: { select: { name: true } },
+          service: { select: { name: true, defaultRate: true } },
         },
       },
     },
@@ -96,6 +97,29 @@ function termsBySolution(v: unknown): Partial<Record<string, number[]>> | null {
   return out
 }
 
+export type TemplateItemRow = NonNullable<OfferRow['packageTemplate']>['items'][number]
+
+/** A package template's lines as quote components, priced as loadTemplateIntoOrder adds them. */
+export function packageComponents(items: TemplateItemRow[], bases: Record<string, { basis: number; incomplete: boolean }>): OfferComponent[] {
+  return items.map((i) => {
+    const b = i.assetId ? bases[i.assetId] : undefined
+    return {
+      assetId: i.assetId,
+      name: i.description || i.asset?.name || i.service?.name || 'Item',
+      quantity: Math.max(1, i.quantity),
+      assetRates: i.asset ? { dailyRate: i.asset.dailyRate, weeklyRate: i.asset.weeklyRate, monthlyRate: i.asset.monthlyRate } : null,
+      overrideRate: i.rate == null ? null : Number(i.rate),
+      overridePricingType: i.pricingType,
+      isOneTime: i.isOneTime,
+      flowBasis: b ? { basis: b.basis, incomplete: b.incomplete } : null,
+      // Priced as loadTemplateIntoOrder would add the line (quote.ts resolveComponent).
+      templateLine: true,
+      serviceId: i.serviceId,
+      serviceDefaultRate: i.service ? Number(i.service.defaultRate) : null,
+    }
+  })
+}
+
 /** Turn loaded rows into the quote core's input, reading Flow bases for their assets. */
 async function toPricing(db: Db, rows: OfferRow[], asOf: Date): Promise<Map<string, OfferPricing>> {
   const assetIds = new Set<string>()
@@ -125,19 +149,7 @@ async function toPricing(db: Db, rows: OfferRow[], asOf: Date): Promise<Map<stri
       }]
     } else if (r.kind === 'PACKAGE' && r.packageTemplate) {
       if (!r.packageTemplate.isActive) live = false
-      components = r.packageTemplate.items.map((i) => {
-        const b = i.assetId ? bases[i.assetId] : undefined
-        return {
-          assetId: i.assetId,
-          name: i.description || i.asset?.name || i.service?.name || 'Item',
-          quantity: Math.max(1, i.quantity),
-          assetRates: i.asset ? { dailyRate: i.asset.dailyRate, weeklyRate: i.asset.weeklyRate, monthlyRate: i.asset.monthlyRate } : null,
-          overrideRate: i.rate == null ? null : Number(i.rate),
-          overridePricingType: i.pricingType,
-          isOneTime: i.isOneTime,
-          flowBasis: b ? { basis: b.basis, incomplete: b.incomplete } : null,
-        }
-      })
+      components = packageComponents(r.packageTemplate.items, bases)
     }
     map.set(r.id, { id: r.id, visible: live, solutions: r.solutions, termsBySolution: termsBySolution(r.termsBySolution), components })
   }
@@ -167,7 +179,8 @@ export type OfferRangeDto = { solution: PortalSolution; term_months: number[] | 
 /**
  * Price bands per solution at the default tier, from the same quote core the
  * quote endpoint uses: one unit, a one-month rental window, every allowed term.
- * A band is never an exact price (publicRange).
+ * A band is never an exact price (publicRange). RTO never has a band: it is not a
+ * quotable solution (tiers.ts QUOTABLE_SOLUTIONS).
  */
 export function offerRanges(offer: OfferPricing, ctx: RangeContext): OfferRangeDto[] {
   const start = new Date(Date.UTC(ctx.today.getUTCFullYear(), ctx.today.getUTCMonth(), ctx.today.getUTCDate(), 12))
@@ -186,7 +199,8 @@ export function offerRanges(offer: OfferPricing, ctx: RangeContext): OfferRangeD
       verificationLevel: 'agreement_and_coi',
       flowDefaults: ctx.flowDefaults,
       window: { start, end },
-      capacity: () => null,
+      // Bands describe price, not stock: capacity never hides them.
+      capacity: () => ({ available: Number.POSITIVE_INFINITY, demand: 'normal' }),
     })
     const range = publicRange(q.lines.map((l) => l.unit_price ?? 0))
     if (!range) continue

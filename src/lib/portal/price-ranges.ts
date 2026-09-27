@@ -9,6 +9,10 @@
  * be a multiple of $25. The low end never goes below $0.
  *
  * Pure.
+ *
+ * TODO(owner decision: band coarseness) — the ±10% floor and the $25 step are
+ * provisional; the owner has been asked how coarse a public band should be. Do not
+ * change them until that answer lands.
  */
 
 export const RANGE_STEP = 25

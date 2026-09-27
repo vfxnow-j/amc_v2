@@ -2,11 +2,11 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mergeCreditTiers, tierFor, verificationMeets, CREDIT_TIERS_DEFAULT, PORTAL_FLOW_TERMS } from './tiers'
 
-test('the coded default is one tier: every solution, Flow 12–48, list price, no limit', () => {
+test('the coded default is one tier: rental and Flow (no RTO), Flow 12–48, list price, no limit', () => {
   const tiers = mergeCreditTiers(null)
   assert.deepEqual(Object.keys(tiers.tiers), ['standard'])
   const t = tierFor(tiers, 'standard')
-  assert.deepEqual(t.solutions, ['rental', 'rto', 'flow'])
+  assert.deepEqual(t.solutions, ['rental', 'flow'])
   assert.deepEqual(t.terms.flow, [12, 24, 36, 48])
   assert.deepEqual([...PORTAL_FLOW_TERMS], [12, 24, 36, 48])
   assert.equal(t.priceAdjustPct, 0)
@@ -25,11 +25,17 @@ test('a stored row merges over the default and cannot remove it', () => {
     },
   })
   assert.equal(tiers.tiers.standard.priceAdjustPct, 5)
-  assert.deepEqual(tiers.tiers.standard.solutions, ['rental', 'rto', 'flow'])
+  assert.deepEqual(tiers.tiers.standard.solutions, ['rental', 'flow'])
   assert.deepEqual(tiers.tiers.c.solutions, ['rental'])
   assert.equal(tiers.tiers.c.maxOrderTotal, 10000)
   assert.deepEqual(tiers.tiers.c.terms.flow, [12], '60 and 99 are outside the portal set')
   assert.equal(tiers.defaultTier, 'c')
+})
+
+test('a stored tier that lists RTO does not get it: RTO has no portal price yet', () => {
+  const tiers = mergeCreditTiers({ tiers: { standard: { solutions: ['rental', 'rto', 'flow'] }, x: { solutions: ['rto'] } } })
+  assert.deepEqual(tiers.tiers.standard.solutions, ['rental', 'flow'])
+  assert.deepEqual(tiers.tiers.x.solutions, [])
 })
 
 test('hostile values are ignored', () => {

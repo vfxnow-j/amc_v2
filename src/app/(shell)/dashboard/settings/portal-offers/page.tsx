@@ -16,7 +16,8 @@ const COLUMNS: Column[] = [
   { key: "state", label: "State", width: "120px" },
 ];
 
-const SOLUTION_LABEL: Record<string, string> = { rental: "Rental", rto: "Rent-to-own", flow: "Flow" };
+// An older offer may still list RTO; it is never quoted (lib/portal/tiers.ts QUOTABLE_SOLUTIONS).
+const SOLUTION_LABEL: Record<string, string> = { rental: "Rental", rto: "Rent-to-own (not quoted)", flow: "Flow" };
 
 /**
  * Settings → Portal offers.
@@ -80,7 +81,8 @@ export default async function PortalOffersPage({
   const draft: PortalOfferDraft | null = selected
     ? {
         id: selected.id,
-        kind: selected.kind === "PACKAGE" ? "PACKAGE" : "ASSET",
+        kind: selected.kind === "PACKAGE" ? "PACKAGE" : selected.kind === "POOL" ? "POOL" : "ASSET",
+        poolName: selected.pool?.name ?? null,
         targetId: selected.assetId ?? selected.packageTemplateId ?? "",
         title: selected.title,
         slug: selected.slug,
@@ -153,10 +155,10 @@ export default async function PortalOffersPage({
   );
 }
 
-function termsOf(v: unknown): { rto: number[]; flow: number[] } {
+function termsOf(v: unknown): { flow: number[] } {
   const o = v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
   const nums = (x: unknown) => (Array.isArray(x) ? x.filter((n): n is number => typeof n === "number") : []);
-  return { rto: nums(o.rto), flow: nums(o.flow) };
+  return { flow: nums(o.flow) };
 }
 
 function specsOf(v: unknown): { key: string; value: string }[] {
