@@ -1,6 +1,5 @@
 "use client";
 
-import { useTransition } from "react";
 import Link from "next/link";
 import { LogOut, Settings, SlidersHorizontal } from "lucide-react";
 import {
@@ -8,14 +7,9 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { ThemePicker } from "@/components/theme/theme-picker";
-import { useAppearance } from "@/components/theme/theme-provider";
-import { saveAppearance } from "@/lib/actions/appearance";
 import { signOutAction } from "@/lib/actions/session";
 import { SETTINGS_PAGE } from "@/lib/nav/clusters";
 import type { SessionUser } from "@/lib/roles";
@@ -29,11 +23,9 @@ import type { SessionUser } from "@/lib/roles";
  * shell and have nowhere else to live: appearance (both skins are in scope, so
  * a user must be able to pick one) and signing out.
  *
- * Appearance is both halves here, not just the theme. Sending somebody to a
- * settings page to change a color when the theme switch is already under their
- * cursor is the kind of split that makes a preference feel like a chore — and
- * the menu is where people already look. The full card on the profile keeps the
- * explanations; this is the same control without the prose.
+ * Appearance is a link, not inline pickers: the theme and mode choosers live
+ * on the profile page (Settings → My profile → Appearance), and repeating them
+ * here was redundant.
  *
  * The bell sits beside the gear, and arrives as a prop rather than being
  * imported: it is server-rendered behind its own Suspense boundary in the shell
@@ -47,26 +39,6 @@ export function UserPod({
   user: SessionUser;
   bell?: React.ReactNode;
 }) {
-  const { values, set } = useAppearance();
-  const [, startTransition] = useTransition();
-
-  /**
-   * Applies immediately and saves behind it. The save is the only part that can
-   * fail, and it fails quietly: the choice is already on screen and mirrored to
-   * localStorage, so all that is lost is it following you to another browser —
-   * not worth an error state inside a dropdown.
-   */
-  function chooseMode(value: string) {
-    set("mode", value);
-    startTransition(async () => {
-      try {
-        await saveAppearance({ mode: value });
-      } catch {
-        // See above.
-      }
-    });
-  }
-
   return (
     <div className="mt-[10px] flex items-center gap-[9px] rounded-well bg-sunken px-[10px] py-2">
       <span
@@ -108,35 +80,10 @@ export function UserPod({
               </Link>
             </DropdownMenuItem>
 
-            <DropdownMenuSeparator />
-            <DropdownMenuLabel className="text-micro uppercase text-ink-muted">
-              Theme
-            </DropdownMenuLabel>
-            <DropdownMenuRadioGroup
-              value={values.mode}
-              onValueChange={chooseMode}
-            >
-              <DropdownMenuRadioItem value="light">Light</DropdownMenuRadioItem>
-              <DropdownMenuRadioItem value="system">
-                Match system
-              </DropdownMenuRadioItem>
-              <DropdownMenuRadioItem value="dark">Dark</DropdownMenuRadioItem>
-            </DropdownMenuRadioGroup>
-
-            <DropdownMenuLabel className="text-micro uppercase text-ink-muted">
-              Theme
-            </DropdownMenuLabel>
-            {/* Plain buttons, not menu items: a menu item closes the menu on
-                select, and choosing a theme is something you do two or three
-                times in a row while looking at the result. */}
-            <div className="px-2 pb-1">
-              <ThemePicker layout="grid" />
-            </div>
-
             <DropdownMenuItem asChild>
               <Link href="/dashboard/settings/profile">
                 <SlidersHorizontal className="size-4" aria-hidden />
-                Appearance, with names
+                Appearance
               </Link>
             </DropdownMenuItem>
 
