@@ -11,8 +11,12 @@ import { OUT_OF_FLEET } from "@/lib/inventory/availability";
  * twice. Counting rows would call them free and let the builder oversell.
  */
 
-/** Orders that hold stock. Quotes don't — nobody has agreed to them. */
-const HOLDS_STOCK: Prisma.ReservationWhereInput = {
+/**
+ * Orders that hold stock. Quotes don't — nobody has agreed to them. Exported
+ * for the portal's capacity loader (`lib/portal/capacity-load.ts`), which must
+ * count commitment exactly as the builder does.
+ */
+export const HOLDS_STOCK: Prisma.ReservationWhereInput = {
   status: { in: ["APPROVED", "PREPARING", "SHIPPED", "ACTIVE"] },
 };
 
@@ -27,6 +31,12 @@ export type AssetAvailability = {
   fleet: number;
   /** Units promised to orders overlapping this window. */
   committed: number;
+  /**
+   * Units in the fleet sitting in MAINTENANCE today. They count as fleet (they
+   * will earn again) but not as free: a unit on the bench can't be promised.
+   */
+  maintenance: number;
+  /** `max(0, fleet − maintenance − committed)`. */
   free: number;
   /**
    * When enough units come back for the window to be satisfiable — the earliest
@@ -94,6 +104,20 @@ export async function availabilityForAssets(
   return availabilityFor({ id: { in: assetIds } }, start, end, assetIds.length);
 }
 
+/**
+ * Fleet and bench counts from the in-fleet unit rows. Units in MAINTENANCE were
+ * counted as free until 2026-09-26 — the builder would promise a unit on the
+ * bench. They stay in `fleet` (capacity that will earn again) and come off
+ * `free`. Units out on a checkout with no order are still not subtracted here;
+ * the portal's capacity figure does that (`lib/portal/capacity.ts`).
+ */
+function fleetOf(units: { status: string }[]): { fleet: number; maintenance: number } {
+  return {
+    fleet: units.length,
+    maintenance: units.filter((unit) => unit.status === "MAINTENANCE").length,
+  };
+}
+
 async function availabilityFor(
   where: Prisma.AssetWhereInput,
   start: Date,
@@ -111,7 +135,7 @@ async function availabilityFor(
       weeklyRate: true,
       dailyRate: true,
       category: { select: { id: true, name: true } },
-      _count: { select: { units: { where: { status: { notIn: OUT_OF_FLEET } } } } },
+      units: { where: { status: { notIn: OUT_OF_FLEET } }, select: { status: true } },
       reservationItems: {
         where: {
           parentId: null,
@@ -138,7 +162,7 @@ async function availabilityFor(
       (sum, item) => sum + item.quantity,
       0,
     );
-    const fleet = asset._count.units;
+    const { fleet, maintenance } = fleetOf(asset.units);
     const freeFrom = asset.reservationItems.length
       ? asset.reservationItems
           .map((item) => item.reservation.endDate)
@@ -153,7 +177,8 @@ async function availabilityFor(
       ...pickRate(asset),
       fleet,
       committed,
-      free: Math.max(0, fleet - committed),
+      maintenance,
+      free: Math.max(0, fleet - maintenance - committed),
       freeFrom,
     };
   });
@@ -198,7 +223,7 @@ export async function findSubstitutes(
       weeklyRate: true,
       dailyRate: true,
       category: { select: { id: true, name: true } },
-      _count: { select: { units: { where: { status: { notIn: OUT_OF_FLEET } } } } },
+      units: { where: { status: { notIn: OUT_OF_FLEET } }, select: { status: true } },
       reservationItems: {
         where: {
           parentId: null,
@@ -223,7 +248,7 @@ export async function findSubstitutes(
         (sum, i) => sum + i.quantity,
         0,
       );
-      const fleet = asset._count.units;
+      const { fleet, maintenance } = fleetOf(asset.units);
       return {
         assetId: asset.id,
         name: asset.name,
@@ -232,7 +257,8 @@ export async function findSubstitutes(
         ...pickRate(asset),
         fleet,
         committed,
-        free: Math.max(0, fleet - committed),
+        maintenance,
+        free: Math.max(0, fleet - maintenance - committed),
         freeFrom: null,
       } satisfies AssetAvailability;
     })
