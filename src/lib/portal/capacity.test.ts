@@ -2,12 +2,14 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   addBusinessDays,
+  CAPACITY_HOLDS_STOCK,
   computeCapacity,
   dayOf,
   type CapacityAsset,
   type CapacityOrder,
   type CapacityUnit,
 } from "./capacity";
+import { HOLDS_STOCK } from "@/lib/queries/order-builder";
 
 const day = (s: string) => new Date(`${s}T12:00:00Z`);
 // A Monday, clear of carrier holidays for the fortnight after it.
@@ -353,6 +355,44 @@ test("rent-to-own gear never returns: reserved, and no candidate", () => {
   assert.deepEqual(result.pool.next_available, { date: null, status: "none" });
 });
 
+test("a rental converted to RENT_TO_OWN never returns, even with a stale returnDate", () => {
+  const result = computeCapacity(
+    [
+      asset({
+        units: units(1),
+        orders: [
+          order({
+            reservationType: "RENT_TO_OWN",
+            returnDate: day("2026-09-29"), // left over from when this was a rental
+          }),
+        ],
+      }),
+    ],
+    TODAY,
+  );
+  assert.equal(result.pool.reserved, 1);
+  assert.deepEqual(result.pool.next_available, { date: null, status: "none" });
+});
+
+test("a SALE order never returns, even with a stale returnDate", () => {
+  const result = computeCapacity(
+    [
+      asset({
+        units: units(1),
+        orders: [
+          order({
+            reservationType: "SALE",
+            returnDate: day("2026-09-29"),
+          }),
+        ],
+      }),
+    ],
+    TODAY,
+  );
+  assert.equal(result.pool.reserved, 1);
+  assert.deepEqual(result.pool.next_available, { date: null, status: "none" });
+});
+
 test("a Flow order is promised back at its term end (endDate already is start + flowTermMonths)", () => {
   const result = computeCapacity(
     [
@@ -373,6 +413,56 @@ test("a Flow order is promised back at its term end (endDate already is start + 
     TODAY,
   );
   assert.deepEqual(result.pool.next_available, { date: "2026-12-01", status: "expected" });
+});
+
+test("a unit swap keeps the order's quantity reserved and promises nothing early", () => {
+  // swapReservationItemUnit bumps both checkedOutCount and checkedInCount by 1
+  // per swap: a single-unit order swapped once reads out=2, in=1 — not a
+  // partial return.
+  const result = computeCapacity(
+    [
+      asset({
+        units: units(1),
+        orders: [
+          order({
+            quantity: 1,
+            checkedOutCount: 2,
+            checkedInCount: 1,
+            endDate: day("2026-09-20"), // long past — still fully reserved
+          }),
+        ],
+      }),
+    ],
+    TODAY,
+  );
+  assert.equal(result.pool.reserved, 1);
+  assert.equal(result.pool.available_now, 0);
+});
+
+test("a genuine partial return (not a swap) frees the returned unit", () => {
+  const result = computeCapacity(
+    [
+      asset({
+        units: units(2),
+        orders: [
+          order({
+            quantity: 2,
+            checkedOutCount: 2,
+            checkedInCount: 1,
+            endDate: day("2026-09-20"),
+          }),
+        ],
+      }),
+    ],
+    TODAY,
+  );
+  assert.equal(result.pool.reserved, 1);
+  assert.equal(result.pool.available_now, 1);
+});
+
+test("CAPACITY_HOLDS_STOCK is pinned to the order builder's HOLDS_STOCK", () => {
+  const builderStatuses = (HOLDS_STOCK.status as { in: string[] }).in;
+  assert.deepEqual([...CAPACITY_HOLDS_STOCK].sort(), [...builderStatuses].sort());
 });
 
 test("an order promising more than the fleet is capped at the fleet", () => {

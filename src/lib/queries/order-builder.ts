@@ -118,6 +118,23 @@ function fleetOf(units: { status: string }[]): { fleet: number; maintenance: num
   };
 }
 
+/**
+ * KNOWN OVER-COUNT (conservative — never oversells, so left as-is for now):
+ * `committed` sums `ReservationItem.quantity` and is never reduced by check-ins,
+ * so a still-open multi-unit order (APPROVED/PREPARING/SHIPPED/ACTIVE) keeps its
+ * full quantity committed even after some of its units come back. If one of
+ * those returns damaged (checked in to MAINTENANCE), that same physical unit is
+ * then also counted in `maintenance` — it gets subtracted from `free` twice:
+ * once inside the order's still-full `committed` quantity, once as a bench
+ * unit. The builder under-reports `free` rather than over-reports it, which is
+ * why this has not caused an oversell, but the number can be wrong low.
+ * TODO: reduce `committed` by units already checked in (mirroring the portal's
+ * `checkedOutCount`/`checkedInCount` netting in `lib/portal/capacity.ts`) so a
+ * unit is never subtracted under both buckets. Not fixed here — this function
+ * is not restructured as part of the portal capacity findings; see
+ * docs/portal-api-plan.md and the capacity fix commit for context.
+ */
+
 async function availabilityFor(
   where: Prisma.AssetWhereInput,
   start: Date,

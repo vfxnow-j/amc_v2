@@ -115,6 +115,7 @@ async function loadAssets(
         select: {
           quantity: true,
           checkedInCount: true,
+          checkedOutCount: true,
           reservation: {
             select: {
               status: true,
@@ -149,6 +150,7 @@ async function loadAssets(
     orders: asset.reservationItems.map((item) => ({
       quantity: item.quantity,
       checkedInCount: item.checkedInCount,
+      checkedOutCount: item.checkedOutCount,
       ...item.reservation,
     })),
     holds: [],

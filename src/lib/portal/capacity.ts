@@ -86,6 +86,15 @@ export type CapacityOrder = {
   /** Units already checked back in. Only read once the order is out. */
   checkedInCount?: number;
   /**
+   * Units ever checked out on this item. A unit swap
+   * (`swapReservationItemUnit`) increments both this and `checkedInCount`
+   * together — the old unit checks in, the new one checks out — so neither
+   * count alone says how many are still with the client; see the reduction in
+   * `assetFigures`. Only read once the order is out. Defaults to `quantity`
+   * when absent (older callers/tests), matching pre-swap behavior.
+   */
+  checkedOutCount?: number;
+  /**
    * What kind of order this is, and how it bills — together they say whether
    * `endDate` is a real end (a one-time rental) or only a billing-period
    * boundary (a recurring rental/cloud order, which stays out until its
@@ -172,10 +181,17 @@ export function addBusinessDays(from: Date, days: number): Date {
 
 /**
  * When an order's units are due back, or `null` when none will ever be
- * promised. A scheduled `returnDate` always wins. Otherwise:
+ * promised. The type is checked first:
  *
  * - RENT_TO_OWN and SALE: the gear does not come back to the fleet — no
- *   candidate, ever.
+ *   candidate, ever, regardless of `returnDate`. A rental converted to RTO (or
+ *   sold outright) can still carry a `returnDate` left over from when it was a
+ *   rental; trusting that stale date would promise back gear that was never
+ *   coming back.
+ * - Every other type: a scheduled `returnDate` is firmer than a computed one
+ *   and wins immediately. This is deliberate for FLOW/RENTAL/CLOUD — it lets
+ *   an early return (a client sending gear back ahead of its term) pre-empt
+ *   the term math below, unlike RTO/SALE where no returnDate is ever honored.
  * - FLOW: `endDate` is already `startDate + flowTermMonths` (the builder sets
  *   it with the same month-stepping arithmetic as `termEnd`), so it is used
  *   directly once that agrees; a mismatch (stale data) falls back to the
@@ -190,8 +206,8 @@ export function addBusinessDays(from: Date, days: number): Date {
  *   never promised back.
  */
 function expectedReturnOf(order: CapacityOrder): Date | null {
-  if (order.returnDate) return order.returnDate;
   if (order.reservationType === "SALE" || order.reservationType === "RENT_TO_OWN") return null;
+  if (order.returnDate) return order.returnDate;
   if (order.reservationType === "FLOW") {
     const computed = order.flowTermMonths ? termEnd(order.startDate, order.flowTermMonths) : null;
     if (computed && dayOf(computed) === dayOf(order.endDate)) return order.endDate;
@@ -259,9 +275,20 @@ function assetFigures(
   let tentative = 0;
 
   for (const order of asset.orders) {
-    // Once an order is out, a unit checked back in is on the shelf again.
+    // Once an order is out, only units still with the client count. A unit
+    // swap bumps checkedOutCount and checkedInCount together (the old unit
+    // checks in, the new one checks out), so `quantity - checkedInCount`
+    // alone reads a swap as a partial return. What is still held is: whatever
+    // of the committed quantity hasn't been checked out yet (still-promised,
+    // not yet shipped) plus whatever has been checked out but not checked
+    // back in (physically out now).
     const quantity = OUT_WITH_CLIENT.includes(order.status)
-      ? Math.max(0, order.quantity - (order.checkedInCount ?? 0))
+      ? (() => {
+          const checkedOut = order.checkedOutCount ?? order.quantity;
+          const notYetShipped = Math.max(0, order.quantity - checkedOut);
+          const outNow = Math.max(0, checkedOut - (order.checkedInCount ?? 0));
+          return notYetShipped + outNow;
+        })()
       : order.quantity;
     if (quantity <= 0) continue;
     const startDay = dayOf(order.startDate);
