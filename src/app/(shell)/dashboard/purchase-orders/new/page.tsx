@@ -46,7 +46,9 @@ export default async function NewPurchaseOrderPage({
 
   const initial: POFormValues = {
     vendorId,
-    shipToLocationId: "",
+    // A new PO ships to the only location when there's just one (VFXnow LA),
+    // as v1 does since the test "LA Office" was merged away (2026-09-17).
+    shipToLocationId: options.locations.length === 1 ? options.locations[0].id : "",
     orderDate: new Date().toISOString().slice(0, 10),
     expectedDate: "",
     orderType: "",
