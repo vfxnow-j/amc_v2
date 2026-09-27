@@ -109,6 +109,7 @@ async function FormCard({
                 description: selected.description,
                 isConfigurable: selected.isConfigurable,
                 isComponent: selected.isComponent,
+                refurbBufferDays: selected.refurbBufferDays,
                 assets: selected.assets,
               }
             : null

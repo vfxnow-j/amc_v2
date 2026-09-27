@@ -15,6 +15,17 @@ export type CategoryFormData = {
   description?: string
   isConfigurable?: boolean
   isComponent?: boolean
+  /** Business days to turn a returned unit around (0–30). Omitted keeps the current value. */
+  refurbBufferDays?: number
+}
+
+/** A whole number of business days, 0–30, or an error a person can act on. */
+function refurbBuffer(value: number | undefined): number | undefined {
+  if (value === undefined) return undefined
+  if (!Number.isInteger(value) || value < 0 || value > 30) {
+    throw new Error('Refurb buffer must be a whole number of business days from 0 to 30')
+  }
+  return value
 }
 
 export async function getCategories(search?: string) {
@@ -65,12 +76,14 @@ export async function createCategory(data: CategoryFormData) {
     throw new Error('Category with this name already exists')
   }
 
+  const buffer = refurbBuffer(data.refurbBufferDays)
   const category = await prisma.assetCategory.create({
     data: {
       name: data.name,
       description: data.description,
       isConfigurable: data.isConfigurable ?? false,
       isComponent: data.isComponent ?? false,
+      ...(buffer !== undefined ? { refurbBufferDays: buffer } : {}),
     },
   })
 
@@ -83,6 +96,7 @@ export async function createCategory(data: CategoryFormData) {
       description: category.description,
       isConfigurable: category.isConfigurable,
       isComponent: category.isComponent,
+      refurbBufferDays: category.refurbBufferDays,
     },
   })
 
@@ -113,9 +127,11 @@ export async function updateCategory(id: string, data: CategoryFormData) {
   // Get old values for audit
   const oldCategory = await prisma.assetCategory.findUnique({ where: { id } })
 
+  const buffer = refurbBuffer(data.refurbBufferDays)
   const category = await prisma.assetCategory.update({
     where: { id },
     data: {
+      ...(buffer !== undefined ? { refurbBufferDays: buffer } : {}),
       name: data.name,
       description: data.description,
       ...(data.isConfigurable !== undefined ? { isConfigurable: data.isConfigurable } : {}),
@@ -132,12 +148,14 @@ export async function updateCategory(id: string, data: CategoryFormData) {
       description: oldCategory.description,
       isConfigurable: oldCategory.isConfigurable,
       isComponent: oldCategory.isComponent,
+      refurbBufferDays: oldCategory.refurbBufferDays,
     } : undefined,
     newValues: {
       name: category.name,
       description: category.description,
       isConfigurable: category.isConfigurable,
       isComponent: category.isComponent,
+      refurbBufferDays: category.refurbBufferDays,
     },
   })
 

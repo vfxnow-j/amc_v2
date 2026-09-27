@@ -16,6 +16,7 @@ export type CategoryDraft = {
   description: string | null;
   isConfigurable: boolean;
   isComponent: boolean;
+  refurbBufferDays: number;
   assets: number;
 };
 
@@ -47,6 +48,7 @@ export function CategoryForm({ category }: { category: CategoryDraft | null }) {
     category?.isConfigurable ?? false,
   );
   const [component, setComponent] = useState(category?.isComponent ?? false);
+  const [buffer, setBuffer] = useState(String(category?.refurbBufferDays ?? 2));
   const [error, setError] = useState("");
   const [confirming, setConfirming] = useState(false);
 
@@ -54,11 +56,17 @@ export function CategoryForm({ category }: { category: CategoryDraft | null }) {
     event.preventDefault();
     if (!name.trim()) return;
     setError("");
+    const bufferDays = Number(buffer);
+    if (buffer.trim() === "" || !Number.isInteger(bufferDays) || bufferDays < 0 || bufferDays > 30) {
+      setError("Refurb buffer must be a whole number of business days from 0 to 30.");
+      return;
+    }
     const payload = {
       name: name.trim(),
       description: description.trim() || undefined,
       isConfigurable: configurable,
       isComponent: component,
+      refurbBufferDays: bufferDays,
     };
     startTransition(async () => {
       try {
@@ -113,6 +121,26 @@ export function CategoryForm({ category }: { category: CategoryDraft | null }) {
           onChange={(event) => setDescription(event.target.value)}
           className="h-9 rounded-well border-0 bg-sunken px-3 text-detail text-ink outline-none focus-visible:ring-2 focus-visible:ring-ring"
         />
+      </label>
+
+      <label className="flex flex-col gap-[3px]">
+        <span className="text-micro uppercase text-ink-muted">
+          Refurb buffer (business days)
+        </span>
+        <input
+          type="number"
+          inputMode="numeric"
+          min={0}
+          max={30}
+          step={1}
+          value={buffer}
+          onChange={(event) => setBuffer(event.target.value)}
+          className="h-9 w-24 rounded-well border-0 bg-sunken px-3 text-detail text-ink outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        />
+        <span className="text-detail text-ink-muted">
+          How long a returned unit takes to check, wipe and restock. The client
+          portal adds it to the return date when it says when stock is next free.
+        </span>
       </label>
 
       <Toggle
