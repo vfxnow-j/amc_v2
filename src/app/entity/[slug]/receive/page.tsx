@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { Notice } from "@/components/feedback/notice";
-import { READONLY_NOTICE } from "@/components/entities/inventory/fields";
 import { ReceiveForm } from "@/components/entities/inventory/receive-form";
 import { PageHeader } from "@/components/shell/page-header";
 import { locationOptions } from "@/lib/entities/main-lookup";
@@ -22,9 +21,7 @@ export default async function ReceivePage({ params, searchParams }: { params: Pr
         blurb="Gear arriving into one of our locations."
         actions={<Link href={`/entity/${slug}/inventory/new`} className="h-9 flex-none rounded-pill bg-sunken px-3 text-pill leading-9 text-ink hover:bg-row-hover">New item</Link>}
       />
-      {!ctx.canWrite ? (
-        <Notice tone="error">{READONLY_NOTICE}</Notice>
-      ) : locations.length === 0 ? (
+      {locations.length === 0 ? (
         <Notice tone="error">There are no locations to store gear in yet. Add one under Settings → Locations first.</Notice>
       ) : (
         <ReceiveForm

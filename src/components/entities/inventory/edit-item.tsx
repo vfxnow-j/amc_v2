@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Modal, ModalCancel, ModalConfirm } from "@/components/feedback/modal";
 import { Notice } from "@/components/feedback/notice";
 import { updateItem } from "@/lib/actions/entity-inventory";
-import { PILL } from "./fields";
+import { NETWORK_ERROR, PILL } from "./fields";
 import { ItemFields, type ItemValues } from "./item-form";
 
 /** Edit an item's details. How it is tracked is shown, not editable: it decides what the ledger holds. */
@@ -19,7 +19,13 @@ export function EditItem({ slug, itemId, initial, trackingLabel }: { slug: strin
   function save() {
     setError(null);
     start(async () => {
-      const result = await updateItem(slug, itemId, value);
+      let result;
+      try {
+        result = await updateItem(slug, itemId, value);
+      } catch (e) {
+        console.error(e);
+        return setError(NETWORK_ERROR);
+      }
       if (result.status === "error") return setError(result.message);
       setOpen(false);
       router.refresh();

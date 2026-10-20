@@ -4,9 +4,9 @@ import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Notice } from "@/components/feedback/notice";
 import { importItems, type ImportOutcome } from "@/lib/actions/entity-import";
-import { MAX_CSV_BYTES } from "@/lib/entities/csv";
+import { MAX_CSV_BYTES } from "@/lib/entities/csv-limits";
 import { CSV_TEMPLATE } from "@/lib/entities/csv-template";
-import { AREA, Label, PILL, PRIMARY } from "./fields";
+import { AREA, Label, NETWORK_ERROR, PILL, PRIMARY } from "./fields";
 
 const MAX_BYTES = MAX_CSV_BYTES;
 const TEMPLATE_HREF = `data:text/csv;charset=utf-8,${encodeURIComponent(CSV_TEMPLATE)}`;
@@ -27,7 +27,17 @@ export function CsvImport({ slug }: { slug: string }) {
     setFileError(null);
     if (!file) return;
     if (file.size > MAX_BYTES) return setFileError(`That file is too large (${MAX_BYTES / 1000} KB at most; 500 rows fit comfortably).`);
-    setText(await file.text());
+    // Clear the input now so choosing the same file again fires onChange.
+    if (fileRef.current) fileRef.current.value = "";
+    let loaded: string;
+    try {
+      loaded = await file.text();
+    } catch (e) {
+      console.error(e);
+      return setFileError("That file couldn't be read. Try choosing it again.");
+    }
+    if (loaded.includes("\uFFFD")) setFileError("This file doesn't look like UTF-8; check names for garbled characters before importing.");
+    setText(loaded);
     setResult(null);
   }
 
@@ -38,8 +48,9 @@ export function CsvImport({ slug }: { slug: string }) {
       let r: ImportOutcome;
       try {
         r = await importItems(slug, sent, dryRun);
-      } catch {
-        r = { status: "error", message: "The request failed before it reached the server (is the file too large, or are you offline?). Nothing was imported." };
+      } catch (e) {
+        console.error(e);
+        r = { status: "error", message: `${NETWORK_ERROR} (Is the file too large, or are you offline?)` };
       }
       setResult(r);
       if (dryRun) setPreviewed(r.status === "ok" ? sent : null);

@@ -7,7 +7,7 @@ import { Notice } from "@/components/feedback/notice";
 import { receiveStock, receiveUnits } from "@/lib/actions/entity-inventory";
 import { businessToday, toDateInput } from "@/lib/billing/calendar";
 import { duplicateIdentity, matchesQuery, MAX_RECEIVE_UNITS, splitSerials, unitsToSend, type DraftUnit } from "@/lib/entities/screens";
-import { AREA, FIELD, Label, PILL, PRIMARY } from "./fields";
+import { AREA, FIELD, Label, NETWORK_ERROR, PILL, PRIMARY } from "./fields";
 import type { LocationChoice } from "./movement-form";
 
 export type ReceiveItem = { id: string; name: string; make: string; trackingMode: "SERIALIZED" | "QUANTITY" };
@@ -69,7 +69,13 @@ export function ReceiveForm({ slug, items, locations, initialItemId }: { slug: s
       const dup = duplicateIdentity(rows);
       if (dup) return setError(dup);
       start(async () => {
-        const result = await receiveUnits(slug, { ...common, itemId: item.id, units });
+        let result;
+        try {
+          result = await receiveUnits(slug, { ...common, itemId: item.id, units });
+        } catch (e) {
+          console.error(e);
+          return setError(NETWORK_ERROR);
+        }
         if (result.status === "error") return setError(result.message);
         setSaved({ message: result.message, itemId: item.id, itemName: item.name });
         setRows([blankRow()]);
@@ -78,7 +84,13 @@ export function ReceiveForm({ slug, items, locations, initialItemId }: { slug: s
       });
     } else {
       start(async () => {
-        const result = await receiveStock(slug, { ...common, itemId: item.id, quantity: Number(quantity) });
+        let result;
+        try {
+          result = await receiveStock(slug, { ...common, itemId: item.id, quantity: Number(quantity) });
+        } catch (e) {
+          console.error(e);
+          return setError(NETWORK_ERROR);
+        }
         if (result.status === "error") return setError(result.message);
         setSaved({ message: result.message === "Recorded." ? `${quantity} received.` : result.message, itemId: item.id, itemName: item.name });
         setQuantity(""); setReference(""); setNotes("");
@@ -122,6 +134,7 @@ export function ReceiveForm({ slug, items, locations, initialItemId }: { slug: s
                 <option value="">Choose a location…</option>
                 {locations.map((l) => <option key={l.id} value={l.id}>{l.path}</option>)}
               </select>
+              <span className="text-micro text-ink-faint">Choose where the gear will physically sit with us.</span>
             </Label>
             <div className="grid gap-2 sm:grid-cols-2">
               <Label text="Reference — optional"><input value={reference} maxLength={200} onChange={(e) => setReference(e.target.value)} className={FIELD} /></Label>
@@ -146,7 +159,8 @@ export function ReceiveForm({ slug, items, locations, initialItemId }: { slug: s
             </div>
             <div className="flex flex-col gap-1">
               <Label text="Paste serials — one per line">
-                <textarea value={paste} rows={3} onChange={(e) => setPaste(e.target.value)} className={AREA} />
+                <textarea value={paste} rows={3} placeholder="One serial per line. New lines, tabs and commas all separate serials." onChange={(e) => setPaste(e.target.value)} className={AREA} />
+                <span className="text-micro text-ink-faint">Lines, tabs and commas all separate serials, so paste a single column from a spreadsheet.</span>
               </Label>
               <div className="flex items-center gap-3">
                 <button type="button" className={PILL} disabled={!paste.trim()} onClick={addPasted}>Add pasted serials</button>

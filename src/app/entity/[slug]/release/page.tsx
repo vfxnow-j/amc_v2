@@ -1,13 +1,11 @@
 import Link from "next/link";
 import { ReleaseBoard, type BoardRow } from "@/components/entities/inventory/release-board";
-import { READONLY_NOTICE } from "@/components/entities/inventory/fields";
-import { Notice } from "@/components/feedback/notice";
 import { ListSearch } from "@/components/list/list-search";
 import { Card } from "@/components/record/record-card";
 import { PageHeader } from "@/components/shell/page-header";
 import { BUSINESS_TIME_ZONE } from "@/lib/billing/calendar";
 import { locationNames, locationOptions, userNames } from "@/lib/entities/main-lookup";
-import { latestReleases, matchesQuery, parseQuery, parseTab } from "@/lib/entities/screens";
+import { latestReleases, matchesQuery, parseQuery, parseTab, releaseKey } from "@/lib/entities/screens";
 import { getDeployed, getUnitsByLocation } from "@/lib/queries/entity-inventory";
 import { getReleasesFor } from "@/lib/queries/entity-screens";
 import { gateEntityPage } from "../../gate";
@@ -27,7 +25,7 @@ export default async function ReleasePage({ params, searchParams }: { params: Pr
 
   let rows: BoardRow[] = [];
   let total = 0;
-  const locations = ctx.canWrite ? await locationOptions() : [];
+  const locations = await locationOptions();
 
   if (tab === "release") {
     const { units, stock } = await getUnitsByLocation(ctx.db);
@@ -72,13 +70,13 @@ export default async function ReleasePage({ params, searchParams }: { params: Pr
       ...units
         .filter((u) => matchesQuery(q, u.item.name, u.serial, u.ownerTag, u.scanTag))
         .map((u): BoardRow => ({
-          key: u.id, itemId: u.itemId, itemName: u.item.name, detail: [u.serial, u.ownerTag, u.scanTag].filter(Boolean).join(" · ") || "Unit", where: at(u.currentLocationId), since: since(`u:${u.id}`),
+          key: u.id, itemId: u.itemId, itemName: u.item.name, detail: [u.serial, u.ownerTag, u.scanTag].filter(Boolean).join(" · ") || "Unit", where: at(u.currentLocationId), since: since(releaseKey.unit(u.id)),
           target: { kind: "unit", type: "RETURN", unitId: u.id, itemName: u.item.name, label: u.serial || u.ownerTag || u.scanTag || "Unit", fromName: u.currentLocationId ? at(u.currentLocationId) : null },
         })),
       ...stock
         .filter((s) => matchesQuery(q, s.item.name))
         .map((s): BoardRow => ({
-          key: s.id, itemId: s.itemId, itemName: s.item.name, detail: `${s.quantity} counted`, where: at(s.locationId), since: since(`s:${s.itemId}:${s.locationId}`),
+          key: s.id, itemId: s.itemId, itemName: s.item.name, detail: `${s.quantity} counted`, where: at(s.locationId), since: since(releaseKey.stock(s.itemId, s.locationId)),
           target: { kind: "stock", type: "RETURN", itemId: s.itemId, itemName: s.item.name, fromLocationId: s.locationId, fromName: at(s.locationId), available: s.quantity },
         })),
     ];
@@ -105,13 +103,12 @@ export default async function ReleasePage({ params, searchParams }: { params: Pr
           </>
         }
       />
-      {!ctx.canWrite ? <Notice tone="error">{READONLY_NOTICE}</Notice> : null}
       <Card title={tab === "release" ? "In storage" : "Deployed"} meta={q ? `${rows.length} of ${total}` : `${rows.length}`}>
         <ReleaseBoard
           slug={slug}
           rows={rows}
           locations={locations}
-          canWrite={ctx.canWrite}
+          canWrite
           whereLabel={tab === "release" ? "Stored at" : "Deployed at"}
           empty={empty}
         />

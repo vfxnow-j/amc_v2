@@ -13,8 +13,12 @@ import { gateEntityPage } from "../../gate";
 export default async function LogPage({ params, searchParams }: { params: Promise<{ slug: string }>; searchParams: Promise<{ item?: string | string[]; type?: string | string[] }> }) {
   const { slug } = await params;
   const ctx = await gateEntityPage(slug);
-  const filter = parseLogFilter(await searchParams);
-  const [movements, items] = await Promise.all([getLog(ctx.db, filter), getItems(ctx.db)]);
+  const asked = parseLogFilter(await searchParams);
+  const items = await getItems(ctx.db);
+  // An item id that is not in this entity (stale link, other entity) is ignored, and said so.
+  const unknownItem = !!asked.itemId && !items.some((i) => i.id === asked.itemId);
+  const filter = { itemId: unknownItem ? null : asked.itemId, type: asked.type };
+  const movements = await getLog(ctx.db, filter);
 
   // Two batched lookups for the whole page, not one per row.
   const [places, people] = await Promise.all([
@@ -22,15 +26,14 @@ export default async function LogPage({ params, searchParams }: { params: Promis
     userNames(movements.map((m) => m.actorUserId)),
   ]);
   const filtered = !!(filter.itemId || filter.type);
-  const knownItem = filter.itemId ? items.find((i) => i.id === filter.itemId) : null;
 
   return (
     <>
       <PageHeader eyebrow={ctx.entity.name} title="Movement log" blurb="Every receive, move, release and return, newest first. Nothing here is ever edited; a mistake is logged as a correction." />
-      <form method="get" className="flex flex-wrap items-end gap-3 rounded-card bg-panel px-4 py-3 shadow-sm">
+      <form key={`${filter.itemId ?? ""}|${filter.type ?? ""}`} method="get" className="flex flex-wrap items-end gap-3 rounded-card bg-panel px-4 py-3 shadow-sm">
         <label className="flex min-w-48 flex-col gap-[3px]">
           <span className="text-micro uppercase text-ink-muted">Item</span>
-          <select name="item" defaultValue={knownItem ? knownItem.id : ""} className={FIELD}>
+          <select name="item" defaultValue={filter.itemId ?? ""} className={FIELD}>
             <option value="">All items</option>
             {items.map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}
           </select>
@@ -45,6 +48,7 @@ export default async function LogPage({ params, searchParams }: { params: Promis
         <button type="submit" className={`${PILL} h-9`}>Filter</button>
         {filtered ? <Link href={`/entity/${slug}/log`} className="h-9 text-pill leading-9 text-ink-muted hover:text-ink">Clear</Link> : null}
       </form>
+      {unknownItem ? <p className="text-detail text-ink-muted">That item isn&apos;t in this entity, so the item filter was ignored.</p> : null}
       <Card title="Movements" meta={`latest ${movements.length}`}>
         <MovementLog
           slug={slug}

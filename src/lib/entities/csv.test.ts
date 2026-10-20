@@ -147,3 +147,11 @@ test('groupRows caps a long error list', () => {
   assert.equal(errors.length, 51)
   assert.match(errors[50], /and 30 more/)
 })
+
+test('a line break inside a serial or owner tag cell is refused with its line number', () => {
+  const a = parseItemCsv(`${header}\nRack,,,,serialized,"SN\n1",,,Warehouse A`)
+  assert.equal(a.rows.length, 0)
+  assert.match(a.errors[0], /^Line 2: serial and owner tag must be on one line/)
+  const b = parseItemCsv(`${header}\nRack,,,,serialized,SN1,"A\r\n1",,Warehouse A`)
+  assert.match(b.errors[0], /^Line 2: serial and owner tag must be on one line/)
+})

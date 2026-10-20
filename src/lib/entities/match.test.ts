@@ -38,3 +38,19 @@ test('findSiteMatch is case/space-insensitive and deterministic', () => {
   assert.equal(findSiteMatch(sites, '  STAGE   9')?.id, 'a')
   assert.equal(findSiteMatch([...sites].reverse(), 'stage 9')?.id, 'a')
 })
+
+test('findSiteMatch ties go to oldest createdAt, then id, regardless of name casing or input order', () => {
+  const tie = [
+    { id: 'z', name: 'Dock', createdAt: day(1) },
+    { id: 'm', name: 'dock', createdAt: day(1) },
+    { id: 'a', name: 'DOCK', createdAt: day(2) },
+  ]
+  assert.equal(findSiteMatch(tie, 'dock')?.id, 'm')
+  assert.equal(findSiteMatch([...tie].reverse(), 'dock')?.id, 'm')
+})
+
+test('normKey: NFC vs NFD agree, zero-width characters vanish, fullwidth stays distinct', () => {
+  assert.equal(normKey('Café'), normKey('Café'))
+  assert.equal(normKey('Sta​ge‍ 9﻿'), 'stage 9')
+  assert.notEqual(normKey('ＡＢＣ'), normKey('ABC'))
+})

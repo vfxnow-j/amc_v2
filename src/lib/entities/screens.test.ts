@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  duplicateIdentity, groupDeployed, groupStored, latestReleases, matchesQuery, parseLogFilter, parseQuery, parseTab, splitSerials, unitsToSend,
+  duplicateIdentity, groupDeployed, groupStored, latestReleases, matchesQuery, releaseKey, parseLogFilter, parseQuery, parseTab, splitSerials, unitsToSend,
   type PlacedStock, type PlacedUnit,
 } from './screens'
 
@@ -104,4 +104,25 @@ test('latestReleases keeps the newest real release, skipping corrections and han
   assert.equal(m.get('u:u1')?.actorUserId, 'b')
   assert.equal(m.get('s:q:L2')?.actorUserId, 'a')
   assert.equal(m.size, 2)
+})
+
+test('releaseKey shapes are what latestReleases produces', () => {
+  assert.equal(releaseKey.unit('u1'), 'u:u1')
+  assert.equal(releaseKey.stock('i', 'L2'), 's:i:L2')
+  const base = { type: 'RELEASE', correctsId: null, finalToOwner: false, unitId: 'u1', itemId: 'i', toLocationId: 'L2', actorUserId: 'a', recipient: null }
+  const m = latestReleases([{ ...base, occurredAt: new Date('2026-01-01') }, { ...base, unitId: null, occurredAt: new Date('2026-01-02') }])
+  assert.deepEqual([...m.keys()].sort(), [releaseKey.stock('i', 'L2'), releaseKey.unit('u1')].sort())
+})
+
+test('release, return, release again: the second release wins; return and hand-back never count', () => {
+  const base = { correctsId: null, finalToOwner: false, unitId: 'u1', itemId: 'i', toLocationId: 'L2', actorUserId: 'a', recipient: 'R' }
+  const m = latestReleases([
+    { ...base, type: 'RELEASE', actorUserId: 'first', occurredAt: new Date('2026-01-01') },
+    { ...base, type: 'RETURN', actorUserId: 'ret', occurredAt: new Date('2026-02-01') },
+    { ...base, type: 'RELEASE', actorUserId: 'second', occurredAt: new Date('2026-03-01') },
+    { ...base, type: 'RELEASE', finalToOwner: true, actorUserId: 'handback', occurredAt: new Date('2026-04-01') },
+    { ...base, type: 'RELEASE', correctsId: 'x', actorUserId: 'fix', occurredAt: new Date('2026-05-01') },
+  ])
+  assert.equal(m.get(releaseKey.unit('u1'))?.actorUserId, 'second')
+  assert.equal(m.size, 1)
 })

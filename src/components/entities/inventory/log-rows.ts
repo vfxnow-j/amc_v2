@@ -14,7 +14,7 @@ type MovementRecord = {
 
 /** One ledger row as plain strings, ready for a client component (dates already in the business timezone). */
 export type LogRow = {
-  id: string; label: string; correction: boolean; item: string; unit: string | null; quantity: number | null
+  id: string; label: string; correction: boolean; correctsId: string | null; item: string; unit: string | null; quantity: number | null
   from: string | null; to: string | null; recipient: string | null; destination: string | null
   reference: string | null; shipping: string | null; notes: string | null; who: string; when: string
 }
@@ -25,6 +25,7 @@ export function toLogRows(movements: MovementRecord[], places: Map<string, strin
     id: m.id,
     label: movementLabel(m),
     correction: !!m.correctsId,
+    correctsId: m.correctsId,
     item: m.item.name,
     unit: m.unit ? (m.unit.serial || m.unit.ownerTag || "Unit") : null,
     quantity: m.correctsId || m.unitId ? null : m.quantity,
@@ -38,4 +39,10 @@ export function toLogRows(movements: MovementRecord[], places: Map<string, strin
     who: people.get(m.actorUserId) ?? "Unknown user",
     when: WHEN.format(m.occurredAt),
   }));
+}
+
+/** What a correction points at; the original may be older than the rows loaded. */
+export function correctsText(original: LogRow | undefined): string {
+  if (!original) return "Corrects an older entry";
+  return `Corrects the ${original.label.toLowerCase()} of ${original.item}${original.unit ? ` · ${original.unit}` : ""} on ${original.when}`;
 }

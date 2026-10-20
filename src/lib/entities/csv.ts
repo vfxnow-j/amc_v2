@@ -6,6 +6,9 @@
  */
 import { itemIdentity } from '@/lib/entities/match'
 import { quantityProblem } from '@/lib/entities/ledger'
+import { MAX_CSV_BYTES } from '@/lib/entities/csv-limits'
+
+export { MAX_CSV_BYTES }
 
 export type ParsedRow = {
   name: string; manufacturer?: string; model?: string; category?: string
@@ -14,8 +17,6 @@ export type ParsedRow = {
 export type ParsedLine = ParsedRow & { line: number }
 
 export const MAX_IMPORT_ROWS = 500
-/** 500 rows never needs more; well under Next's 1 MB server-action body limit. */
-export const MAX_CSV_BYTES = 256_000
 const MAX_ERRORS = 50
 const REQUIRED = ['name', 'tracking', 'location']
 const LIMITS: Record<string, number> = { name: 200, manufacturer: 200, model: 200, category: 100, serial: 200, owner_tag: 200, location: 200 }
@@ -90,6 +91,7 @@ export function parseItemCsv(input: string): { rows: ParsedRow[]; errors: string
     const tracking = (col(cells, 'tracking') ?? '').toUpperCase()
     const location = col(cells, 'location')
     if (!name) { errors.push(`Line ${n}: name is empty.`); continue }
+    if (/[\r\n]/.test(col(cells, 'serial') ?? '') || /[\r\n]/.test(col(cells, 'owner_tag') ?? '')) { errors.push(`Line ${n}: serial and owner tag must be on one line (no line break inside the cell).`); continue }
     if (tracking !== 'SERIALIZED' && tracking !== 'QUANTITY') { errors.push(`Line ${n}: tracking must be serialized or quantity.`); continue }
     if (!location) { errors.push(`Line ${n}: location is empty.`); continue }
     if (['name', 'manufacturer', 'model'].some((c) => /[\r\n]/.test(col(cells, c) ?? ''))) { errors.push(`Line ${n}: name, manufacturer and model can't contain a line break.`); continue }

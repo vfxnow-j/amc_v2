@@ -6,7 +6,7 @@ import { Modal, ModalCancel, ModalConfirm } from "@/components/feedback/modal";
 import { Notice } from "@/components/feedback/notice";
 import { moveStock, moveUnit } from "@/lib/actions/entity-inventory";
 import { businessToday, toDateInput } from "@/lib/billing/calendar";
-import { AREA, FIELD, Label } from "./fields";
+import { AREA, FIELD, Label, NETWORK_ERROR } from "./fields";
 
 export type MovementType = "MOVE" | "RELEASE" | "RETURN";
 export type LocationChoice = { id: string; name: string; path: string };
@@ -67,10 +67,16 @@ export function MovementForm({
       ...(finalHandBack ? {} : dest === NEW_SITE ? { newSiteName: siteName, newSiteAddress: siteAddress } : { toLocationId: dest }),
     };
     start(async () => {
-      const result =
-        target.kind === "unit"
-          ? await moveUnit(slug, { ...common, unitId: target.unitId, type: t })
-          : await moveStock(slug, { ...common, itemId: target.itemId, type: t, fromLocationId: target.fromLocationId, quantity: Number(quantity) });
+      let result;
+      try {
+        result =
+          target.kind === "unit"
+            ? await moveUnit(slug, { ...common, unitId: target.unitId, type: t })
+            : await moveStock(slug, { ...common, itemId: target.itemId, type: t, fromLocationId: target.fromLocationId, quantity: Number(quantity) });
+      } catch (e) {
+        console.error(e);
+        return setError(NETWORK_ERROR);
+      }
       if (result.status === "error") return setError(result.message);
       router.refresh();
       // The action says which existing site a typed name matched; the client's own name match is only the fallback.

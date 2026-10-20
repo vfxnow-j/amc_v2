@@ -5,8 +5,8 @@ import { useRouter } from "next/navigation";
 import { Modal, ModalCancel, ModalConfirm } from "@/components/feedback/modal";
 import { Notice } from "@/components/feedback/notice";
 import { correctMovement } from "@/lib/actions/entity-inventory";
-import { AREA, Label, PILL } from "./fields";
-import type { LogRow } from "./log-rows";
+import { AREA, Label, NETWORK_ERROR, PILL } from "./fields";
+import { correctsText, type LogRow } from "./log-rows";
 
 /**
  * The ledger as a list. A correction is a zero-quantity MOVE row that points at
@@ -25,7 +25,13 @@ export function MovementLog({ slug, rows, canWrite, empty = "No movements yet." 
     if (!target) return;
     setError(null);
     start(async () => {
-      const result = await correctMovement(slug, target.id, note);
+      let result;
+      try {
+        result = await correctMovement(slug, target.id, note);
+      } catch (e) {
+        console.error(e);
+        return setError(NETWORK_ERROR);
+      }
       if (result.status === "error") return setError(result.message);
       setSent(result.message);
       setTarget(null);
@@ -33,6 +39,7 @@ export function MovementLog({ slug, rows, canWrite, empty = "No movements yet." 
     });
   }
 
+  const byId = new Map(rows.map((r) => [r.id, r]));
   if (rows.length === 0) return <p className="px-4 pb-4 text-body text-ink-muted">{empty}</p>;
 
   return (
@@ -52,6 +59,7 @@ export function MovementLog({ slug, rows, canWrite, empty = "No movements yet." 
             {m.destination ? <span className="text-ink-muted">({m.destination})</span> : null}
             {m.reference ? <span className="text-ink-muted">ref {m.reference}</span> : null}
             {m.shipping ? <span className="text-ink-muted">{m.shipping}</span> : null}
+            {m.correctsId ? <span className="w-full text-detail text-ink-muted">{correctsText(byId.get(m.correctsId))}</span> : null}
             {m.notes ? <span className="w-full text-detail text-ink-muted">{m.correction ? <em>{m.notes}</em> : m.notes}</span> : null}
             <span className="ml-auto flex items-center gap-3 text-detail text-ink-faint">
               {m.who} · {m.when}

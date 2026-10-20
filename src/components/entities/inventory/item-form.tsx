@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Notice } from "@/components/feedback/notice";
 import { createItem } from "@/lib/actions/entity-inventory";
-import { AREA, FIELD, Label, PRIMARY } from "./fields";
+import { AREA, FIELD, Label, NETWORK_ERROR, PRIMARY } from "./fields";
 
 export type ItemValues = { name: string; manufacturer: string; model: string; category: string; description: string; notes: string };
 export const EMPTY_ITEM: ItemValues = { name: "", manufacturer: "", model: "", category: "", description: "", notes: "" };
@@ -35,7 +35,13 @@ export function ItemForm({ slug }: { slug: string }) {
   function save() {
     setError(null);
     start(async () => {
-      const result = await createItem(slug, { ...value, trackingMode: mode });
+      let result;
+      try {
+        result = await createItem(slug, { ...value, trackingMode: mode });
+      } catch (e) {
+        console.error(e);
+        return setError(NETWORK_ERROR);
+      }
       if (result.status === "error") return setError(result.message);
       router.push(result.id ? `/entity/${slug}/inventory/${result.id}` : `/entity/${slug}/inventory`);
     });

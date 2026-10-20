@@ -14,4 +14,6 @@ export function Label({ children, text }: { children: React.ReactNode; text: str
   );
 }
 
+/** Shown when a server action rejects (session expired, network drop) rather than returning an error result. */
+export const NETWORK_ERROR = "Couldn't reach the server. Nothing was saved.";
 export const READONLY_NOTICE = "Your role can look at this entity but not change it.";

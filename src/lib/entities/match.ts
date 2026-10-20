@@ -7,9 +7,9 @@
  * the normalised key here instead.
  */
 
-/** Trim, lowercase, collapse inner whitespace. Two names are "the same" when their keys are equal. */
+/** NFC-normalise (not NFKC: fullwidth stays distinct), drop zero-width characters, trim, lowercase, collapse inner whitespace. Two names are "the same" when their keys are equal. */
 export function normKey(s: string | null | undefined): string {
-  return (s ?? '').trim().replace(/\s+/g, ' ').toLowerCase()
+  return (s ?? '').normalize('NFC').replace(/[\u200B-\u200D\uFEFF]/g, '').trim().replace(/\s+/g, ' ').toLowerCase()
 }
 
 /** Escapes % _ and \ for a LIKE/ILIKE pattern, for contains-style SEARCH filters only (never identity). */
@@ -28,12 +28,11 @@ export const itemIdentity = (r: { name: string; manufacturer?: string | null; mo
 
 /**
  * The existing site a typed name refers to, or undefined. Candidates are compared on the
- * normalised key only (so "%" or "Stage_9" are literal text); ties go to the same name order,
- * then oldest, then id, so the choice is deterministic.
+ * normalised key only (so "%" or "Stage_9" are literal text); ties go to the oldest (createdAt), then id, so the choice is deterministic.
  */
 export function findSiteMatch<T extends { id: string; name: string; createdAt: Date }>(all: T[], name: string): T | undefined {
   const want = normKey(name)
   return all
     .filter((l) => normKey(l.name) === want)
-    .sort((a, b) => a.name.localeCompare(b.name) || a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id))[0]
+    .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id))[0]
 }

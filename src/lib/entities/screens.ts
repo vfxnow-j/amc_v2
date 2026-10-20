@@ -131,16 +131,22 @@ export type ReleaseMovement = {
 }
 export type ReleaseNote = { actorUserId: string; occurredAt: Date; recipient: string | null }
 
+/** The one place the keys of `latestReleases` are spelled, so the producer and the release page cannot drift apart. */
+export const releaseKey = {
+  unit: (unitId: string) => `u:${unitId}`,
+  stock: (itemId: string, locationId: string) => `s:${itemId}:${locationId}`,
+}
+
 /**
- * The most recent real RELEASE for each unit (key "u:<unitId>") and for each
- * stock row (key "s:<itemId>:<locationId>", by where it went). Corrections and
+ * The most recent real RELEASE for each unit (`releaseKey.unit`) and for each
+ * stock row (`releaseKey.stock`, by where it went). Corrections and
  * final hand-backs are not releases to a site.
  */
 export function latestReleases(movements: ReleaseMovement[]): Map<string, ReleaseNote> {
   const out = new Map<string, ReleaseNote>()
   for (const m of movements) {
     if (m.type !== 'RELEASE' || m.correctsId || m.finalToOwner) continue
-    const key = m.unitId ? `u:${m.unitId}` : m.toLocationId ? `s:${m.itemId}:${m.toLocationId}` : null
+    const key = m.unitId ? releaseKey.unit(m.unitId) : m.toLocationId ? releaseKey.stock(m.itemId, m.toLocationId) : null
     if (!key) continue
     const have = out.get(key)
     if (!have || have.occurredAt < m.occurredAt) out.set(key, { actorUserId: m.actorUserId, occurredAt: m.occurredAt, recipient: m.recipient })
