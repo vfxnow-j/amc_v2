@@ -17,3 +17,6 @@ src/lib/dashboard/type-totals.test.ts (4 tests, pass); glob added to package.jso
 ## Not verified
 Not viewed in a browser (type-checked and unit-tested only). Note Earned covers the window up to now while Quoted covers the whole window (month's forecast), as before.
 Earned and Quoted could overlap only if a deal with an open quote also has earned revenue from a different order; this was already the case in the old table.
+
+## Follow-up: label rename (owner decision)
+The Earned column is now labelled Revenue in the dashboard table (header, tooltip, comments) and the catalog blurb. Calculation, field names, queries and other screens unchanged. No tests asserted on the label.

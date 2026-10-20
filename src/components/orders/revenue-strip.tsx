@@ -19,11 +19,11 @@ const FILTER_FOR: Record<string, string> = {
  * Dashboard: where the money comes from, split by the same types the Orders
  * list is split by: one table, one row per type, plus a Total row.
  *
- * **Earned** is accrual-basis revenue recognized inside the window (the real
+ * **Revenue** is accrual-basis revenue recognized inside the window (the real
  * "revenue stream" figure; not the same as invoiced). **Quoted** is counted
  * open quotes at their stage weight (sent 60%, draft or revision 40%, one
  * version per deal), ex-tax, from Forecast so the two screens agree; a week or
- * a day is the month's figure pro-rated by days. **Potential** is earned plus
+ * a day is the month's figure pro-rated by days. **Potential** is revenue plus
  * quoted. The Total row sums every type in whole cents (lib/dashboard/type-totals).
  *
  * A type showing earned zero with money behind it is a real limit of the data:
@@ -52,11 +52,11 @@ export async function RevenueStrip({ range }: { range: Range }) {
           className={`grid ${columns} gap-x-3 px-2 pb-1 text-micro uppercase text-ink-muted`}
         >
           <span>Type</span>
-          <span className="text-right">Earned</span>
+          <span className="text-right">Revenue</span>
           <span className="text-right" title="Open quotes at their stage weight">
             Quoted
           </span>
-          <span className="text-right" title="Earned plus weighted quoted">
+          <span className="text-right" title="Revenue plus weighted quoted">
             Potential
           </span>
         </div>

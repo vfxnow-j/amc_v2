@@ -169,7 +169,7 @@ export const TILE_CATALOG: Record<TileId, TileMeta> = {
     id: "revenue-by-type",
     title: "Revenue by order type",
     blurb:
-      "Where the money comes from by order type — earned, weighted quotes and the potential total for the period, with a total row.",
+      "Where the money comes from by order type — revenue, weighted quotes and the potential total for the period, with a total row.",
     category: "How we are trading",
     size: {
       default: { w: 12, h: 5 },
