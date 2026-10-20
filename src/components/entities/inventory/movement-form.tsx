@@ -73,7 +73,9 @@ export function MovementForm({
           : await moveStock(slug, { ...common, itemId: target.itemId, type: t, fromLocationId: target.fromLocationId, quantity: Number(quantity) });
       if (result.status === "error") return setError(result.message);
       router.refresh();
-      if (matched) setUsedSite(matched.path); // say which existing site the name matched, then let them close
+      // The action says which existing site a typed name matched; the client's own name match is only the fallback.
+      const used = result.usedSite ?? (matched ? matched.path : null);
+      if (used) setUsedSite(used);
       else onClose();
     });
   }

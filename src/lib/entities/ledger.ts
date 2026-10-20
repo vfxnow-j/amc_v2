@@ -10,6 +10,7 @@
  * ledger happens here, not in the action.
  */
 import type { EntityDb } from "@/lib/entities/client";
+import { itemIdentity } from "@/lib/entities/match";
 import { applyStockMovement, applyUnitMovement, type StockRow, type UnitState } from "@/lib/entities/movements";
 
 export type LedgerResult = { ok: true; itemId: string } | { ok: false; reason: string };
@@ -280,7 +281,12 @@ export type ImportItemPlan = {
   units: { serial?: string | null; ownerTag?: string | null; locationId: string }[]
   stock: { locationId: string; quantity: number }[]
 }
-export type ImportSummary = { name: string; created: boolean; units: number; quantity: number }
+export type ImportSummary = {
+  name: string; created: boolean; units: number; quantity: number
+  /** The item written to: the existing one that was matched, or the new one. */
+  itemId: string; itemName: string; itemMake: string | null
+  locationIds: string[]
+}
 export type ImportResult = { ok: true; items: ImportSummary[]; dryRun: boolean } | { ok: false; reason: string }
 
 /** Thrown to roll a dry run back after it has run exactly the real work. */
@@ -288,14 +294,13 @@ class DryRunDone extends Error {
   constructor(readonly items: ImportSummary[]) { super("dry run"); }
 }
 
-const ci = (v: string) => ({ equals: v, mode: "insensitive" as const });
-
 /**
  * Import resolved items in ONE transaction, using the same per-unit write as a receipt and the same
  * stock rules and rows as a stock receipt. Any refusal rolls the whole file back. A dry run executes
  * the identical code and then rolls back, so its preview cannot differ from the real result.
  *
- * Items are found by name, manufacturer and model (case-insensitive) or created. Re-importing a file
+ * Items are found by name, manufacturer and model (compared in JS on a normalised key, never with
+ * SQL ILIKE, where % and _ would be wildcards) or created. Re-importing a file
  * is refused rather than doubled: a serial or owner tag the item already has is an error, and a
  * quantity row for an item that already holds stock is an error (use a stock receipt for more).
  */
@@ -303,11 +308,12 @@ export async function importItemsTx(db: EntityDb, input: { actorUserId: string; 
   const meta: MovementMeta = { actorUserId: input.actorUserId, notes: "CSV import" };
   const run = async (tx: Tx): Promise<ImportSummary[]> => {
     const summaries: ImportSummary[] = [];
+    const all = await tx.item.findMany({ orderBy: [{ createdAt: "asc" }, { id: "asc" }] });
+    const known = new Map<string, (typeof all)[number]>();
+    for (const i of all) if (!known.has(itemIdentity(i))) known.set(itemIdentity(i), i);
     for (const plan of input.items) {
       const category = blank(plan.category);
-      let item = await tx.item.findFirst({
-        where: { name: ci(plan.name), manufacturer: blank(plan.manufacturer) ? ci(blank(plan.manufacturer)!) : null, model: blank(plan.model) ? ci(blank(plan.model)!) : null },
-      });
+      let item = known.get(itemIdentity(plan)) ?? null;
       const created = !item;
       if (item && item.trackingMode !== plan.trackingMode) throw new Refusal(`${plan.name} already exists and is tracked ${item.trackingMode === "SERIALIZED" ? "by unit" : "by quantity"}.`);
       item ??= await tx.item.create({
@@ -344,7 +350,11 @@ export async function importItemsTx(db: EntityDb, input: { actorUserId: string; 
         }
         if (rows.length) await tx.stock.createMany({ data: rows.map((r) => ({ itemId: item.id, ...r })) });
       }
-      summaries.push({ name: plan.name, created, units: plan.units.length, quantity });
+      known.set(itemIdentity(plan), item);
+      summaries.push({
+        name: plan.name, created, units: plan.units.length, quantity, itemId: item.id, itemName: item.name, itemMake: [item.manufacturer, item.model].filter(Boolean).join(" ") || null,
+        locationIds: [...new Set([...plan.units.map((u) => u.locationId), ...plan.stock.map((x) => x.locationId)])],
+      });
     }
     return summaries;
   };

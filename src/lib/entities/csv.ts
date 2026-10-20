@@ -4,7 +4,8 @@
  * header case/spacing are tolerated. Line numbers in messages are physical lines
  * of the file, so a person can find the row in a spreadsheet or editor.
  */
-import { MAX_QUANTITY, quantityProblem } from '@/lib/entities/ledger'
+import { itemIdentity } from '@/lib/entities/match'
+import { quantityProblem } from '@/lib/entities/ledger'
 
 export type ParsedRow = {
   name: string; manufacturer?: string; model?: string; category?: string
@@ -13,6 +14,8 @@ export type ParsedRow = {
 export type ParsedLine = ParsedRow & { line: number }
 
 export const MAX_IMPORT_ROWS = 500
+/** 500 rows never needs more; well under Next's 1 MB server-action body limit. */
+export const MAX_CSV_BYTES = 256_000
 const MAX_ERRORS = 50
 const REQUIRED = ['name', 'tracking', 'location']
 const LIMITS: Record<string, number> = { name: 200, manufacturer: 200, model: 200, category: 100, serial: 200, owner_tag: 200, location: 200 }
@@ -39,6 +42,7 @@ function records(text: string): { records: RawRecord[] } | { unterminatedAt: num
     if (quoted) {
       if (c === '"' && text[i + 1] === '"') { cell += '"'; i++ }
       else if (c === '"') quoted = false
+      else if (c === '\r') { if (text[i + 1] === '\n') continue; line++; cell += '\n' }
       else { if (c === '\n') line++; cell += c }
     } else if (c === '"') { quoted = true; quoteLine = line }
     else if (c === ',') { cells.push(cell.trim()); cell = '' }
@@ -53,8 +57,12 @@ function records(text: string): { records: RawRecord[] } | { unterminatedAt: num
 
 const normaliseHeader = (h: string) => h.trim().toLowerCase().replace(/[\s-]+/g, '_')
 
-export const itemKey = (r: { name: string; manufacturer?: string; model?: string }) =>
-  [r.name, r.manufacturer ?? '', r.model ?? ''].map((s) => s.trim().toLowerCase()).join('\u0000')
+export const itemKey = itemIdentity
+
+/** Long lists of problems are cut so the message stays readable. */
+export function capErrors(errors: string[]): string[] {
+  return errors.length > MAX_ERRORS ? [...errors.slice(0, MAX_ERRORS), `...and ${errors.length - MAX_ERRORS} more problems.`] : errors
+}
 
 export function parseItemCsv(input: string): { rows: ParsedRow[]; errors: string[] } {
   const parsed = records(input.replace(/^﻿/, ''))
@@ -84,17 +92,20 @@ export function parseItemCsv(input: string): { rows: ParsedRow[]; errors: string
     if (!name) { errors.push(`Line ${n}: name is empty.`); continue }
     if (tracking !== 'SERIALIZED' && tracking !== 'QUANTITY') { errors.push(`Line ${n}: tracking must be serialized or quantity.`); continue }
     if (!location) { errors.push(`Line ${n}: location is empty.`); continue }
+    if (['name', 'manufacturer', 'model'].some((c) => /[\r\n]/.test(col(cells, c) ?? ''))) { errors.push(`Line ${n}: name, manufacturer and model can't contain a line break.`); continue }
     const tooLong = Object.entries(LIMITS).find(([c, max]) => (col(cells, c)?.length ?? 0) > max)
     if (tooLong) { errors.push(`Line ${n}: ${tooLong[0]} is too long (${tooLong[1]} characters at most).`); continue }
     const quantityText = col(cells, 'quantity')
-    const quantity = quantityText ? Number(quantityText) : undefined
+    let quantity: number | undefined
     if (tracking === 'QUANTITY') {
-      if (quantity === undefined || Number.isNaN(quantity) || quantityProblem(quantity)) {
-        errors.push(quantity !== undefined && quantity > MAX_QUANTITY
-          ? `Line ${n}: ${quantityProblem(quantity)}`
-          : `Line ${n}: a quantity item needs a whole-number quantity above zero.`)
-        continue
-      }
+      if (col(cells, 'serial') || col(cells, 'owner_tag')) { errors.push(`Line ${n}: a quantity item has no serial or owner tag; leave them blank.`); continue }
+      if (quantityText === undefined || !/^\d+$/.test(quantityText)) { errors.push(`Line ${n}: a quantity item needs a whole-number quantity above zero.`); continue }
+      quantity = Number(quantityText)
+      const problem = quantityProblem(quantity)
+      if (problem) { errors.push(`Line ${n}: ${problem}`); continue }
+    } else if (quantityText !== undefined && quantityText !== '1') {
+      errors.push(`Line ${n}: a serialized item is one unit per row; quantity must be blank or 1 (list each unit on its own row).`)
+      continue
     }
     const row: ParsedRow = {
       name, manufacturer: col(cells, 'manufacturer'), model: col(cells, 'model'), category: col(cells, 'category'),
@@ -113,7 +124,7 @@ export function parseItemCsv(input: string): { rows: ParsedRow[]; errors: string
     rows.push(row)
     lineOf.set(row, n)
   }
-  return { rows, errors: errors.length > MAX_ERRORS ? [...errors.slice(0, MAX_ERRORS), `...and ${errors.length - MAX_ERRORS} more problems.`] : errors }
+  return { rows, errors: capErrors(errors) }
 }
 
 const lineOf = new WeakMap<ParsedRow, number>()
@@ -145,5 +156,5 @@ export function groupRows(rows: ParsedRow[]): { groups: ImportGroup[]; errors: s
       errors.push(`${where}${r.name} is listed at ${r.location} more than once; combine the quantities into one row.`)
     } else g.stock.push({ location: r.location, quantity: r.quantity! })
   }
-  return { groups: [...groups.values()], errors }
+  return { groups: [...groups.values()], errors: capErrors(errors) }
 }

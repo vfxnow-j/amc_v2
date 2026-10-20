@@ -37,11 +37,11 @@ export function StockTable({ slug, itemId, itemName, stock, locations, canWrite 
                 {canWrite ? (
                   <td className="flex gap-2 py-2">
                     {s.deployed ? (
-                      <button type="button" className={PILL} onClick={() => open(s, "RETURN")}>Return</button>
+                      <button type="button" className={PILL} aria-label={`Return ${itemName} at ${s.locationName}`} onClick={() => open(s, "RETURN")}>Return</button>
                     ) : (
                       <>
-                        <button type="button" className={PILL} onClick={() => open(s, "MOVE")}>Move</button>
-                        <button type="button" className={PILL} onClick={() => open(s, "RELEASE")}>Release</button>
+                        <button type="button" className={PILL} aria-label={`Move ${itemName} at ${s.locationName}`} onClick={() => open(s, "MOVE")}>Move</button>
+                        <button type="button" className={PILL} aria-label={`Release ${itemName} at ${s.locationName}`} onClick={() => open(s, "RELEASE")}>Release</button>
                       </>
                     )}
                   </td>

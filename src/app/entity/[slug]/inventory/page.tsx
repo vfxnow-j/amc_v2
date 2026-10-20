@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ListSearch } from "@/components/list/list-search";
 import { ListTable, type Column, type Row } from "@/components/list/list-table";
 import { PageHeader } from "@/components/shell/page-header";
+import { parseQuery } from "@/lib/entities/screens";
 import { getItems } from "@/lib/queries/entity-inventory";
 import { gateEntityPage } from "../../gate";
 
@@ -16,10 +17,10 @@ const COLUMNS: Column[] = [
 
 const BUTTON = "h-9 flex-none rounded-pill bg-sunken px-3 text-pill leading-9 text-ink hover:bg-row-hover";
 
-export default async function InventoryPage({ params, searchParams }: { params: Promise<{ slug: string }>; searchParams: Promise<{ q?: string }> }) {
+export default async function InventoryPage({ params, searchParams }: { params: Promise<{ slug: string }>; searchParams: Promise<{ q?: string | string[] }> }) {
   const { slug } = await params;
   const ctx = await gateEntityPage(slug);
-  const q = (await searchParams).q?.trim() ?? "";
+  const q = parseQuery((await searchParams).q);
   const items = await getItems(ctx.db, q);
   const base = `/entity/${slug}/inventory`;
 

@@ -6,8 +6,11 @@
  */
 import { Pool } from "pg";
 import { dropFailedEntityDatabase, provisionEntityDatabase } from "@/lib/entities/provision";
-import { entityDb, entityUrl } from "@/lib/entities/client";
+import { entityDb } from "@/lib/entities/client";
+import { entityUrl } from "@/lib/entities/url";
 import { buildPlans } from "@/lib/entities/import-plan";
+import { getItems } from "@/lib/queries/entity-inventory";
+import { findSiteMatch } from "@/lib/entities/match";
 import { groupRows, parseItemCsv } from "@/lib/entities/csv";
 import { importItemsTx, receiveUnitsTx, writeCorrection, writeStockMovement, writeUnitMovement } from "@/lib/entities/ledger";
 
@@ -180,6 +183,31 @@ const refused = (r: { ok: boolean }, label: string, reason?: RegExp & { source: 
     refused(await runImport(`${H}\nCat6 cable,,,,quantity,,,5,Warehouse A`, false), "a quantity row for an item that already holds stock is refused", /already holds stock/);
     ok("...and the stock is unchanged", (await db.stock.findMany({ where: { itemId: cat6.id } })).reduce((n, r) => n + r.quantity, 0) === 50);
     refused(await runImport(`${H}\nRack server,Dell,R740,,quantity,,,5,Warehouse A`, false), "an existing serialized item cannot be imported as quantity", /by unit/);
+
+    // Identity is never ILIKE: % _ and \\ are literal, case variants still match.
+    const countItems = (name: string) => db.item.count({ where: { name } });
+    await db.item.create({ data: { name: "Cable-A", trackingMode: "SERIALIZED" } });
+    const wild = await runImport(`${H}\nCable_A,,,,serialized,W1,,,Warehouse A`, false);
+    ok("importing Cable_A does not land on the existing Cable-A", wild.ok && !wild.dryRun && wild.items[0].created && (await countItems("Cable_A")) === 1 && (await db.unit.count({ where: { item: { name: "Cable-A" } } })) === 0);
+    const wildDry = await runImport(`${H}\ncable-a,,,,serialized,W2,,,Warehouse A`, true);
+    ok("a case variant matches the existing item, and the preview names it", wildDry.ok && wildDry.items[0].created === false && wildDry.items[0].itemName === "Cable-A" && wildDry.items[0].itemId.length > 0);
+    const bs1 = await runImport(`${H}\nBack\\Slash,,,,serialized,K1,,,Warehouse A`, false);
+    const bs2 = await runImport(`${H}\nback\\slash,,,,serialized,K2,,,Warehouse A`, false);
+    ok("a name with a backslash re-imports onto itself (one item, two units), case-insensitively", bs1.ok && bs2.ok && !bs2.dryRun && bs2.items[0].created === false && (await db.item.count({ where: { name: { in: ["Back\\Slash", "back\\slash"] } } })) === 1 && (await db.unit.count({ where: { item: { name: "Back\\Slash" } } })) === 2);
+    await db.item.create({ data: { name: "50% off", trackingMode: "SERIALIZED" } });
+    await db.item.create({ data: { name: "50x off", trackingMode: "SERIALIZED" } });
+    ok("a search for % finds only the literal %", (await getItems(db, "%")).map((i) => i.name).join() === "50% off");
+    ok("a search for _ finds nothing here (no literal underscore except Cable_A)", (await getItems(db, "_")).map((i) => i.name).join() === "Cable_A");
+    const now = new Date();
+    const sitesList = [{ id: "s1", name: "Stage 9", createdAt: now }, { id: "s2", name: "%", createdAt: now }];
+    ok("site matching: createSite's picker finds a site literally named % and never reuses another for it", findSiteMatch(sitesList, "%")?.id === "s2" && findSiteMatch([sitesList[0]], "%") === undefined && findSiteMatch(sitesList, "Stage %") === undefined);
+
+    // 500-unit import timing (informational).
+    const bigCsv = Array.from({ length: 500 }, (_, i) => `Bulk import,,,,serialized,BI${i},,,Warehouse A`).join("\n");
+    const t1 = Date.now();
+    const bigRes = await runImport(`${H}\n${bigCsv}`, false);
+    console.log(`     500-row import took ${Date.now() - t1} ms`);
+    ok("a 500-row import succeeds with 500 units", bigRes.ok && (await db.unit.count({ where: { item: { name: "Bulk import" } } })) === 500);
   } catch (error) {
     failed++;
     console.log("FAIL", "unexpected error:", (error as Error).message);

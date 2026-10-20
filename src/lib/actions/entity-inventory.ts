@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { EntityAccessError, requireEntity, type EntityContext } from "@/lib/entities/context";
-import { createSite, existingLocationIds } from "@/lib/entities/main-lookup";
+import { existingLocationIds, findOrCreateSite, type SiteResult } from "@/lib/entities/main-lookup";
 import { parseOccurredAt } from "@/lib/entities/dates";
 import {
   check, correctionSchema, idSchema, itemSchema, itemUpdateSchema, receiveUnitsSchema, stockMoveSchema, unitMoveSchema,
@@ -12,13 +12,22 @@ import {
   type LedgerResult, type MovementMeta,
 } from "@/lib/entities/ledger";
 
-export type EntityOutcome = { status: "ok"; message: string; id?: string } | { status: "error"; message: string };
+export type EntityOutcome = { status: "ok"; message: string; id?: string; /** Set when a typed new-site name matched a site that already existed. */ usedSite?: string } | { status: "error"; message: string };
 
 const fail = (message: string): EntityOutcome => ({ status: "error", message });
-const done = (slug: string, message: string, id?: string): EntityOutcome => {
+const done = (slug: string, message: string, id?: string, usedSite?: string): EntityOutcome => {
   revalidatePath(`/entity/${slug}`, "layout");
-  return { status: "ok", message, id };
+  return { status: "ok", message, id, usedSite };
 };
+
+/** Collects what the injected site finder did, so the outcome can say which existing site was used. */
+function siteRecorder(actorUserId: string) {
+  let used: SiteResult | null = null;
+  return {
+    makeSite: async (name: string, address?: string) => { used = await findOrCreateSite(name, address, actorUserId); return used.id; },
+    existing: () => (used && (used as SiteResult).existed ? (used as SiteResult).name : undefined),
+  };
+}
 
 /** Every action: the gate (write access to this entity), then the work. */
 async function guarded(slug: string, run: (c: EntityContext) => Promise<EntityOutcome>): Promise<EntityOutcome> {
@@ -32,8 +41,8 @@ async function guarded(slug: string, run: (c: EntityContext) => Promise<EntityOu
 }
 
 /** Turns the ledger's answer into the outcome a screen shows. */
-function outcome(slug: string, result: LedgerResult, message: string): EntityOutcome {
-  return result.ok ? done(slug, message, result.itemId) : fail(result.reason);
+function outcome(slug: string, result: LedgerResult, message: string, usedSite?: string): EntityOutcome {
+  return result.ok ? done(slug, usedSite ? `${message} Used the existing site “${usedSite}”.` : message, result.itemId, usedSite) : fail(result.reason);
 }
 
 type Common = { reference?: string | null; notes?: string | null; occurredAt?: string | null };
@@ -136,11 +145,12 @@ export async function moveUnit(slug: string, input: UnitMoveInput): Promise<Enti
     if (typeof m === "string") return fail(m);
     const missing = await missingLocation([d.toLocationId]);
     if (missing) return fail(missing);
+    const sites = siteRecorder(c.userId);
     const result = await writeUnitMovement(c.db, {
       ...m, unitId: d.unitId, type: d.type, toLocationId: d.toLocationId,
-      newSite: { name: d.newSiteName, address: d.newSiteAddress }, makeSite: (name, address) => createSite(name, address, c.userId),
+      newSite: { name: d.newSiteName, address: d.newSiteAddress }, makeSite: sites.makeSite,
     });
-    return outcome(slug, result, { MOVE: "Moved.", RELEASE: "Released.", RETURN: "Returned." }[d.type]);
+    return outcome(slug, result, { MOVE: "Moved.", RELEASE: "Released.", RETURN: "Returned." }[d.type], sites.existing());
   });
 }
 
@@ -164,11 +174,12 @@ export async function moveStock(slug: string, input: StockMoveInput): Promise<En
     if (typeof m === "string") return fail(m);
     const missing = await missingLocation([d.toLocationId, d.type === "RECEIVE" ? null : d.fromLocationId]);
     if (missing) return fail(missing);
+    const sites = siteRecorder(c.userId);
     const result = await writeStockMovement(c.db, {
       ...m, itemId: d.itemId, type: d.type, quantity: d.quantity, fromLocationId: d.fromLocationId,
-      toLocationId: d.toLocationId, newSite: { name: d.newSiteName, address: d.newSiteAddress }, makeSite: (name, address) => createSite(name, address, c.userId),
+      toLocationId: d.toLocationId, newSite: { name: d.newSiteName, address: d.newSiteAddress }, makeSite: sites.makeSite,
     });
-    return outcome(slug, result, "Recorded.");
+    return outcome(slug, result, "Recorded.", sites.existing());
   });
 }
 

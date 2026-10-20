@@ -1,4 +1,5 @@
 import type { EntityDb } from "@/lib/entities/client";
+import { escapeLike } from "@/lib/entities/match";
 
 /*
  * Reads for the inventory screens. Each takes an EntityDb and is called only by
@@ -10,16 +11,20 @@ import type { EntityDb } from "@/lib/entities/client";
  */
 
 export async function getItems(db: EntityDb, search?: string) {
-  const term = search?.trim();
-  const items = await db.item.findMany({
-    where: term ? { OR: [{ name: { contains: term, mode: "insensitive" } }, { manufacturer: { contains: term, mode: "insensitive" } }, { model: { contains: term, mode: "insensitive" } }] } : undefined,
-    include: { category: true, stock: true, units: { select: { status: true } } },
-    orderBy: { name: "asc" },
-  });
+  // The user's % and _ are literal text in a search, not wildcards.
+  const term = search?.trim().slice(0, 100);
+  const like = term ? escapeLike(term) : null;
+  const where = like
+    ? { OR: [{ name: { contains: like, mode: "insensitive" as const } }, { manufacturer: { contains: like, mode: "insensitive" as const } }, { model: { contains: like, mode: "insensitive" as const } }] }
+    : undefined;
+  const items = await db.item.findMany({ where, include: { category: true, stock: true }, orderBy: { name: "asc" } });
+  // Unit counts by status, not every unit row: an item can hold hundreds.
+  const counts = await db.unit.groupBy({ by: ["itemId", "status"], where: { itemId: { in: items.map((i) => i.id) } }, _count: { _all: true } });
+  const unitCount = (id: string, status: string) => counts.find((c) => c.itemId === id && c.status === status)?._count._all ?? 0;
   return items.map((i) => ({
     id: i.id, name: i.name, manufacturer: i.manufacturer, model: i.model, category: i.category?.name ?? null, trackingMode: i.trackingMode,
-    inStorage: i.trackingMode === "SERIALIZED" ? i.units.filter((u) => u.status === "IN_STORAGE").length : i.stock.filter((s) => !s.deployed).reduce((n, s) => n + s.quantity, 0),
-    deployed: i.trackingMode === "SERIALIZED" ? i.units.filter((u) => u.status === "DEPLOYED").length : i.stock.filter((s) => s.deployed).reduce((n, s) => n + s.quantity, 0),
+    inStorage: i.trackingMode === "SERIALIZED" ? unitCount(i.id, "IN_STORAGE") : i.stock.filter((s) => !s.deployed).reduce((n, s) => n + s.quantity, 0),
+    deployed: i.trackingMode === "SERIALIZED" ? unitCount(i.id, "DEPLOYED") : i.stock.filter((s) => s.deployed).reduce((n, s) => n + s.quantity, 0),
   }));
 }
 

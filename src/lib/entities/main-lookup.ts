@@ -1,6 +1,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { logAudit } from "@/lib/actions/audit";
+import { findSiteMatch } from "@/lib/entities/match";
 
 /**
  * Entity code's only reach into the main database: read-only name lookups,
@@ -53,13 +54,16 @@ export async function existingLocationIds(ids: string[]): Promise<Set<string>> {
  * access, which is a role the main app's requireEditor also accepts (it is not
  * re-run here because it would need a second session lookup).
  */
-export async function createSite(name: string, address: string | undefined, actorUserId: string) {
+export type SiteResult = { id: string; name: string; existed: boolean };
+
+export async function findOrCreateSite(name: string, address: string | undefined, actorUserId: string): Promise<SiteResult> {
   const clean = name.trim();
   if (!clean || clean.length > 120) throw new Error("A site name must be 1 to 120 characters.");
   const addr = address?.trim() || null;
   if (addr && addr.length > 300) throw new Error("A site address must be 300 characters or fewer.");
-  const existing = await prisma.location.findFirst({ where: { name: { equals: clean, mode: "insensitive" } }, select: { id: true } });
-  if (existing) return existing.id;
+  // Matched in JS on a normalised key, never with ILIKE: "%" or "Stage_9" would otherwise be wildcards and reuse another site.
+  const existing = findSiteMatch(await prisma.location.findMany({ select: { id: true, name: true, createdAt: true } }), clean);
+  if (existing) return { id: existing.id, name: existing.name, existed: true };
   const site = await prisma.location.create({ data: { name: clean, address: addr } });
   await logAudit({
     action: "CREATE", entityType: "Location", entityId: site.id, userId: actorUserId,
@@ -67,5 +71,10 @@ export async function createSite(name: string, address: string | undefined, acto
   });
   revalidatePath("/dashboard/settings/locations");
   revalidatePath("/dashboard/assets");
-  return site.id;
+  return { id: site.id, name: site.name, existed: false };
+}
+
+/** Same as findOrCreateSite, returning just the id. */
+export async function createSite(name: string, address: string | undefined, actorUserId: string) {
+  return (await findOrCreateSite(name, address, actorUserId)).id;
 }

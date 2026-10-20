@@ -1,5 +1,5 @@
 /** Pure steps between a parsed file and the ledger: resolve location text, build plans, word the preview. */
-import type { ImportGroup } from '@/lib/entities/csv'
+import { capErrors, type ImportGroup } from '@/lib/entities/csv'
 import type { ImportItemPlan, ImportSummary } from '@/lib/entities/ledger'
 
 export type LocationOption = { id: string; name: string; path: string }
@@ -34,12 +34,16 @@ export function buildPlans(groups: ImportGroup[], options: LocationOption[]): { 
     units: g.units.flatMap((u) => { const r = resolve(u.location); return r.ok ? [{ serial: u.serial, ownerTag: u.ownerTag, locationId: r.id }] : [] }),
     stock: g.stock.flatMap((s) => { const r = resolve(s.location); return r.ok ? [{ locationId: r.id, quantity: s.quantity }] : [] }),
   }))
-  return errors.length ? { plans: [], errors } : { plans, errors }
+  return errors.length ? { plans: [], errors: capErrors(errors) } : { plans, errors }
 }
 
-export function describeImport(items: ImportSummary[]): string[] {
+/** One line per item: what is written, to which item (an existing match is named, with its id), and where. */
+export function describeImport(items: ImportSummary[], placeOf: (id: string) => string = (id) => id): string[] {
   return items.map((i) => {
     const what = i.units ? `${i.units} unit${i.units === 1 ? '' : 's'}` : `${i.quantity} in stock`
-    return `${i.name}: ${what}, ${i.created ? 'new item' : 'existing item'}`
+    const make = i.itemMake ? ` (${i.itemMake})` : ''
+    const which = i.created ? 'new item' : `existing item “${i.itemName}”${make} [${i.itemId}]`
+    const where = i.locationIds.length ? `, at ${i.locationIds.map(placeOf).join('; ')}` : ''
+    return `${i.name}: ${what}, ${which}${where}`
   })
 }

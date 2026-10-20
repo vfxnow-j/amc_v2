@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { EntityAccessError, requireEntity } from "@/lib/entities/context";
-import { groupRows, parseItemCsv } from "@/lib/entities/csv";
+import { groupRows, MAX_CSV_BYTES, parseItemCsv } from "@/lib/entities/csv";
 import { buildPlans, describeImport } from "@/lib/entities/import-plan";
 import { importItemsTx } from "@/lib/entities/ledger";
 import { locationOptions } from "@/lib/entities/main-lookup";
@@ -15,7 +15,7 @@ export type ImportOutcome =
 
 const inputSchema = z.strictObject({
   slug: z.string().min(1, "Missing entity.").max(64, "That entity is not valid."),
-  csv: z.string("Choose a file or paste its contents.").max(1_000_000, "The file is too large (1 MB at most)."),
+  csv: z.string("Choose a file or paste its contents.").max(MAX_CSV_BYTES, `The file is too large (${MAX_CSV_BYTES / 1000} KB at most; 500 rows fit comfortably).`),
   dryRun: z.boolean("Preview or import?"),
 });
 
@@ -44,13 +44,14 @@ export async function importItems(slug: string, csv: string, dryRun: boolean): P
       if (!p.ok) return fail(`${g.name}: ${p.message}`);
     }
 
-    const built = buildPlans(grouped.groups, await locationOptions());
+    const options = await locationOptions();
+    const built = buildPlans(grouped.groups, options);
     if (built.errors.length) return fail(built.errors.join("\n"));
 
     const result = await importItemsTx(c.db, { actorUserId: c.userId, items: built.plans, dryRun: input.data.dryRun });
     if (!result.ok) return fail(result.reason);
 
-    const lines = describeImport(result.items);
+    const lines = describeImport(result.items, (id) => options.find((o) => o.id === id)?.path ?? "a location");
     const created = result.items.filter((i) => i.created).length;
     if (result.dryRun) {
       return { status: "ok", dryRun: true, created, lines, message: `Preview only; nothing was saved. ${created} new item${created === 1 ? "" : "s"} would be created.` };

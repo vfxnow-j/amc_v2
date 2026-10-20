@@ -4,10 +4,11 @@ import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Notice } from "@/components/feedback/notice";
 import { importItems, type ImportOutcome } from "@/lib/actions/entity-import";
+import { MAX_CSV_BYTES } from "@/lib/entities/csv";
 import { CSV_TEMPLATE } from "@/lib/entities/csv-template";
 import { AREA, Label, PILL, PRIMARY } from "./fields";
 
-const MAX_BYTES = 1_000_000;
+const MAX_BYTES = MAX_CSV_BYTES;
 const TEMPLATE_HREF = `data:text/csv;charset=utf-8,${encodeURIComponent(CSV_TEMPLATE)}`;
 
 /** Paste or choose a CSV, preview it (writes nothing), then import exactly what was previewed. */
@@ -25,15 +26,21 @@ export function CsvImport({ slug }: { slug: string }) {
   async function onFile(file: File | undefined) {
     setFileError(null);
     if (!file) return;
-    if (file.size > MAX_BYTES) return setFileError("That file is too large (1 MB at most).");
+    if (file.size > MAX_BYTES) return setFileError(`That file is too large (${MAX_BYTES / 1000} KB at most; 500 rows fit comfortably).`);
     setText(await file.text());
     setResult(null);
   }
 
   function run(dryRun: boolean) {
     const sent = text;
+    if (new Blob([sent]).size > MAX_BYTES) return setResult({ status: "error", message: `That is too large (${MAX_BYTES / 1000} KB at most).` });
     start(async () => {
-      const r = await importItems(slug, sent, dryRun);
+      let r: ImportOutcome;
+      try {
+        r = await importItems(slug, sent, dryRun);
+      } catch {
+        r = { status: "error", message: "The request failed before it reached the server (is the file too large, or are you offline?). Nothing was imported." };
+      }
       setResult(r);
       if (dryRun) setPreviewed(r.status === "ok" ? sent : null);
       else if (r.status === "ok") {

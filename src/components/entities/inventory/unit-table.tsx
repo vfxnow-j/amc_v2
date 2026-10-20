@@ -9,6 +9,7 @@ export type UnitRow = {
   status: "IN_STORAGE" | "DEPLOYED" | "RETURNED_TO_OWNER"; locationName: string | null
 }
 
+const unitName = (u: UnitRow) => u.serial || u.ownerTag || u.scanTag || "unit";
 const STATUS = { IN_STORAGE: "In storage", DEPLOYED: "Deployed", RETURNED_TO_OWNER: "Returned to owner" } as const;
 
 /** Serialized units with Move / Release / Return per row. The dialog is owned here so it outlives the refresh a save causes. */
@@ -47,11 +48,11 @@ export function UnitTable({ slug, itemName, units, locations, canWrite }: {
                   <td className="flex gap-2 py-2">
                     {u.status === "IN_STORAGE" ? (
                       <>
-                        <button type="button" className={PILL} onClick={() => open(u, "MOVE")}>Move</button>
-                        <button type="button" className={PILL} onClick={() => open(u, "RELEASE")}>Release</button>
+                        <button type="button" className={PILL} aria-label={`Move ${itemName} ${unitName(u)}`} onClick={() => open(u, "MOVE")}>Move</button>
+                        <button type="button" className={PILL} aria-label={`Release ${itemName} ${unitName(u)}`} onClick={() => open(u, "RELEASE")}>Release</button>
                       </>
                     ) : null}
-                    {u.status === "DEPLOYED" ? <button type="button" className={PILL} onClick={() => open(u, "RETURN")}>Return</button> : null}
+                    {u.status === "DEPLOYED" ? <button type="button" className={PILL} aria-label={`Return ${itemName} ${unitName(u)}`} onClick={() => open(u, "RETURN")}>Return</button> : null}
                   </td>
                 ) : null}
               </tr>

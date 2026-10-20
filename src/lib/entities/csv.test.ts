@@ -45,8 +45,8 @@ test('CRLF line endings and a trailing newline', () => {
 })
 
 test('a quoted newline stays inside its field and later line numbers stay physical', () => {
-  const { rows, errors } = parseItemCsv(`${header}\n"Two\nlines",,,,serialized,S1,,,W\n,,,,serialized,,,,W`)
-  assert.equal(rows[0].name, 'Two\nlines')
+  const { rows, errors } = parseItemCsv(`${header}\nA,,,"Two\nlines",serialized,S1,,,W\n,,,,serialized,,,,W`)
+  assert.equal(rows[0].category, 'Two\nlines')
   assert.match(errors[0], /line 4/i)
 })
 
@@ -105,4 +105,45 @@ test('groupRows keeps quantity rows at different locations', () => {
   const { groups, errors } = groupRows(rows)
   assert.deepEqual(errors, [])
   assert.deepEqual(groups[0].stock, [{ location: 'W', quantity: 5 }, { location: 'Shelf', quantity: 7 }])
+})
+
+test('a serialized row with a quantity above one is refused', () => {
+  const { rows, errors } = parseItemCsv(`${header}\nMonitor,,,,serialized,S1,,5,W\nOK,,,,serialized,S2,,1,W\nOK2,,,,serialized,S3,,,W`)
+  assert.equal(rows.length, 2)
+  assert.match(errors[0], /line 2/i)
+  assert.match(errors[0], /one unit per row/)
+})
+
+test('a quantity row with a serial or owner tag is refused', () => {
+  const { errors } = parseItemCsv(`${header}\nCable,,,,quantity,SN1,,5,W\nCable2,,,,quantity,,T1,5,W`)
+  assert.equal(errors.length, 2)
+  assert.match(errors[0], /line 2/i)
+  assert.match(errors[1], /line 3/i)
+})
+
+test('quantity must be plain digits', () => {
+  for (const bad of ['0x10', '0b11', '1e3', '40.0', '-5', '+5', '1_000', ' ', '0']) {
+    const { errors } = parseItemCsv(`${header}\nCable,,,,quantity,,,"${bad}",W`)
+    assert.equal(errors.length, 1, `quantity ${JSON.stringify(bad)} should be refused`)
+  }
+  assert.deepEqual(parseItemCsv(`${header}\nCable,,,,quantity,,,0040,W`).errors, [])
+})
+
+test('newlines are refused in name, manufacturer and model, kept in a quoted CRLF as one \n elsewhere', () => {
+  const { errors } = parseItemCsv(`${header}\n"Two\r\nlines",,,,serialized,S1,,,W`)
+  assert.match(errors[0], /line 2/i)
+  assert.match(errors[0], /line break/)
+})
+
+test('a bare CR counts as a line for numbering', () => {
+  const { errors } = parseItemCsv(`${header}\rA,,,,serialized,S1,,,W\r,,,,serialized,,,,W`)
+  assert.match(errors[0], /line 3/i)
+})
+
+test('groupRows caps a long error list', () => {
+  const body = Array.from({ length: 80 }, (_, i) => `A${i},,,,quantity,,,5,W\nA${i},,,,quantity,,,5,W`).join('\n')
+  const { rows } = parseItemCsv(`${header}\n${body}`)
+  const { errors } = groupRows(rows)
+  assert.equal(errors.length, 51)
+  assert.match(errors[50], /and 30 more/)
 })

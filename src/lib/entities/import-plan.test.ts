@@ -46,8 +46,11 @@ test('buildPlans produces ids for a clean file', () => {
   assert.deepEqual(plans[1].stock, [{ locationId: 'l2', quantity: 5 }])
 })
 
-test('describeImport words the preview', () => {
-  const lines = describeImport([{ name: 'Rack', created: true, units: 3, quantity: 0 }, { name: 'Cable', created: false, units: 0, quantity: 40 }])
-  assert.equal(lines[0], 'Rack: 3 units, new item')
-  assert.equal(lines[1], 'Cable: 40 in stock, existing item')
+test('describeImport names the matched existing item and the places', () => {
+  const lines = describeImport([
+    { name: 'Rack', created: true, units: 3, quantity: 0, itemId: 'i1', itemName: 'Rack', itemMake: null, locationIds: ['l1'] },
+    { name: 'cable', created: false, units: 0, quantity: 40, itemId: 'i2', itemName: 'Cable', itemMake: 'Belden', locationIds: ['l1', 'l2'] },
+  ], (id) => options.find((o) => o.id === id)!.name)
+  assert.equal(lines[0], 'Rack: 3 units, new item, at Warehouse A')
+  assert.equal(lines[1], 'cable: 40 in stock, existing item “Cable” (Belden) [i2], at Warehouse A; Shelf 3')
 })

@@ -56,7 +56,7 @@ export function MovementLog({ slug, rows, canWrite, empty = "No movements yet." 
             <span className="ml-auto flex items-center gap-3 text-detail text-ink-faint">
               {m.who} · {m.when}
               {canWrite && !m.correction ? (
-                <button type="button" className={PILL} onClick={() => { setTarget(m); setNote(""); setError(null); setSent(null); }}>
+                <button type="button" className={PILL} aria-label={`Correct ${m.label} of ${m.item}${m.unit ? ` ${m.unit}` : ""}, ${m.when}`} onClick={() => { setTarget(m); setNote(""); setError(null); setSent(null); }}>
                   Correct
                 </button>
               ) : null}

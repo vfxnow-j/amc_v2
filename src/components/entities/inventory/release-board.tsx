@@ -40,7 +40,7 @@ export function ReleaseBoard({ slug, rows, locations, canWrite, whereLabel, empt
                 {rows.some((x) => x.since) ? <td className="py-2 pr-3 text-ink-muted">{r.since ?? "—"}</td> : null}
                 {canWrite ? (
                   <td className="py-2">
-                    <button type="button" className={PILL} onClick={() => setTarget(r.target)}>{r.target.type === "RETURN" ? "Return" : "Release"}</button>
+                    <button type="button" className={PILL} aria-label={`${r.target.type === "RETURN" ? "Return" : "Release"} ${r.itemName} ${r.detail} ${r.where}`} onClick={() => setTarget(r.target)}>{r.target.type === "RETURN" ? "Return" : "Release"}</button>
                   </td>
                 ) : null}
               </tr>
