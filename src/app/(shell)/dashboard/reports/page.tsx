@@ -35,7 +35,7 @@ export default function ReportsPage() {
         }
       />
 
-      <Card title="The six reports" meta="what each one answers">
+      <Card title="The reports" meta="what each one answers">
         <ul className="grid gap-[2px] px-2 pb-3 sm:grid-cols-2 xl:grid-cols-3">
           {REPORTS.map((report) => (
             <li key={report.href}>

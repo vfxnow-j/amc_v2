@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 /**
- * The six reports, and the question each one exists to answer.
+ * The reports, and the question each one exists to answer.
  *
  * One list, used by the index and by every child's back link, so a report can
  * never be named two things. The blurb is the question in the reader's words —
@@ -37,6 +37,12 @@ export const REPORTS: ReportEntry[] = [
     title: "Pricing",
     answers:
       "Which assets take too long to pay for themselves at the rate they are let at.",
+  },
+  {
+    href: "/dashboard/reports/sale-lifecycle",
+    title: "Sale lifecycle",
+    answers:
+      "Each sold unit from purchase to sale: what it cost, earned on rental and netted after fees.",
   },
   {
     href: "/dashboard/reports/stock-count",
