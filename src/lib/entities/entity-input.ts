@@ -64,6 +64,11 @@ export function checkEntityInput(
   }
   const slug = slugify(r.data.name);
   if (!slug) return { ok: false, message: "Give the entity a name with letters or numbers in it." };
+  // `zz` is reserved for throwaway test databases (vfxnow_ent_zz_*), which the
+  // backup scripts deliberately skip; a real entity must never match that.
+  if (slug === "zz" || slug.startsWith("zz-")) {
+    return { ok: false, message: "Names starting with “zz” are reserved for tests. Choose another name." };
+  }
   return { ok: true, data: { ...r.data, modules: cleanModules(r.data.modules), slug } };
 }
 

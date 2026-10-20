@@ -46,3 +46,11 @@ test("slugPreview", () => {
   assert.equal(slugPreview("Zz Test Co"), "zz-test-co");
   assert.equal(slugPreview("???"), "");
 });
+
+test("the zz prefix is reserved so a real entity can never look like a throwaway database", () => {
+  const ok = { name: "Acme", modules: [] };
+  assert.equal(checkEntityInput({ ...ok, name: "ZZ Check" }).ok, false);
+  assert.equal(checkEntityInput({ ...ok, name: "zz" }).ok, false);
+  assert.equal(checkEntityInput({ ...ok, name: "Zzyzx Rentals" }).ok, true);
+  assert.equal(checkEntityInput({ ...ok, name: "Jazz Zz" }).ok, true);
+});

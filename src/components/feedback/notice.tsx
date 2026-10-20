@@ -34,8 +34,8 @@ export function Notice({
   className,
   children,
 }: {
-  /** `error` announces assertively; `ok` announces politely. */
-  tone: "error" | "ok";
+  /** `error` announces assertively; `ok` and `warn` (amber, needs a look) politely. */
+  tone: "error" | "ok" | "warn";
   /** Spacing only — the caller owns where it sits, not what it looks like. */
   className?: string;
   children: ReactNode;
@@ -43,7 +43,9 @@ export function Notice({
   const palette =
     tone === "error"
       ? "bg-destructive/10 text-destructive"
-      : "bg-accent-tint text-accent-on-tint";
+      : tone === "warn"
+        ? "bg-warning/10 text-warning"
+        : "bg-accent-tint text-accent-on-tint";
 
   return (
     <div

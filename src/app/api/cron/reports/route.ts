@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { alertOnBackupProblems } from "@/lib/backups/alert";
 import { REPORT_KEYS, isReportKey, type ReportKey } from "@/lib/notifications/reports/registry";
 import { emailState, runDailySweep, runDueReports, runReportNow } from "@/lib/notifications/reports/run";
 
@@ -51,5 +52,9 @@ export async function POST(request: NextRequest) {
     return null;
   });
   const reports = await runDueReports(now);
-  return NextResponse.json({ ok: true, at: now.toISOString(), sweep, reports, email });
+  const backups = await alertOnBackupProblems(now).catch((error) => {
+    console.error("Backup alert check failed:", error);
+    return null;
+  });
+  return NextResponse.json({ ok: true, at: now.toISOString(), sweep, reports, backups, email });
 }

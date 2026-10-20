@@ -11,7 +11,13 @@
  * plus the newest set overall (which is always also a daily). Everything else
  * is deleted. Stamps are UTC so a daylight-saving change never shifts a set
  * across a day or week boundary.
+ *
+ * A stamp more than an hour AFTER `now` is not trusted: it is ignored (never
+ * counted, never deleted), so a stray or planted future-dated directory can
+ * neither become "the newest set" nor push real sets out of the window.
  */
+
+export const FUTURE_SLACK_MS = 3_600_000;
 
 export const DAILY_KEEP = 14;
 export const WEEKLY_KEEP = 8;
@@ -66,17 +72,15 @@ function dayKey(date: Date): string {
 }
 
 /**
- * `now` is accepted so callers can pin the decision, but the policy is relative
- * to the sets that exist, not to the clock: a machine that was off for a month
- * must not wake up and delete every set it has. Sets stamped in the future are
- * treated like any other (never deleted merely for being "ahead").
+ * The policy is relative to the sets that exist, not to the clock: a machine
+ * that was off for a month must not wake up and delete every set it has. The
+ * clock is used only to reject stamps from the future.
  */
 export function decideRotation(
   names: readonly string[],
   now: Date = new Date(),
   opts: { daily?: number; weekly?: number } = {},
 ): RotationDecision {
-  void now;
   const dailyN = opts.daily ?? DAILY_KEEP;
   const weeklyN = opts.weekly ?? WEEKLY_KEEP;
 
@@ -85,7 +89,7 @@ export function decideRotation(
   const seen = new Set<string>();
   for (const name of names) {
     const at = parseStamp(name);
-    if (!at) ignored.push(name);
+    if (!at || at.getTime() > now.getTime() + FUTURE_SLACK_MS) ignored.push(name);
     else if (!seen.has(name)) {
       seen.add(name);
       sets.push({ name, at });

@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
+import { BackupBanner } from "@/components/dashboard/backup-banner";
 import { ActionBar } from "@/components/dashboard/action-bar";
 import {
   DashboardGrid,
@@ -113,6 +114,12 @@ export default async function DashboardPage({
           )
         }
       />
+
+      {user.role === "SUPER_ADMIN" ? (
+        <Suspense fallback={null}>
+          <BackupBanner />
+        </Suspense>
+      ) : null}
 
       {/* The action bar is what you came to *start*; in edit mode you came to
           rearrange, and four buttons you cannot press would be noise. */}

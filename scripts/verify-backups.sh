@@ -14,15 +14,25 @@
 # only names this run created and that match the guard pattern are ever dropped.
 # The live databases are read for the registry only; v1 is never touched.
 #
-# Environment: BACKUP_ROOT, BACKUP_DB_CONTAINER, BACKUP_REGISTRY_FILE as in
-# backup-v2.sh. Writes ${BACKUP_ROOT}/VERIFY.json. Exits non-zero on any failure.
+# Environment: BACKUP_ROOT (default $HOME/backups/v2). BACKUP_DB_CONTAINER and
+# BACKUP_REGISTRY_FILE are honoured only with BACKUP_TEST=1. Writes
+# ${BACKUP_ROOT}/VERIFY.json. Exits non-zero on any failure.
 
 set -euo pipefail
 umask 077
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BACKUP_ROOT="${BACKUP_ROOT:-$REPO/backups/scheduled}"
-CONTAINER="${BACKUP_DB_CONTAINER:-vfxnow-amc-db-1}"
+BACKUP_ROOT="${BACKUP_ROOT:-$HOME/backups/v2}"
+TEST_MODE=0
+[[ "${BACKUP_TEST:-}" == "1" ]] && TEST_MODE=1
+CONTAINER="vfxnow-amc-db-1"
+((TEST_MODE)) && CONTAINER="${BACKUP_DB_CONTAINER:-$CONTAINER}"
+
+# cron's PATH has no node; find the newest nvm install when none is on PATH.
+if ! command -v node >/dev/null 2>&1; then
+  newest_node="$(ls -d "$HOME"/.nvm/versions/node/*/bin 2>/dev/null | sort -V | tail -n 1 || true)"
+  [[ -n "$newest_node" ]] && PATH="$newest_node:$PATH"
+fi
 MAIN_DB="vfxnow_amc_v2"
 ENT_RE='^vfxnow_ent_[a-z0-9_]{1,40}$'
 STAMP_RE='^[0-9]{8}-[0-9]{6}$'
@@ -162,10 +172,10 @@ verify_db() { # name kind slug schemaVersion
       check "$db: migration version" true "restored v$maxv (registry version not supplied)"
     elif ((maxv == regver)); then
       check "$db: migration version equals registry" true "v$maxv"
-    elif ((maxv < regver)); then
-      check "$db: migration version vs registry" true "NOTE: dump is at v$maxv, registry says v$regver; the dump predates a migration"
+    elif ((maxv > HIGHEST_MIGRATION)); then
+      check "$db: migration version" false "dump is at v$maxv, newer than any migration file (v$HIGHEST_MIGRATION)"
     else
-      check "$db: migration version vs registry" false "dump is at v$maxv, ahead of the registry's v$regver"
+      check "$db: migration version vs registry" true "NOTE: dump is at v$maxv, registry says v$regver (migrations ship up to v$HIGHEST_MIGRATION)"
     fi
 
     trig="$(pg "$tmp" "select string_agg(tgname, ',' order by tgname) from pg_trigger where tgrelid='\"Movement\"'::regclass and not tgisinternal" 2>/dev/null || echo "")"
@@ -188,24 +198,51 @@ verify_db() { # name kind slug schemaVersion
   if drop_throwaway "$tmp"; then check "$db: throwaway database dropped" true; else check "$db: throwaway database dropped" false "drop failed; the exit trap will retry"; fi
 }
 
+HIGHEST_MIGRATION="$(ls "$REPO"/prisma/entity/migrations/*.sql 2>/dev/null | sed -n 's#.*/\([0-9]\{1,\}\)_[^/]*$#\1#p' | sort -n | tail -n 1)"
+HIGHEST_MIGRATION=$((10#${HIGHEST_MIGRATION:-0}))
+
+# Throwaway databases left by a crashed earlier run (older than a day). Only
+# names matching the guard pattern are dropped; creation time is read from the
+# data directory, and if that is unavailable the sweep is skipped, not guessed.
+sweep_stale() {
+  local names n count=0
+  if ! names="$(pg postgres "select datname from pg_database where datname ~ '^(zz_verify_|vfxnow_ent_zz_verify_)[a-z0-9]+\$' and (pg_stat_file('base/'||oid||'/PG_VERSION')).modification < now() - interval '1 day'" 2>/dev/null)"; then
+    check "stale throwaway sweep" true "skipped: could not read database creation times"; return 0
+  fi
+  while read -r n; do
+    [[ -n "$n" && "$n" =~ $DROP_RE ]] || continue
+    drop_throwaway "$n" && count=$((count + 1))
+  done <<<"$names"
+  check "stale throwaway sweep" true "$count stale throwaway database(s) dropped"
+}
+
 main() {
   local sets newest manifest_ts ts_epoch age_s reg line dbn slug active ver remaining name
   [[ -d "$BACKUP_ROOT" ]] || { check "backup set exists" false "$BACKUP_ROOT does not exist"; return 1; }
 
   newest=""
+  now_epoch="$(date +%s)"
   for name in "$BACKUP_ROOT"/*/; do
     name="$(basename "$name")"
-    [[ "$name" =~ $STAMP_RE && -f "$BACKUP_ROOT/$name/MANIFEST.json" && ! -L "$BACKUP_ROOT/$name" ]] && newest="$name"
+    [[ "$name" =~ $STAMP_RE && -f "$BACKUP_ROOT/$name/MANIFEST.json" && ! -L "$BACKUP_ROOT/$name" ]] || continue
+    # Never trust a stamp from the future (a stray or planted directory).
+    stamp_epoch="$(date -u -d "${name:0:4}-${name:4:2}-${name:6:2} ${name:9:2}:${name:11:2}:${name:13:2}" +%s 2>/dev/null)" || continue
+    ((stamp_epoch <= now_epoch + 3600)) && newest="$name"
   done
   if [[ -z "$newest" ]]; then check "backup set exists" false "no complete set in the backup root"; return 1; fi
   SETNAME="$newest"
   SETPATH="$BACKUP_ROOT/$newest"
   check "backup set exists" true "$SETNAME"
+  if [[ "$(jq -r '.suspect // false' "$SETPATH/MANIFEST.json")" == "true" ]]; then
+    check "set is not flagged suspect" false "$(jq -r '(.suspectReasons // [])|join("; ")' "$SETPATH/MANIFEST.json" | head -c 300)"
+  fi
 
   manifest_ts="$(jq -r '.timestamp' "$SETPATH/MANIFEST.json")"
   if ts_epoch="$(date -d "$manifest_ts" +%s 2>/dev/null)"; then
     age_s=$(( $(date +%s) - ts_epoch ))
-    if ((age_s <= MAX_AGE_HOURS * 3600)); then
+    if ((age_s < -3600)); then
+      check "newest set is recent" false "manifest is dated in the future"
+    elif ((age_s <= MAX_AGE_HOURS * 3600)); then
       check "newest set is recent" true "$((age_s / 3600)) h old (limit $MAX_AGE_HOURS h)"
     else
       check "newest set is recent" false "$((age_s / 3600)) h old (limit $MAX_AGE_HOURS h)"
@@ -215,19 +252,27 @@ main() {
   fi
 
   # Registry: every entity, active or not.
-  if [[ -n "${BACKUP_REGISTRY_FILE:-}" ]]; then
+  if ((TEST_MODE)) && [[ -n "${BACKUP_REGISTRY_FILE:-}" ]]; then
     reg="$(cat "$BACKUP_REGISTRY_FILE")"
   else
     reg="$(pg "$MAIN_DB" 'select "dbName", slug, active, "schemaVersion" from entities order by "createdAt"' 2>&1)" ||
       { check "registry readable" false "$(head -c 200 <<<"$reg")"; return 1; }
   fi
 
+  sweep_stale
   verify_db "$MAIN_DB" main "" ""
   while IFS='|' read -r dbn slug active ver; do
     [[ -z "${dbn:-}" ]] && continue
     if [[ ! "$dbn" =~ $ENT_RE ]]; then check "registry row '${slug:-?}'" false "invalid database name"; continue; fi
+    if [[ -n "${ver:-}" && ! "$ver" =~ ^[0-9]+$ ]]; then
+      check "registry row '${slug:-?}'" false "schemaVersion is not a whole number"; continue
+    fi
     verify_db "$dbn" entity "${slug:-}" "${ver:-}"
   done <<<"$reg"
+  # Unregistered databases in the set: restore and table check only.
+  while read -r dbn; do
+    [[ "$dbn" =~ $ENT_RE ]] && verify_db "$dbn" unregistered "" ""
+  done < <(jq -r '.databases[]|select(.kind=="unregistered")|.name' "$SETPATH/MANIFEST.json")
 
   remaining="$(pg postgres "select datname from pg_database where datname ~ '^(zz_verify_|vfxnow_ent_zz_verify_)'" 2>/dev/null | tr '\n' ' ' || true)"
   # Only ours matter; a concurrent run's would carry a different random suffix.

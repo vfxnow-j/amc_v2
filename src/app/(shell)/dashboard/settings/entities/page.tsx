@@ -9,8 +9,10 @@ import {
   assessBackup,
   assessVerify,
   formatBytes,
+  stringList,
   summariseDatabases,
   type BackupStatus,
+  type FileRead,
   type VerifyStatus,
 } from "@/lib/backups/status";
 import { prisma } from "@/lib/prisma";
@@ -36,12 +38,22 @@ function whenPt(value: unknown): string {
  * Entity ledger rows can never be edited, so a backup is the only recovery; a
  * stale or failed one is shown as a warning rather than left to be noticed.
  */
-function BackupCard({ status, verify }: { status: BackupStatus | null; verify: VerifyStatus | null }) {
+function BackupCard({ status, verify }: { status: FileRead<BackupStatus>; verify: FileRead<VerifyStatus> }) {
   const backup = assessBackup(status);
   const restore = assessVerify(verify);
   const { count, bytes } = summariseDatabases(status);
   const healthy = backup.state === "ok" && restore.state === "ok";
   const problem = [backup, restore].filter((v) => v.state !== "ok").map((v) => v.reason);
+  const usable = status && status !== "unreadable" ? status : null;
+  const usableVerify = verify && verify !== "unreadable" ? verify : null;
+  // Things that do not make the run fail but should not pass unseen.
+  const notes = [
+    ...stringList(usable?.warnings),
+    ...stringList(usable?.unregistered).map(
+      (name) => `Database ${name} is not in the entity registry (it is still backed up). Register or remove it.`,
+    ),
+  ];
+  const errors = backup.state === "failed" ? stringList(usable?.errors).slice(0, 4) : [];
 
   return (
     <section aria-labelledby="backups-heading" className="mb-6">
@@ -52,6 +64,22 @@ function BackupCard({ status, verify }: { status: BackupStatus | null; verify: V
         <Notice tone="error" className="mb-3">
           {problem.join(" ")} Run <code>npm run backups:run</code> and <code>npm run backups:verify</code> on the
           server, or check the schedule.
+          {errors.length > 0 && (
+            <ul className="mt-1 list-disc pl-5">
+              {errors.map((e) => (
+                <li key={e}>{e}</li>
+              ))}
+            </ul>
+          )}
+        </Notice>
+      )}
+      {notes.length > 0 && (
+        <Notice tone="warn" className="mb-3">
+          <ul className="list-disc pl-5">
+            {notes.map((n) => (
+              <li key={n}>{n}</li>
+            ))}
+          </ul>
         </Notice>
       )}
       <dl className="grid gap-x-6 gap-y-1 text-detail sm:grid-cols-2">
@@ -60,7 +88,9 @@ function BackupCard({ status, verify }: { status: BackupStatus | null; verify: V
           <dd>
             {backup.state === "never"
               ? "No backup has run yet"
-              : `${whenPt(status?.lastRunAt)} PT${backup.state === "failed" ? " (failed)" : ""}`}
+              : backup.state === "unreadable"
+                ? "Status file unreadable"
+              : `${whenPt(usable?.lastRunAt)} PT${backup.state === "failed" ? " (needs attention)" : ""}`}
           </dd>
         </div>
         <div>
@@ -74,7 +104,9 @@ function BackupCard({ status, verify }: { status: BackupStatus | null; verify: V
           <dd>
             {restore.state === "never"
               ? "No restore test has run yet"
-              : `${whenPt(verify?.verifiedAt)} PT, ${verify?.ok === true ? "passed" : "failed"}`}
+              : restore.state === "unreadable"
+                ? "Result file unreadable"
+                : `${whenPt(usableVerify?.verifiedAt)} PT, ${usableVerify?.ok === true ? "passed" : "failed"}`}
           </dd>
         </div>
         <div>

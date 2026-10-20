@@ -109,7 +109,7 @@ test("daylight-saving weekends do not move a set across a day or week", () => {
   // 02:30 daily sets stay one per calendar day either side.
   const names: string[] = [];
   for (let i = 0; i < 6; i++) names.push(formatStamp(new Date(Date.parse("2026-10-30T02:30:00Z") + i * DAY)));
-  const d = decideRotation(names, NOW);
+  const d = decideRotation(names, new Date("2026-11-10T00:00:00Z"));
   assert.equal(d.delete.length, 0);
   assert.equal(isoWeekKey(parseStamp("20261101-023000")!), "2026-W44");
   assert.equal(isoWeekKey(parseStamp("20261102-023000")!), "2026-W45");
@@ -125,4 +125,30 @@ test("weekly firsts are limited to the 8 newest weeks", () => {
   assert.ok(kept.has("20260831-023000")); // W36, the eighth newest week
   assert.ok(!kept.has("20260824-023000")); // W35, ninth
   assert.ok(d.delete.includes("20260824-023000"));
+});
+
+test("stamps more than an hour in the future are ignored: never newest, never counted, never deleted", () => {
+  const real = ["20261018-023000", "20261019-023000", "20261020-023000"];
+  const d = decideRotation([...real, "20991231-000000"], NOW);
+  assert.deepEqual(d.keep.map((k) => k.name), real);
+  assert.deepEqual(d.delete, []);
+  assert.deepEqual(d.ignored, ["20991231-000000"]);
+  assert.ok(d.keep.find((k) => k.name === "20261020-023000")!.reasons.includes("newest"));
+});
+
+test("15 future-dated sets do not evict a real set", () => {
+  const real: string[] = [];
+  for (let i = 0; i < 14; i++) real.push(formatStamp(new Date(Date.parse("2026-10-20T02:30:00Z") - i * DAY)));
+  const future: string[] = [];
+  for (let i = 1; i <= 15; i++) future.push(formatStamp(new Date(NOW.getTime() + (i + 1) * DAY)));
+  const d = decideRotation([...real, ...future], NOW);
+  assert.deepEqual(d.delete, []);
+  assert.equal(d.ignored.length, 15);
+  assert.equal(d.keep.length, 14);
+});
+
+test("a stamp within the one hour slack still counts", () => {
+  const d = decideRotation(["20261020-103000"], NOW);
+  assert.equal(d.keep.length, 1);
+  assert.equal(decideRotation(["20261020-120100"], NOW).keep.length, 0);
 });
