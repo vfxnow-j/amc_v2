@@ -88,6 +88,16 @@ export const SETTINGS_PAGES: SettingsPage[] = [
     group: "The workspace",
   },
   {
+    // Owners whose gear we store, each in a database of its own. Creating one
+    // provisions that database, so it is super-admin only.
+    id: "entities",
+    label: "Entities",
+    href: "/dashboard/settings/entities",
+    blurb: "Owners whose gear we store, and which workspaces each one gets.",
+    access: "super_admin",
+    group: "The workspace",
+  },
+  {
     // The owner's call (2026-09-17): configuration lives in Settings, kept
     // simple — pick the items that can be configured, then what each can be
     // configured with. Replaces editing builds from the asset record.
