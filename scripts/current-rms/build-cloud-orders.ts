@@ -3,6 +3,7 @@
  *   0007867 Create Advertising  -> CLOUD (4 hosts, billed $845/host + 4 RAM upgrades)
  *   0007771 Mfactor Creative    -> CLOUD (1 host, billed $900)
  *   0007771 Mfactor Creative    -> RENTAL (Synology FS1018, billed $1,150)
+ *   0007879 Create Advertising  -> CLOUD (extra compute, one line, billed $3,000)
  * v2 only; DRAFT; the billed rate is what the client is charged, the catalogue
  * supplies each host's parts and cost basis. Writes backups/ an undo list.
  *   npx tsx scripts/current-rms/build-cloud-orders.ts
@@ -71,6 +72,11 @@ async function main() {
       { cloudProductId: await P("HOST_GRAPHICS", "RTX 4090"), qtyPerHost: 2 } ] }],
     billed: [845], extras: [{ description: "48GB RAM Upgrade", rate: 20, quantity: 4 }],
   });
+  // 0007879: extra compute at a high discount, one priced line with no host spec.
+  await cloudOrder({
+    clientId: create.id, project: "Cloud Burst (12x VMs Discounted)", ref: "0007879",
+    hosts: [], billed: [], extras: [{ description: "Extended VM Burst (12x VMs discounted) · 12x VM at discounted rate", rate: 3000, quantity: 1 }],
+  });
   await cloudOrder({
     clientId: mf.id, project: "Hardware / Hosting (Oct 2026)", ref: "0007771 cloud",
     hosts: [{ period: "MONTHLY", quantity: 1, hostName: "HP-VM", rows: [
@@ -88,6 +94,6 @@ async function main() {
     (undo.reservations as unknown[]).push(r.id);
     console.log("created", r.reservationNumber, String(r.total));
   }
-  writeFileSync("backups/cloud-orders-undo-20261019.json", JSON.stringify(undo, null, 1));
+  writeFileSync(`backups/cloud-orders-undo-${new Date().toISOString().slice(0, 19).replace(/\D/g, "")}.json`, JSON.stringify(undo, null, 1));
 }
 main().catch((e) => { console.error(e); process.exitCode = 1; }).finally(() => process.exit());
