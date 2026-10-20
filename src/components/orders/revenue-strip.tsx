@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { totalLine, typeLine } from "@/lib/dashboard/type-totals";
 import { money } from "@/lib/format";
 import { ORDER_TYPES } from "@/lib/orders/types";
 import { getRevenueByType } from "@/lib/queries/orders";
@@ -16,39 +17,34 @@ const FILTER_FOR: Record<string, string> = {
 
 /**
  * Dashboard: where the money comes from, split by the same types the Orders
- * list is split by — one table, one row per type, so it fits its tile.
+ * list is split by: one table, one row per type, plus a Total row.
  *
- * **Earned** is accrual-basis revenue recognized inside the window — the real
- * "revenue stream" figure, and not the same as invoiced, because recurring
- * billing stalls and invoices sit in DRAFT. The other three look forward over
- * selected window, ex-tax, and come from Forecast so the two screens agree
- * (a week or a day is the month's billing pro-rated by days): **Active** is orders running now, **Approved** is orders agreed but
- * not yet out, and **Quoted** is counted open quotes at their stage weight
- * (sent 60%, draft or revision 40%, one version per deal).
+ * **Revenue** is accrual-basis revenue recognized inside the window (the real
+ * "revenue stream" figure; not the same as invoiced). **Quoted** is counted
+ * open quotes at their stage weight (sent 60%, draft or revision 40%, one
+ * version per deal), ex-tax, from Forecast so the two screens agree; a week or
+ * a day is the month's figure pro-rated by days. **Potential** is revenue plus
+ * quoted. The Total row sums every type in whole cents (lib/dashboard/type-totals).
  *
- * A type showing earned zero with money behind it is stating a real limit of
- * the data, not a bug: earnings are recognized from checkouts, completed sales
- * and elapsed recurring cycles, so an order that has done none of those yet has
- * genuinely recognized nothing.
+ * A type showing earned zero with money behind it is a real limit of the data:
+ * earnings are recognized from checkouts, completed sales and elapsed
+ * recurring cycles.
  *
- * Every row is a link into the Orders list filtered to its own type.
+ * Every type row links into the Orders list filtered to that type.
  */
 export async function RevenueStrip({ range }: { range: Range }) {
-  const { types, earnedTotal, window } = await getRevenueByType(range);
+  const { types, window } = await getRevenueByType(range);
   const byType = new Map(types.map((row) => [row.type, row]));
-  const sum = (pick: (row: (typeof types)[number]) => number) =>
-    types.reduce((total, row) => total + pick(row), 0);
+  const total = totalLine(types);
 
-  const columns = "grid-cols-[minmax(0,1.3fr)_repeat(4,minmax(0,1fr))]";
+  const columns = "grid-cols-[minmax(0,1.2fr)_repeat(3,minmax(0,1fr))]";
   const cell = "text-right tabular-nums";
 
   return (
     <section className="flex h-full min-h-0 flex-col rounded-card bg-panel px-4 py-3 shadow-sm">
-      <div className="flex items-baseline gap-2 pb-1">
+      <div className="flex flex-wrap items-baseline gap-x-2 pb-1">
         <h2 className="text-card-title">Revenue by order type</h2>
-        <span className="text-detail text-ink-muted">
-          {window}: earned so far, then what is billing (pro-rated from the month)
-        </span>
+        <span className="text-detail text-ink-muted">{window}</span>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
@@ -56,16 +52,18 @@ export async function RevenueStrip({ range }: { range: Range }) {
           className={`grid ${columns} gap-x-3 px-2 pb-1 text-micro uppercase text-ink-muted`}
         >
           <span>Type</span>
-          <span className="text-right">Earned</span>
-          <span className="text-right">Active</span>
-          <span className="text-right">Approved</span>
+          <span className="text-right">Revenue</span>
           <span className="text-right" title="Open quotes at their stage weight">
-            Quoted ×weight
+            Quoted
+          </span>
+          <span className="text-right" title="Revenue plus weighted quoted">
+            Potential
           </span>
         </div>
 
         {ORDER_TYPES.map((type) => {
           const row = byType.get(type);
+          const line = typeLine(row);
           const quoteTitle = row?.quotedCount
             ? `${money(row.quotedUnweighted)} across ${row.quotedCount} ${
                 row.quotedCount === 1 ? "quote" : "quotes"
@@ -78,27 +76,23 @@ export async function RevenueStrip({ range }: { range: Range }) {
               href={`/dashboard/orders?type=${FILTER_FOR[type]}`}
               className={`grid ${columns} gap-x-3 rounded-row px-2 py-[5px] text-detail transition-colors hover:bg-row-hover`}
             >
-              <span>{TYPE_LABEL[type]}</span>
-              <span className={cell}>{money(row?.earned ?? 0)}</span>
-              <span className={cell}>{money(row?.active ?? 0)}</span>
-              <span className={cell}>{money(row?.approved ?? 0)}</span>
+              <span className="truncate">{TYPE_LABEL[type]}</span>
+              <span className={cell}>{money(line.earned)}</span>
               <span className={`${cell} text-ink-muted`} title={quoteTitle}>
-                {money(row?.quoted ?? 0)}
+                {money(line.quoted)}
               </span>
+              <span className={cell}>{money(line.potential)}</span>
             </Link>
           );
         })}
 
         <div
-          className={`mt-1 grid ${columns} gap-x-3 border-t border-hairline px-2 pt-[5px] text-detail font-medium`}
+          className={`mt-1 grid ${columns} gap-x-3 rounded-row border-t border-hairline bg-sunken px-2 py-[5px] text-detail font-semibold`}
         >
-          <span>All types</span>
-          <span className={cell} title={`${money(earnedTotal)} earned ${window}`}>
-            {money(earnedTotal)}
-          </span>
-          <span className={cell}>{money(sum((row) => row.active))}</span>
-          <span className={cell}>{money(sum((row) => row.approved))}</span>
-          <span className={cell}>{money(sum((row) => row.quoted))}</span>
+          <span>Total</span>
+          <span className={cell}>{money(total.earned)}</span>
+          <span className={cell}>{money(total.quoted)}</span>
+          <span className={cell}>{money(total.potential)}</span>
         </div>
       </div>
     </section>
