@@ -91,10 +91,19 @@ test('movedWithin swaps a step, stops at the ends and ignores strangers', async 
   assert.equal(movedWithin(['a', 'b'], 'z', 'up'), null)
 })
 
-test('reordering locks once the quote is out, though other build edits stay open', async () => {
-  const { REORDER_STATUSES, BUILD_EDITABLE_STATUSES } = await import('./build-groups')
-  assert.deepEqual(REORDER_STATUSES, ['DRAFT', 'REVISION'])
-  for (const s of ['QUOTE_SENT', 'APPROVED', 'PREPARING', 'ACTIVE', 'COMPLETED']) assert.ok(!REORDER_STATUSES.includes(s), s)
-  // Every reorderable status is also structurally editable, never the reverse.
-  assert.ok(REORDER_STATUSES.every((s) => BUILD_EDITABLE_STATUSES.includes(s)))
+test('build structure is editable on a draft or a revision only', async () => {
+  const { buildStructureEditable, BUILD_EDITABLE_STATUSES, BUILD_LOCKED_MESSAGE } = await import('./build-groups')
+  assert.deepEqual(BUILD_EDITABLE_STATUSES, ['DRAFT', 'REVISION'])
+  assert.equal(buildStructureEditable('DRAFT'), true)
+  assert.equal(buildStructureEditable('REVISION'), true)
+  for (const s of ['QUOTE_SENT', 'APPROVED', 'PREPARING', 'SHIPPED', 'ACTIVE', 'COMPLETED', 'CANCELLED', 'LOST']) {
+    assert.equal(buildStructureEditable(s), false, s)
+  }
+  assert.match(BUILD_LOCKED_MESSAGE, /Request a revision/)
+})
+
+test('a client change request or a staff revision lands in REVISION, which reopens editing', async () => {
+  const { buildStructureEditable } = await import('./build-groups')
+  // Sent quote locked -> revision (either path) unlocked -> re-sent locked again.
+  assert.deepEqual(['QUOTE_SENT', 'REVISION', 'QUOTE_SENT'].map(buildStructureEditable), [false, true, false])
 })

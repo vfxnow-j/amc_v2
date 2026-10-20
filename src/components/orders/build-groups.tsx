@@ -300,7 +300,7 @@ export function BuildPartEditor({
         <input
           value={amount}
           inputMode="decimal"
-          disabled={busy}
+          disabled={busy || !structure}
           aria-label="Price each"
           onChange={(event) => setAmount(event.target.value)}
           onBlur={commitRate}

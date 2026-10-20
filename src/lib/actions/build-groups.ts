@@ -6,7 +6,7 @@ import { requireEditor } from "@/lib/auth-utils";
 import { calculatePeriods } from "@/lib/actions/reservations";
 import { computeItemSubtotal } from "@/lib/pricing/periods";
 import { calculateReservationTotals } from "@/lib/pricing/reservation-totals";
-import { BUILD_CATEGORY, BUILD_EDITABLE_STATUSES, movedWithin, REORDER_STATUSES, rescaledPartQuantity, storedPartQuantity } from "@/lib/pricing/build-groups";
+import { BUILD_CATEGORY, BUILD_LOCKED_MESSAGE, buildStructureEditable, movedWithin, rescaledPartQuantity, storedPartQuantity } from "@/lib/pricing/build-groups";
 import type { StageOutcome } from "@/lib/actions/order-stage";
 import type { Prisma } from "@/generated/prisma/client";
 
@@ -38,9 +38,7 @@ async function editableSale(tx: Tx, reservationId: string) {
   const order = await tx.reservation.findUnique({ where: { id: reservationId } });
   if (!order) throw new Error("Order not found.");
   if (order.reservationType !== "SALE") throw new Error("Build groups are only available on sales orders.");
-  if (!BUILD_EDITABLE_STATUSES.includes(order.status)) {
-    throw new Error("Builds can only be changed on a draft, quoted, revised or approved order.");
-  }
+  if (!buildStructureEditable(order.status)) throw new Error(BUILD_LOCKED_MESSAGE);
   return order;
 }
 
@@ -329,10 +327,11 @@ export async function setHideBuildPartPrices(reservationId: string, hide: boolea
   try {
     const order = await prisma.reservation.findUnique({
       where: { id: reservationId },
-      select: { reservationType: true },
+      select: { reservationType: true, status: true },
     });
     if (!order) return { status: "error", message: "Order not found." };
     if (order.reservationType !== "SALE") return { status: "error", message: "Only sales orders have builds." };
+    if (!buildStructureEditable(order.status)) return { status: "error", message: BUILD_LOCKED_MESSAGE };
     await prisma.reservation.update({ where: { id: reservationId }, data: { hideBuildPartPrices: hide } });
     touch(reservationId);
     return {
@@ -350,9 +349,8 @@ export async function setHideBuildPartPrices(reservationId: string, hide: boolea
  * Move a line one place up or down on a sales order. A top-level line moves among
  * the other top-level lines of its quote option (a build's parts follow it, as
  * they hang off it); a build's part moves among that build's parts. Order is
- * presentation only and never reprices anything, but it locks as soon as the quote
- * goes out (draft and revision only): what we quoted and what they approve must
- * read the same.
+ * presentation only and never reprices anything, but it locks with the rest of the
+ * build structure once the quote goes out (buildStructureEditable).
  */
 export async function moveOrderLine(
   reservationId: string,
@@ -366,9 +364,7 @@ export async function moveOrderLine(
       const order = await tx.reservation.findUnique({ where: { id: reservationId } });
       if (!order) throw new Error("Order not found.");
       if (order.reservationType !== "SALE") throw new Error("Lines are reordered on sales orders.");
-      if (!REORDER_STATUSES.includes(order.status)) {
-        throw new Error("Lines can only be reordered on a draft or a revision; a sent quote's order is locked.");
-      }
+      if (!buildStructureEditable(order.status)) throw new Error(BUILD_LOCKED_MESSAGE);
       const item = await tx.reservationItem.findFirst({ where: { id: itemId, reservationId } });
       if (!item) throw new Error("That line is not on this order.");
       const siblings = await tx.reservationItem.findMany({

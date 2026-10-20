@@ -7,6 +7,7 @@ import { recurringFor } from "@/lib/orders/recurring";
 import { FLOW_NOT_INVOICED } from "@/lib/orders/types";
 import { flowQuoteProblem } from "@/lib/flow-terms-server";
 import { speedApplies, type ShippingSpeed } from "@/lib/orders/shipping";
+import { BUILD_LOCKED_MESSAGE, buildStructureEditable } from "@/lib/pricing/build-groups";
 import { gateApplies, handoverShortfall, shortfallMessage, type HandoverMove, type MissingLine } from "@/lib/orders/handover";
 import { hasScanOverride } from "@/lib/orders/scan-override";
 import { parseDateInput } from "@/lib/billing/calendar";
@@ -920,6 +921,12 @@ export async function addOrderLine(
   }
 
   try {
+    // Adding a part to a build is a change to the build: locked with the rest of
+    // its structure once the quote is sent (lib/pricing/build-groups).
+    if (line.groupId) {
+      const order = await prisma.reservation.findUnique({ where: { id: reservationId }, select: { status: true } });
+      if (order && !buildStructureEditable(order.status)) return { status: "error", message: BUILD_LOCKED_MESSAGE };
+    }
     const created = await addItemToReservation(
       reservationId,
       line.assetId ?? null,

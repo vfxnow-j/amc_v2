@@ -58,3 +58,14 @@ None. (The earlier isGroup / hideBuildPartPrices columns are already in prisma/m
 So after a quote is sent, builds, quantities and part moves can still change in QUOTE_SENT/APPROVED, and the hide-prices toggle at any time. Not changed; decide whether these should lock like reorder.
 
 Verification: tsc clean (apart from pre-existing RouteContext), eslint clean, npm test 509/509.
+
+## Round 3: lock the build structure once the quote is sent
+- One shared rule in src/lib/pricing/build-groups.ts: BUILD_EDITABLE_STATUSES = DRAFT, REVISION; buildStructureEditable(status); BUILD_LOCKED_MESSAGE ("Builds can only be changed on a draft or a revision. Request a revision to change this."). REORDER_STATUSES removed; the order page and every action use the helper.
+- Now locked server-side: addBuildGroup, setBuildGroupQuantity, setBuildPartQuantity, moveLineToBuild, duplicateBuildGroup, moveOrderLine, setHideBuildPartPrices (previously no status check), and addOrderLine when it adds a part to a build (groupId). Still sale-only.
+- UI: add build, hide-prices toggle, per-build machine/part quantity, move select, duplicate, add part, part price and arrows are hidden or disabled outside DRAFT/REVISION.
+- Revision paths verified by reading the code, not run:
+  (a) staff: the "Request revision" button (lifecycle MOVES on QUOTE_SENT and APPROVED) -> reviseOrder -> requestRevision sets status REVISION, actionRequired, and the note; status history recorded.
+  (b) client: online quote "Request changes" -> requestQuoteChanges claims the link and sets REVISION with actionRequiredNote = the client's message, history "Client requested changes: ...", staff notified by email. No fix needed.
+  REVISION offers "Send revised quote" and "Mark approved", neither touched by the lock, so re-sending and approval are unaffected.
+- Not locked, owner may want to decide: removing a part from a build (RemoveLine -> removeOrderLine) and the generic setLineRate action are generic line edits that still work in QUOTE_SENT/APPROVED (the UI rate field for build parts is disabled when locked, the server action is not gated). The same holds for ordinary non-build lines, which were out of scope.
+- Verification: tsc clean (pre-existing RouteContext only), eslint 0 errors, npm test 510/510.

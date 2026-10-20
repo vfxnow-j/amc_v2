@@ -16,19 +16,26 @@
  */
 
 /**
- * Statuses in which a build's structure may change. After that the parts are
- * being scanned out, and moving one between builds would leave a machine's
- * counters describing a different machine.
+ * Statuses in which a build's structure (builds, machine counts, parts and
+ * their order, the hide-part-prices choice) may change: a draft, or a revision.
+ * The one list every build action and the order screen share.
+ *
+ * Once the quote is sent what was quoted and what the client approves must read
+ * the same, so everything locks (owner, 2026-10-20); a revision reopens it,
+ * whether staff request it or the client asks for changes on the online quote.
+ * Later still, parts are being scanned out and moving one between builds would
+ * leave a machine's counters describing a different machine.
  */
-export const BUILD_EDITABLE_STATUSES = ['DRAFT', 'QUOTE_SENT', 'REVISION', 'APPROVED']
+export const BUILD_EDITABLE_STATUSES = ['DRAFT', 'REVISION']
 
-/**
- * Statuses in which lines may be reordered: only while the quote is still ours.
- * Once it goes out, what was quoted and what the client approves must read the
- * same, so the order is locked completely (owner, 2026-10-20). A revision
- * reopens it. Deliberately narrower than BUILD_EDITABLE_STATUSES.
- */
-export const REORDER_STATUSES = ['DRAFT', 'REVISION']
+/** Whether a build's structure can change on an order in this status. */
+export function buildStructureEditable(status: string): boolean {
+  return BUILD_EDITABLE_STATUSES.includes(status)
+}
+
+/** The refusal for a locked order, with the way forward. */
+export const BUILD_LOCKED_MESSAGE =
+  'Builds can only be changed on a draft or a revision. Request a revision to change this.'
 
 const qtyOf = (i: { quantity?: number | null }) => i.quantity || 1
 

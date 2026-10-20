@@ -14,7 +14,7 @@ import {
   MoveToBuild,
 } from "@/components/orders/build-groups";
 import { prisma } from "@/lib/prisma";
-import { BUILD_EDITABLE_STATUSES, REORDER_STATUSES } from "@/lib/pricing/build-groups";
+import { buildStructureEditable } from "@/lib/pricing/build-groups";
 import { FlowLineEditor } from "@/components/orders/flow/flow-line-editor";
 import {
   getReservationActivity,
@@ -96,10 +96,10 @@ export async function LinesCard({
   // A cloud order is drafted from a spec: hosts and environment lines instead
   // of (or as well as) units. The cloud controls sit with Add a line.
   const isCloud = order?.reservationType === "CLOUD";
-  const structure = editable && isSale && !!order && BUILD_EDITABLE_STATUSES.includes(order.status);
+  const structure = editable && isSale && !!order && buildStructureEditable(order.status);
   const builds = lines.filter((line) => line.isGroup);
   // Reordering locks once the quote is sent (lib/pricing/build-groups).
-  const reorder = editable && isSale && !!order && REORDER_STATUSES.includes(order.status);
+  const reorder = editable && isSale && !!order && buildStructureEditable(order.status);
   const buildChoices = (packageId: string | null) =>
     builds
       .filter((build) => build.packageId === packageId)
@@ -108,7 +108,7 @@ export async function LinesCard({
     structure || (isSale && builds.length > 0 && editable) ? (
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 pb-3">
         {structure ? <AddBuildGroup reservationId={id} packageId={option?.id} /> : null}
-        {builds.length > 0 && editable ? (
+        {builds.length > 0 && structure ? (
           <HidePartPrices reservationId={id} hidden={!!order?.hideBuildPartPrices} />
         ) : null}
       </div>
@@ -405,7 +405,7 @@ export async function LinesCard({
               </ul>
             ) : null}
 
-            {line.isGroup && editable && window ? (
+            {line.isGroup && structure && window ? (
               <AddLine
                 reservationId={id}
                 start={window.start}
