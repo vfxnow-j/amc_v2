@@ -15,7 +15,7 @@ export function AuthShell({
   footer,
 }: {
   title: string;
-  blurb: string;
+  blurb?: string;
   children: React.ReactNode;
   footer?: React.ReactNode;
 }) {
@@ -27,8 +27,8 @@ export function AuthShell({
         <BrandLockup size="auth" />
 
         <div className="rounded-card bg-panel p-6 shadow-sm">
-          <h1 className="text-card-title text-[18px]">{title}</h1>
-          <p className="mt-1 mb-5 text-detail text-ink-muted">{blurb}</p>
+          <h1 className={`text-center text-card-title text-[18px] ${blurb ? "" : "mb-5"}`}>{title}</h1>
+          {blurb ? <p className="mt-1 mb-5 text-center text-detail text-ink-muted">{blurb}</p> : null}
           {children}
         </div>
 

@@ -150,6 +150,7 @@ export const TEMPLATE_SAMPLES: TemplateSample[] = [
   },
   { key: "quoteApproved", label: "Client approved a quote", group: "Orders & quotes", who: "Recipients ticked for Orders", when: "The client signs on the quote link", render: () => T.quoteApprovedEmail({ clientName: CLIENT, reservationNumber: ORDER, reservationId: "sample", signerName: PERSON, total: 1000 }) },
   { key: "quoteDenied", label: "Client declined a quote", group: "Orders & quotes", who: "Recipients ticked for Orders", when: "The client declines on the quote link", render: () => T.quoteDeniedEmail({ clientName: CLIENT, reservationNumber: ORDER, reservationId: "sample", reason: "Sample reason" }) },
+  { key: "quoteViewed", label: "Client opened a quote", group: "Orders & quotes", who: "Recipients ticked for Orders", when: "The client first opens the quote link", render: () => T.quoteViewedEmail({ clientName: CLIENT, reservationNumber: ORDER, reservationId: "sample", sentTo: "client@example.com", sentAt: "Sample date", total: 1000 }) },
   { key: "quoteChangesRequested", label: "Client asked for changes", group: "Orders & quotes", who: "Recipients ticked for Orders", when: "The client asks for changes on the quote link", render: () => T.quoteChangesRequestedEmail({ clientName: CLIENT, reservationNumber: ORDER, reservationId: "sample", changeNotes: "Sample change request" }) },
   {
     key: "quotePageLink",

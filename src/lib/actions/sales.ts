@@ -7,6 +7,7 @@ import { serialize } from '@/lib/utils'
 import { calculatePeriods } from '@/lib/actions/reservations'
 import { computeItemSubtotal } from '@/lib/pricing/periods'
 import { repriceFlowTx } from '@/lib/flow/reprice'
+import { groupIdsOf } from '@/lib/pricing/build-groups'
 
 /**
  * Resolve the active package id for a reservation, if any.
@@ -198,9 +199,10 @@ export async function completeSale(reservationId: string) {
 
     // For each item, prefer pre-allocated units (RESERVED), then auto-pick AVAILABLE.
     // Skips ad-hoc items and cloud component children (parent carries the asset).
+    const groupIds = groupIdsOf(reservation.items)
     for (const item of reservation.items) {
       if (!item.assetId) continue
-      if (item.parentId) continue // cloud component breakdown rows
+      if (item.parentId && !groupIds.has(item.parentId)) continue // cloud component breakdown rows
 
       const assignedUnitIds = item.units.map((u) => u.assetUnitId)
       const unitsNeeded = item.quantity - assignedUnitIds.length
@@ -262,6 +264,9 @@ export async function completeSale(reservationId: string) {
             soldAt: new Date(),
             soldViaReservation: reservationId,
             soldPrice: salePrice,
+            // A sale order is a sale to the client; fees are not known here.
+            saleChannel: 'CUSTOMER',
+            saleFees: null,
             soldNotes: `Sold via ${reservation.reservationNumber} to client`,
           },
         })
@@ -952,6 +957,8 @@ export async function updateSaleItemQuantity(reservationId: string, itemId: stri
 
   const item = reservation.items.find((i) => i.id === itemId)
   if (!item) throw new Error('Item not found')
+  // A build's machine count scales its parts with it (actions/build-groups).
+  if (item.isGroup) throw new Error("Change a build's machine count from the build itself.")
 
   const rate = Number(item.rate)
   // Factor in billing periods so cloud-host parents (rate × hosts × periods)

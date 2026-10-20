@@ -11,6 +11,7 @@ import { pricingTypeLabels, allDeliveryMethodLabels } from '@/lib/types'
 import { formatTermLength, formatTermNote } from '@/lib/pricing/periods'
 import { computeReservationFinancials } from '@/lib/pricing/financials'
 import { lineTitle } from '@/lib/quotes/line-title'
+import { arrangeBuildGroups, specLabel } from '@/lib/pricing/build-groups'
 import { paymentLineForOrder } from '@/lib/billing/order-payment-schedule'
 
 /**
@@ -106,6 +107,10 @@ async function renderSignedQuote(
   const { QuotePDF } = await import('@/components/documents/quote-pdf')
   const payment = await paymentLineForOrder(reservation.id)
 
+  const visibleItems = items
+    .map((item, index) => ({ item, index }))
+    .filter(({ item }) => !(item.parentId && item.cloudProductId))
+
   const quoteData = {
     entityType: 'RESERVATION' as const,
     number: reservation.reservationNumber,
@@ -129,18 +134,28 @@ async function renderSignedQuote(
     termLength: reservation.reservationType !== 'SALE'
       ? formatTermLength(reservation.startDate, reservation.endDate)
       : undefined,
-    items: items.map((item, index) => {
+    // Sales build groups: each build followed by its parts, the build showing the
+    // total of them. With part prices hidden the parts become a spec list ("4× 32GB
+    // DDR5", rate 0) that the document folds under the build. The subtotal below is
+    // summed from the raw amounts, so no part is counted twice.
+    // A cloud host's component rows (parentId + cloudProductId) are the spec the
+    // host's own line already names, at no price: left off, as the online quote does.
+    items: arrangeBuildGroups(visibleItems.map((v) => v.item), visibleItems.map((v) => financials.itemAmounts[v.index]), {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Prisma include shape doesn't carry this optional column
+      hidePartPrices: (reservation as any).hideBuildPartPrices,
+    }).map(({ item, amount, rate, isGroupPart, category, priceHidden, perMachineQty }) => {
       const { title, spec } = lineTitle(item)
       return {
-        description: title,
-        spec,
+        description: priceHidden ? specLabel(title, perMachineQty ?? 1) : title,
+        spec: priceHidden ? undefined : spec,
         quantity: item.quantity || 1,
         pricingType: pricingTypeLabels[(item.pricingType as PricingType) || 'DAILY'] || item.pricingType,
-        rate: Number(item.rate) || 0,
-        amount: financials.itemAmounts[index],
+        rate: rate ?? (Number(item.rate) || 0),
+        amount,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any -- legacy line shape without a joined asset
-        category: item.asset?.category?.name || (item as any).category || undefined,
+        category: category ?? (item.asset?.category?.name || (item as any).category || undefined),
         termNote: formatTermNote(item, reservation),
+        ...(isGroupPart ? { isComponent: true } : {}),
       }
     }),
     subtotal: financials.itemsSubtotal,

@@ -29,6 +29,11 @@ import type { PricingType } from "@/generated/prisma/client";
  * The same search finds our packages (Inventory → Packages). Picking one adds
  * all of its lines — each priced as it would be added by hand, unless the
  * package sets its own rate — to the quote option being viewed.
+ *
+ * Given a `group`, it adds a part to that sales build instead: the quantity is
+ * per machine, the price is typed (a sale is priced by what we quote, not by the
+ * rental rate the search shows), and a part may be a custom line with no asset
+ * behind it. Packages are not offered — a build is assembled part by part.
  */
 
 type TemplateHit = Awaited<ReturnType<typeof findTemplates>>[number];
@@ -40,10 +45,13 @@ export function AddLine({
   end,
   packageId,
   optionName,
+  group,
 }: {
   reservationId: string;
   start: string;
   end: string;
+  /** Add parts to this sales build rather than lines to the order. */
+  group?: { id: string; name: string };
   /** The quote option lines are added to. Omitted, the active one. */
   packageId?: string;
   /** Named in the button when the order has more than one option. */
@@ -57,6 +65,8 @@ export function AddLine({
   const [packages, setPackages] = useState<TemplateHit[]>([]);
   const [chosenPackage, setChosenPackage] = useState<TemplateHit | null>(null);
   const [quantity, setQuantity] = useState("1");
+  const [price, setPrice] = useState("");
+  const [custom, setCustom] = useState<{ name: string } | null>(null);
   const [outcome, setOutcome] = useState<StageOutcome | null>(null);
   const [busy, startTransition] = useTransition();
   const latest = useRef(0);
@@ -68,7 +78,7 @@ export function AddLine({
     const timer = setTimeout(async () => {
       const [found, bundles] = await Promise.all([
         lookupAssets(needle, start, end),
-        findTemplates(needle),
+        group ? Promise.resolve([]) : findTemplates(needle),
       ]);
       if (ticket === latest.current) {
         setHits(found);
@@ -76,7 +86,7 @@ export function AddLine({
       }
     }, 160);
     return () => clearTimeout(timer);
-  }, [query, chosen, chosenPackage, start, end]);
+  }, [query, chosen, chosenPackage, start, end, group]);
 
   function reset() {
     setChosen(null);
@@ -85,6 +95,8 @@ export function AddLine({
     setHits([]);
     setPackages([]);
     setQuantity("1");
+    setPrice("");
+    setCustom(null);
     setOpen(false);
   }
 
@@ -105,9 +117,29 @@ export function AddLine({
     startTransition(async () => {
       const result = await addOrderLine(reservationId, {
         assetId: chosen.assetId,
-        rate: chosen.rate,
-        pricingType: chosen.pricingType as PricingType,
+        rate: group ? Number(price) : chosen.rate,
+        pricingType: group ? "PROJECT" : (chosen.pricingType as PricingType),
         quantity: Number(quantity),
+        ...(group ? { isOneTime: true, groupId: group.id } : {}),
+      }, packageId);
+      setOutcome(result);
+      if (result.status === "ok") {
+        reset();
+        router.refresh();
+      }
+    });
+  }
+
+  function addCustom() {
+    if (!group || !custom) return;
+    startTransition(async () => {
+      const result = await addOrderLine(reservationId, {
+        description: custom.name,
+        rate: Number(price),
+        pricingType: "PROJECT",
+        quantity: Number(quantity),
+        isOneTime: true,
+        groupId: group.id,
       }, packageId);
       setOutcome(result);
       if (result.status === "ok") {
@@ -134,7 +166,7 @@ export function AddLine({
           className="flex items-center gap-1 rounded-pill bg-sunken px-3 py-1 text-pill text-ink hover:bg-row-hover"
         >
           <Plus className="size-[13px]" aria-hidden />
-          {optionName ? `Add to ${optionName}` : "Add a line"}
+          {group ? "Add a part" : optionName ? `Add to ${optionName}` : "Add a line"}
         </button>
       </div>
     );
@@ -150,7 +182,37 @@ export function AddLine({
         </Notice>
       ) : null}
 
-      {chosenPackage ? (
+      {custom && group ? (
+        <div className="flex flex-wrap items-end gap-2">
+          <span className="min-w-0 flex-1">
+            <span className="mb-[6px] block text-micro uppercase text-ink-muted">Part in {group.name}</span>
+            <input
+              autoFocus
+              value={custom.name}
+              aria-label="Part description"
+              placeholder="What the part is"
+              onChange={(event) => setCustom({ name: event.target.value })}
+              className="h-9 w-full rounded-well border-0 bg-sunken px-2 text-detail text-ink outline-none placeholder:text-ink-faint"
+            />
+          </span>
+          <PartFields quantity={quantity} setQuantity={setQuantity} price={price} setPrice={setPrice} />
+          <button
+            type="button"
+            disabled={busy || !custom.name.trim() || !(Number(price) >= 0) || price === ""}
+            onClick={addCustom}
+            className="h-9 rounded-pill bg-accent-solid px-4 text-pill text-accent-on-solid disabled:opacity-50"
+          >
+            {busy ? "Adding…" : "Add"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setCustom(null)}
+            className="h-9 rounded-pill bg-sunken px-3 text-pill text-ink hover:bg-row-hover"
+          >
+            Back
+          </button>
+        </div>
+      ) : chosenPackage ? (
         <div className="flex flex-wrap items-end gap-2">
           <span className="min-w-0 flex-1">
             <span className="block text-micro uppercase text-ink-muted">Package</span>
@@ -186,21 +248,25 @@ export function AddLine({
               {chosen.rate.toFixed(2)}/{chosen.pricingType.toLowerCase()}
             </span>
           </span>
-          <span>
-            <span className="mb-[6px] block text-micro uppercase text-ink-muted">
-              Qty
+          {group ? (
+            <PartFields quantity={quantity} setQuantity={setQuantity} price={price} setPrice={setPrice} />
+          ) : (
+            <span>
+              <span className="mb-[6px] block text-micro uppercase text-ink-muted">
+                Qty
+              </span>
+              <input
+                value={quantity}
+                inputMode="numeric"
+                aria-label="Quantity"
+                onChange={(event) => setQuantity(event.target.value)}
+                className="h-9 w-16 rounded-well border-0 bg-sunken px-2 text-detail tabular-nums text-ink outline-none"
+              />
             </span>
-            <input
-              value={quantity}
-              inputMode="numeric"
-              aria-label="Quantity"
-              onChange={(event) => setQuantity(event.target.value)}
-              className="h-9 w-16 rounded-well border-0 bg-sunken px-2 text-detail tabular-nums text-ink outline-none"
-            />
-          </span>
+          )}
           <button
             type="button"
-            disabled={busy}
+            disabled={busy || (!!group && (price === "" || !(Number(price) >= 0)))}
             onClick={add}
             className="h-9 rounded-pill bg-accent-solid px-4 text-pill text-accent-on-solid disabled:opacity-50"
           >
@@ -230,8 +296,8 @@ export function AddLine({
             autoFocus
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search assets and our packages"
-            aria-label="Search assets and packages"
+            placeholder={group ? "Search assets to add as a part" : "Search assets and our packages"}
+            aria-label={group ? "Search assets" : "Search assets and packages"}
             className="h-9 w-full rounded-well border-0 bg-sunken px-3 text-detail text-ink outline-none placeholder:text-ink-faint"
           />
           {packages.length > 0 || hits.length > 0 ? (
@@ -266,7 +332,10 @@ export function AddLine({
                 <li key={hit.assetId}>
                   <button
                     type="button"
-                    onClick={() => setChosen(hit)}
+                    onClick={() => {
+                      setChosen(hit);
+                      if (group) setPrice(hit.rate ? hit.rate.toFixed(2) : "");
+                    }}
                     className="flex w-full items-baseline gap-2 rounded-row px-2 py-[6px] text-left text-detail hover:bg-row-hover"
                   >
                     <span className="min-w-0 flex-1 truncate">{hit.name}</span>
@@ -283,15 +352,64 @@ export function AddLine({
               ))}
             </ul>
           ) : null}
-          <button
-            type="button"
-            onClick={reset}
-            className="mt-2 text-detail text-ink-faint hover:underline"
-          >
-            Cancel
-          </button>
+          <div className="mt-2 flex gap-3">
+            {group ? (
+              <button
+                type="button"
+                onClick={() => setCustom({ name: query.trim() })}
+                className="text-detail text-accent-text hover:underline"
+              >
+                Add a custom part instead
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={reset}
+              className="text-detail text-ink-faint hover:underline"
+            >
+              Cancel
+            </button>
+          </div>
         </>
       )}
     </div>
+  );
+}
+
+/** Quantity per machine and the price each, for a part of a sales build. */
+function PartFields({
+  quantity,
+  setQuantity,
+  price,
+  setPrice,
+}: {
+  quantity: string;
+  setQuantity: (value: string) => void;
+  price: string;
+  setPrice: (value: string) => void;
+}) {
+  return (
+    <>
+      <span>
+        <span className="mb-[6px] block text-micro uppercase text-ink-muted">Per machine</span>
+        <input
+          value={quantity}
+          inputMode="numeric"
+          aria-label="Quantity per machine"
+          onChange={(event) => setQuantity(event.target.value)}
+          className="h-9 w-20 rounded-well border-0 bg-sunken px-2 text-detail tabular-nums text-ink outline-none"
+        />
+      </span>
+      <span>
+        <span className="mb-[6px] block text-micro uppercase text-ink-muted">Price each</span>
+        <input
+          value={price}
+          inputMode="decimal"
+          aria-label="Price each"
+          onChange={(event) => setPrice(event.target.value)}
+          className="h-9 w-24 rounded-well border-0 bg-sunken px-2 text-detail tabular-nums text-ink outline-none"
+        />
+      </span>
+    </>
   );
 }

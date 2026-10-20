@@ -36,20 +36,22 @@ export default async function ShellLayout({
 
   return (
     <div className="flex min-h-0 flex-1 gap-3 bg-ground p-3">
-      <NavPanel
-        user={user}
-        counts={counts}
-        approver={waiting !== null}
-        // Its own boundary, because this layout renders on every authenticated
-        // route: a slow notification count here would be a slow app everywhere.
-        // The fallback is the same bell without a badge, so nothing moves when
-        // the number lands.
-        bell={
-          <Suspense fallback={<NotificationBell count={null} />}>
-            <NotificationBellSlot userId={user.id} />
-          </Suspense>
-        }
-      />
+      <div data-print-hide className="contents">
+        <NavPanel
+          user={user}
+          counts={counts}
+          approver={waiting !== null}
+          // Its own boundary, because this layout renders on every authenticated
+          // route: a slow notification count here would be a slow app everywhere.
+          // The fallback is the same bell without a badge, so nothing moves when
+          // the number lands.
+          bell={
+            <Suspense fallback={<NotificationBell count={null} />}>
+              <NotificationBellSlot userId={user.id} />
+            </Suspense>
+          }
+        />
+      </div>
       {/* Scrolls itself, now that the page does not. `min-h-0` so a tall child
           cannot push the main column past the viewport instead of scrolling. */}
       <main className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-y-auto">

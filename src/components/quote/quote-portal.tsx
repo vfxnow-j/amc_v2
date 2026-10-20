@@ -36,6 +36,10 @@ export type QuoteItem = {
   configuredTotal?: number;
   /** Part of the base price — shown as specification, charged nothing. */
   includedInParent?: boolean;
+  /** A sales build: its amount is the total of the parts listed under it. */
+  isGroup?: boolean;
+  /** A build part listed as a spec with no figures — the build's total covers it. */
+  priceHidden?: boolean;
 };
 
 export type QuoteCategory = { category: string; items: QuoteItem[] };
@@ -538,6 +542,7 @@ function Lines({ categories }: { categories: QuoteCategory[] }) {
                 <span className={item.isComponent ? "pl-4 text-[#52525b]" : "font-medium"}>
                   {item.isComponent ? "↳ " : ""}
                   {item.name}
+                  {item.priceHidden ? null : (
                   <span className="ml-2 text-xs text-[#a1a1aa]">
                     ×{item.quantity}
                     {/* The base specification of a configured machine is listed
@@ -546,14 +551,17 @@ function Lines({ categories }: { categories: QuoteCategory[] }) {
                         Showing its rate here would read as a charge. */}
                     {item.includedInParent
                       ? " · included"
-                      : ` · ${money(item.rate)}${RATE_SUFFIX[item.pricingType] ?? ""}`}
+                      : item.isGroup
+                        ? ` · ${money(item.rate)} each`
+                        : ` · ${money(item.rate)}${RATE_SUFFIX[item.pricingType] ?? ""}`}
                   </span>
+                  )}
                   {item.spec && (
                     <span className="mt-0.5 block text-xs font-normal text-[#71717a]">{item.spec}</span>
                   )}
                 </span>
                 <span className="tabular-nums">
-                  {item.includedInParent
+                  {item.priceHidden ? "" : item.includedInParent
                     ? "—"
                     : money(item.configuredTotal ?? item.subtotal)}
                 </span>

@@ -10,6 +10,7 @@ import {
   ledgerPrunePredicate,
   stageWhere,
   unknownEnumValuesSql,
+  v2OwnedWhereSql,
   type EnumColumn,
 } from "./sql";
 
@@ -132,4 +133,16 @@ test("a foreign key to a non-key column looks the parent up in v1 to find its he
   });
   assert.match(sql, /from v1_remote\."p_t" p join "h_p_t" h on h\.key = p\."id"::text/);
   assert.match(sql, /where p\."code" = c\."code"/);
+});
+
+test("v2OwnedWhereSql puts v2's value back into the stage only where the predicate holds", () => {
+  const sql = v2OwnedWhereSql({
+    table: "asset_units",
+    stage: '"s_asset_units"',
+    column: "purchasePrice",
+    join: 'p."id" = s."id"',
+    predicate: `exists (select 1 from public.current_rms_apply_log l where l."unitId" = p.id and l."undoneAt" is null)`,
+  });
+  assert.match(sql, /^update "s_asset_units" s set "purchasePrice" = p\."purchasePrice"/);
+  assert.match(sql, /from public\."asset_units" p where p\."id" = s\."id" and \(exists/);
 });

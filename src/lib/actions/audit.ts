@@ -17,6 +17,7 @@ export type AuditAction =
   | 'REJECT'
   | 'IMPORT'
   | 'EXPORT'
+  | 'OVERRIDE'
 
 export type AuditEntityType =
   | 'User'

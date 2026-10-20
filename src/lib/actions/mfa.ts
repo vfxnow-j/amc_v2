@@ -90,6 +90,7 @@ export async function sendMfaOtp(email: string): Promise<{ success: boolean; err
       to: user.email,
       subject: template.subject,
       html: template.html,
+      text: template.text,
     })
 
     return { success: true }

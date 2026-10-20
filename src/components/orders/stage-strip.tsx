@@ -85,10 +85,17 @@ export async function StageStrip({ id }: { id: string }) {
 
       {/* The stops and the side-branch, said plainly rather than drawn. */}
       {status === "REVISION" ? (
-        <p className="text-detail text-ink-muted">
-          Pulled back for revision{stamps.quoteSent ? ` after being quoted ${dayYear(stamps.quoteSent)}` : ""}.
-          {order.actionRequiredNote ? ` ${order.actionRequiredNote}` : ""}
-        </p>
+        <div className="space-y-2">
+          <p className="text-detail text-ink-muted">
+            Pulled back for revision{stamps.quoteSent ? ` after being quoted ${dayYear(stamps.quoteSent)}` : ""}.
+          </p>
+          {order.actionRequiredNote ? (
+            // The client's own words, paragraph breaks and all, set apart from the sentence.
+            <p className="whitespace-pre-line break-words rounded-md border-l-2 border-accent bg-row-alt px-3 py-2 text-body text-ink">
+              {order.actionRequiredNote}
+            </p>
+          ) : null}
+        </div>
       ) : null}
       {status === "LOST" ? (
         <p className="text-detail text-ink-muted">
@@ -106,6 +113,23 @@ export async function StageStrip({ id }: { id: string }) {
         <p className="text-detail text-ink-muted">
           Prepared by {order.preparedBy.name}
           {stamps.preparing ? ` from ${dayYear(stamps.preparing)}` : ""}.
+        </p>
+      ) : null}
+      {order.quoteActivity.linksSent > 0 ? (
+        <p className="text-detail text-ink-muted">
+          Quote link sent {dayYear(order.quoteActivity.lastSentAt!)}
+          {order.quoteActivity.lastSentTo ? ` to ${order.quoteActivity.lastSentTo}` : ""}
+          {order.quoteActivity.linksSent > 1 ? ` · ${order.quoteActivity.linksSent} links sent in all` : ""}
+          {" · "}
+          {order.quoteActivity.views > 0
+            ? `opened by the client ${order.quoteActivity.views}× (first ${dayYear(order.quoteActivity.firstViewedAt!)}${
+                order.quoteActivity.lastViewedAt &&
+                dayYear(order.quoteActivity.lastViewedAt) !== dayYear(order.quoteActivity.firstViewedAt!)
+                  ? `, last ${dayYear(order.quoteActivity.lastViewedAt)}`
+                  : ""
+              })`
+            : "not opened by the client yet"}
+          .
         </p>
       ) : null}
       {status === "QUOTE_SENT" && stamps.quoteExpires ? (

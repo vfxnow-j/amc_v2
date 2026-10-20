@@ -1,6 +1,4 @@
 import { getResend, isEmailConfigured, EMAIL_FROM } from './client'
-import { readFileSync } from 'node:fs'
-import path from 'node:path'
 import { htmlToText, LOGO_CID } from './layout'
 
 /**
@@ -41,18 +39,58 @@ function banner(originalTo: string | string[]): string {
 }
 
 /**
- * Apply the redirect to one message. Returns it unchanged when no redirect is
- * configured, so the production path costs nothing.
+ * A label on every subject while this instance is a stand-in for the live one
+ * ("AMC v2"), so v2 mail is never mistaken for v1's in an inbox. Unset it when
+ * v2 becomes the production system.
+ */
+function subjectTag(): string | null {
+  const value = process.env.EMAIL_SUBJECT_TAG?.trim()
+  return value ? value : null
+}
+
+/**
+ * Addresses that always get their mail for real, even while the redirect is on:
+ * the people actually using this instance, who need their sign-in codes and
+ * password resets delivered to them and not to the tester. A message goes direct
+ * only if every one of its recipients is listed — one customer on the To: line
+ * and the whole message is redirected. An entry like `@vfxnow.com` lists a whole
+ * domain.
+ */
+function directAllow(): Set<string> {
+  return new Set(
+    (process.env.EMAIL_DIRECT_ALLOW ?? '')
+      .split(',')
+      .map((address) => address.trim().toLowerCase())
+      .filter(Boolean),
+  )
+}
+
+function allDirect(to: string | string[]): boolean {
+  const allow = directAllow()
+  const recipients = Array.isArray(to) ? to : [to]
+  // An entry beginning with "@" allows a whole domain (internal staff).
+  const listed = (address: string) => {
+    const lower = address.trim().toLowerCase()
+    return allow.has(lower) || allow.has(lower.slice(lower.lastIndexOf('@')))
+  }
+  return allow.size > 0 && recipients.length > 0 && recipients.every(listed)
+}
+
+/**
+ * Apply the subject tag and the redirect to one message. Returns it unchanged
+ * when neither is configured, so the production path costs nothing.
  */
 export function applyTestRedirect<T extends { to: string | string[]; subject: string; html: string; text?: string }>(
   message: T,
 ): T {
+  const tag = subjectTag()
+  const tagged = tag ? `[${tag}] ${message.subject}` : message.subject
   const target = redirectTo()
-  if (!target) return message
+  if (!target || allDirect(message.to)) return { ...message, subject: tagged }
   return {
     ...message,
     to: target,
-    subject: `[test → ${describe(message.to)}] ${message.subject}`,
+    subject: `${tag ? `[${tag}] ` : ''}[test → ${describe(message.to)}] ${message.subject}`,
     html: withBanner(message.html, message.to),
     // The plain-text part says it too: a client that shows text only must not
     // read a redirected message as the real thing.
@@ -90,28 +128,21 @@ export type EmailAttachment = {
   contentId?: string
 }
 
-let logo: Buffer | null | undefined
-
 /**
- * The header logo, read once and kept. The layout references it by content id
- * (see `layout.ts`); a message whose HTML does gets it attached inline. Resolved
- * from the project root the same way `actions/documents` finds it under the
- * standalone server. If the file can't be read the message goes without it and
- * the `alt` wordmark shows instead — a missing logo is not a reason to lose mail.
+ * The header logo. It used to ride along as an inline (cid) attachment, and the
+ * mail system at vfxnow.com dropped every message that carried one — sign-in
+ * codes included — while the same message without it arrived. So nothing is
+ * attached now:
+ *
+ *   - EMAIL_LOGO_URL set: the cid points at that URL, which must be public.
+ *   - unset: the image is replaced by a text wordmark, styled by the cell around
+ *     it, so the header band is never empty.
  */
-function logoAttachment(html: string): EmailAttachment[] {
-  if (!html.includes(`cid:${LOGO_CID}`)) return []
-  if (logo === undefined) {
-    const cwd = process.cwd()
-    const root = cwd.endsWith(path.join('.next', 'standalone')) ? path.resolve(cwd, '..', '..') : cwd
-    try {
-      logo = readFileSync(path.join(root, 'public', 'brand', 'email-logo-white.png'))
-    } catch (error) {
-      console.error('Email logo unreadable; sending without it:', error)
-      logo = null
-    }
-  }
-  return logo ? [{ filename: 'vfxnow-logo.png', content: logo, contentType: 'image/png', contentId: LOGO_CID }] : []
+export function resolveLogo(html: string): string {
+  if (!html.includes(`cid:${LOGO_CID}`)) return html
+  const url = process.env.EMAIL_LOGO_URL?.trim()
+  if (url) return html.split(`cid:${LOGO_CID}`).join(url)
+  return html.replace(new RegExp(`<img[^>]*cid:${LOGO_CID}[^>]*>`, 'g'), 'VFXnow')
 }
 
 export type SendEmailParams = {
@@ -134,7 +165,7 @@ export async function sendEmail(params: SendEmailParams): Promise<{ success: boo
   const routed = applyTestRedirect({
     to: params.to,
     subject: params.subject,
-    html: params.html,
+    html: resolveLogo(params.html),
     text: textFor(params),
   })
 
@@ -146,7 +177,7 @@ export async function sendEmail(params: SendEmailParams): Promise<{ success: boo
       html: routed.html,
       text: routed.text,
       replyTo: params.replyTo,
-      attachments: [...logoAttachment(params.html), ...(params.attachments ?? [])].map((a) => ({
+      attachments: (params.attachments ?? []).map((a) => ({
         filename: a.filename,
         content: a.content as any,
         contentType: a.contentType,
@@ -197,9 +228,8 @@ export async function sendBatch(
     return { success: false, error: 'Outbound email is switched off in this instance.' }
   }
 
-  // Resend's batch endpoint takes no attachments, and the inline logo is one.
-  // So a batch of layout mail goes one message at a time through `sendEmail`,
-  // which attaches it and applies the redirect. The batch sizes here are a
+  // A batch of layout mail goes one message at a time through `sendEmail`,
+  // which resolves the logo and applies the redirect. The batch sizes here are a
   // recipient list — a handful — so the extra calls cost nothing that matters.
   if (messages.some((message) => message.html.includes(`cid:${LOGO_CID}`))) {
     let failed = 0

@@ -554,7 +554,10 @@ export async function createInvoiceFromReservation(reservationId: string, dueDat
     const quantity = Number(item.quantity) || 1
     const unitPrice = Number(item.rate)
     return {
-      description: `${item.asset?.name || item.description || 'Ad-hoc item'} (${item.pricingType} rate${stretchNote})`,
+      // A sales build group is a heading over its parts: no rate to spell out.
+      description: item.isGroup
+        ? item.description || 'Build'
+        : `${item.asset?.name || item.description || 'Ad-hoc item'} (${item.pricingType} rate${stretchNote})`,
       quantity,
       unitPrice,
       ...(stretch ? { amount: roundMoney(quantity * unitPrice * stretch.periods) } : {}),

@@ -7,6 +7,7 @@ import type {
 } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { STATUS_LABEL } from "@/lib/reservations/status";
+import { perMachineQty } from "@/lib/pricing/build-groups";
 
 /**
  * Queries behind Operate → Reservations → the record.
@@ -149,6 +150,10 @@ export type RecordComponent = {
   isOneTime: boolean;
   /** Part of the base price: shown as spec, charged nothing. */
   includedInParent: boolean;
+  /** In a build group: the quantity per machine (the stored one is that × machines). */
+  perMachine: number;
+  /** A cloud host's spec row: quantity is per host, and it carries no money. */
+  isCloudPart: boolean;
   /** Units scanned out against this part — a GPU married to its machine. */
   unitBarcodes: string[];
   /** Scanned out so far; an asset part expects `quantity` of them. */
@@ -158,6 +163,17 @@ export type RecordComponent = {
 
 export type RecordLine = {
   id: string;
+  /** A sales build group: a heading whose `components` are its parts, priced separately. */
+  isGroup: boolean;
+  /** The quote option the line sits on, so a line is only offered builds on its own. */
+  packageId: string | null;
+  /** Can be put into a build: a plain line with no parts of its own. */
+  movable: boolean;
+  /**
+   * A cloud host (lib/cloud/host): priced as one line, its parts are the spec it
+   * was composed from — no money of their own — and it is edited as a whole.
+   */
+  isCloudHost: boolean;
   /** What this line is built from. Empty for anything that is not configured. */
   components: RecordComponent[];
   /** Asset name, or the free-text description for an ad-hoc line. */
@@ -215,6 +231,9 @@ export async function getReservationLines(
     orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
     select: {
       id: true,
+      isGroup: true,
+      packageId: true,
+      cloudProductId: true,
       description: true,
       category: true,
       quantity: true,
@@ -253,6 +272,7 @@ export async function getReservationLines(
           isOneTime: true,
           includedInParent: true,
           description: true,
+          cloudProductId: true,
           assetId: true,
           checkedOutCount: true,
           checkedInCount: true,
@@ -301,9 +321,7 @@ export async function getReservationLines(
       checkedInAt: unit.checkedInAt,
     }));
 
-    return {
-      id: item.id,
-      components: item.components.map((part) => ({
+    const components = item.components.map((part) => ({
         id: part.id,
         label: part.asset?.name ?? part.description ?? "Part",
         assetId: part.assetId,
@@ -313,10 +331,21 @@ export async function getReservationLines(
         subtotal: Number(part.subtotal),
         isOneTime: part.isOneTime,
         includedInParent: part.includedInParent,
+        perMachine: item.isGroup ? perMachineQty(part, item) : part.quantity,
+        isCloudPart: !!part.cloudProductId,
         unitBarcodes: part.units.filter((unit) => unit.checkedOutAt).map((unit) => unit.assetUnit.barcode),
         checkedOutCount: part.checkedOutCount,
         checkedInCount: part.checkedInCount,
-      })),
+      }));
+
+    return {
+      id: item.id,
+      isGroup: item.isGroup,
+      packageId: item.packageId,
+      movable: !item.isGroup && !item.cloudProductId && components.length === 0,
+      isCloudHost:
+        !item.isGroup && !item.cloudProductId && item.category === "Cloud" && components.some((part) => part.isCloudPart),
+      components,
       label:
         item.asset?.name ??
         item.service?.name ??
@@ -329,7 +358,10 @@ export async function getReservationLines(
       quantity: item.quantity,
       rate: Number(item.rate),
       pricingType: item.pricingType,
-      subtotal: Number(item.subtotal),
+      // A build group has no price of its own: it shows what its parts add up to.
+      subtotal: item.isGroup
+        ? components.reduce((sum, part) => sum + part.subtotal, 0)
+        : Number(item.subtotal),
       isOneTime: item.isOneTime,
       costBasis: item.costBasis == null ? null : Number(item.costBasis),
       trueCost: item.trueCost == null ? null : Number(item.trueCost),

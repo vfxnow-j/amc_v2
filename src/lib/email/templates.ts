@@ -48,20 +48,17 @@ const SECURITY_FOOTER =
 // SECURITY EMAILS
 // ============================================
 
+/**
+ * Deliberately plain: no layout, logo or styling. The mail system at vfxnow.com
+ * has dropped branded mail before, and a sign-in code must always arrive.
+ */
 export function mfaOtpEmail(name: string, otp: string) {
-  return email(`${otp} is your VFXNow verification code`, {
-    audience: 'staff',
-    preheader: `Your verification code is ${otp}. It expires in 10 minutes.`,
-    eyebrow: 'Sign-in',
-    title: 'Your verification code',
-    body: [
-      greeting(name),
-      paragraph('Enter this code to finish signing in:'),
-      code(otp),
-      paragraph('It expires in 10 minutes. If you did not try to sign in, ignore this email and consider changing your password.', { muted: true, small: true }),
-    ].join(''),
-    footer: SECURITY_FOOTER,
-  })
+  const text = `Hi ${name},\n\nYour verification code is ${otp}\n\nIt expires in 10 minutes. If you did not try to sign in, ignore this email.`
+  return {
+    subject: `${otp} is your verification code`,
+    html: `<p>Hi ${name},</p><p>Your verification code is <strong>${otp}</strong></p><p>It expires in 10 minutes. If you did not try to sign in, ignore this email.</p>`,
+    text,
+  }
 }
 
 export function passwordResetEmail(name: string, resetToken: string) {
@@ -373,6 +370,33 @@ export function quoteChangesRequestedEmail(data: {
     body: [
       paragraph(`${strong(data.clientName)} has reviewed the quote and is asking for changes:`),
       callout(quoted(data.changeNotes), { tone: 'warning' }),
+    ].join(''),
+    cta: { label: 'Open the order', url: `/dashboard/orders/${encodeURIComponent(data.reservationId)}` },
+  })
+}
+
+/** Internal heads-up that the client has opened the quote link. Links to the order, never to the client's page. */
+export function quoteViewedEmail(data: {
+  clientName: string
+  reservationNumber: string
+  reservationId: string
+  sentTo?: string | null
+  sentAt?: string
+  total: number
+}) {
+  return email(`Quote viewed: ${data.clientName} opened ${data.reservationNumber}`, {
+    audience: 'staff',
+    preheader: `${data.clientName} has opened the quote link.`,
+    eyebrow: 'Quote',
+    title: 'Quote viewed',
+    subtitle: data.reservationNumber,
+    body: [
+      paragraph(`${strong(data.clientName)} has opened the quote link for the first time. For awareness only.`),
+      facts([
+        data.sentTo ? { label: 'Sent to', value: data.sentTo } : null,
+        data.sentAt ? { label: 'Sent', value: data.sentAt } : null,
+        { label: 'Total', value: money(data.total) },
+      ]),
     ].join(''),
     cta: { label: 'Open the order', url: `/dashboard/orders/${encodeURIComponent(data.reservationId)}` },
   })

@@ -125,6 +125,8 @@ export async function duplicateOrderTx(
       return {
         sourceId: item.id,
         sourceParentId: item.parentId,
+        // Build groups exist only on sales; elsewhere the heading stays a plain parent line.
+        isGroup: isSaleTarget && item.isGroup,
         assetId: item.assetId,
         serviceId: item.serviceId,
         cloudProductId: item.cloudProductId,
@@ -177,6 +179,7 @@ export async function duplicateOrderTx(
       status: 'DRAFT',
       priceVerified: false,
       priceVerifiedAt: null,
+      hideBuildPartPrices: isSaleTarget && source.hideBuildPartPrices,
       createdById: options.userId,
       isRecurring,
       billingCycleType,

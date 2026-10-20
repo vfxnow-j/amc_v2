@@ -32,7 +32,8 @@ const BOOKED_STATUSES: ReservationStatus[] = [...OPEN_STATUSES, "COMPLETED"];
  */
 const COUNTED_LINES: Prisma.ReservationItemWhereInput = {
   assetId: { not: null },
-  parentId: null,
+  // A sales build group's parts are real stock; the group row has no asset.
+  OR: [{ parentId: null }, { parent: { isGroup: true } }],
   package: { isActive: true },
   reservation: { status: { in: BOOKED_STATUSES } },
 };

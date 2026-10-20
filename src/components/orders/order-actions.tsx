@@ -11,6 +11,7 @@ import type {
   ReservationType,
 } from "@/generated/prisma/client";
 import { Notice } from "@/components/feedback/notice";
+import { moveWithoutScanning } from "@/lib/actions/scan-override";
 import { Modal, ModalCancel, ModalConfirm } from "@/components/feedback/modal";
 import { movesFor, type Move } from "@/lib/orders/lifecycle";
 import {
@@ -185,7 +186,17 @@ export function OrderActions(props: OrderActionsProps) {
       ) : null}
 
       {notReady ? (
-        <NotReadyDialog move={notReady.move} missing={notReady.missing} onClose={() => setNotReady(null)} />
+        <NotReadyDialog
+          move={notReady.move}
+          missing={notReady.missing}
+          orderId={props.id}
+          onOverridden={(result) => {
+            setNotReady(null);
+            setOutcome(result);
+            router.refresh();
+          }}
+          onClose={() => setNotReady(null)}
+        />
       ) : null}
       {open === "send-quote" ? <SendQuoteDialog {...shared} /> : null}
       {open === "prepare" ? <PrepareDialog {...shared} /> : null}
@@ -1279,13 +1290,30 @@ export function EditBillingTerms({
 export function NotReadyDialog({
   move,
   missing,
+  orderId,
+  onOverridden,
   onClose,
 }: {
   move: "activate" | "ship";
   missing: MissingLine[];
+  /** With `onOverridden`, offers the super-admin override. */
+  orderId?: string;
+  onOverridden?: (result: StageOutcome) => void;
   onClose: () => void;
 }) {
   const units = missing.reduce((sum, line) => sum + line.missing, 0);
+  const [overriding, setOverriding] = useState(false);
+  if (overriding && orderId && onOverridden) {
+    return (
+      <OverrideDialog
+        id={orderId}
+        move={move}
+        units={units}
+        onBack={() => setOverriding(false)}
+        onDone={onOverridden}
+      />
+    );
+  }
   return (
     <Modal
       open
@@ -1296,13 +1324,24 @@ export function NotReadyDialog({
         units === 1 ? "unit is" : "units are"
       } still to scan.`}
       footer={
-        <button
-          type="button"
-          onClick={onClose}
-          className="h-9 rounded-pill bg-accent-solid px-4 text-pill text-accent-on-solid"
-        >
-          Back to scanning
-        </button>
+        <>
+          {orderId && onOverridden ? (
+            <button
+              type="button"
+              onClick={() => setOverriding(true)}
+              className="mr-auto h-9 rounded-pill bg-sunken px-3 text-pill text-ink hover:bg-row-hover"
+            >
+              {move === "ship" ? "Ship without scanning" : "Activate without scanning"}
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={onClose}
+            className="h-9 rounded-pill bg-accent-solid px-4 text-pill text-accent-on-solid"
+          >
+            Back to scanning
+          </button>
+        </>
       }
     >
       <div className="flex items-start gap-3 rounded-well border border-destructive/40 bg-destructive/5 p-3">
@@ -1335,6 +1374,101 @@ export function NotReadyDialog({
       <p className="mt-3 text-micro text-ink-faint">
         Scan each one against the order. Services, fees and spec options like memory are never scanned, so they
         aren&rsquo;t listed.
+      </p>
+    </Modal>
+  );
+}
+
+/**
+ * Skip the scan, on a super admin's authority.
+ *
+ * The email and password are those of a super admin, typed every time: the
+ * person at this screen may be one, or may have another beside them. They are
+ * sent to the server action and checked only there; nothing here keeps them.
+ * Any failure reads the same, by design.
+ */
+function OverrideDialog({
+  id,
+  move,
+  units,
+  onBack,
+  onDone,
+}: {
+  id: string;
+  move: "activate" | "ship";
+  units: number;
+  onBack: () => void;
+  onDone: (result: StageOutcome) => void;
+}) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [reason, setReason] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, startTransition] = useTransition();
+  const verb = move === "ship" ? "Ship" : "Activate";
+
+  const field =
+    "h-9 w-full rounded-well border-0 bg-sunken px-3 text-detail text-ink outline-none placeholder:text-ink-faint";
+
+  return (
+    <Modal
+      open
+      onOpenChange={(next) => !next && onBack()}
+      title={`${verb} without scanning`}
+      blurb={`${units} ${units === 1 ? "unit has" : "units have"} not been scanned out. A super admin has to authorise skipping that, and it is recorded against their name.`}
+      footer={
+        <>
+          <ModalCancel>Back</ModalCancel>
+          <ModalConfirm
+            tone="danger"
+            disabled={busy || !email.trim() || !password || reason.trim().length < 5}
+            onClick={() =>
+              startTransition(async () => {
+                setError(null);
+                const result = await moveWithoutScanning(id, move, { email, password, reason });
+                setPassword("");
+                if (result.status === "ok") onDone(result);
+                else setError(result.message);
+              })
+            }
+          >
+            {busy ? "Checking…" : `${verb} without scanning`}
+          </ModalConfirm>
+        </>
+      }
+    >
+      <form className="flex flex-col gap-2" autoComplete="off" onSubmit={(event) => event.preventDefault()}>
+        <Label>Super admin email</Label>
+        <input
+          type="email"
+          value={email}
+          onChange={(event) => setEmail(event.target.value)}
+          autoComplete="off"
+          aria-label="Super admin email"
+          className={field}
+        />
+        <Label>Super admin password</Label>
+        <input
+          type="password"
+          value={password}
+          onChange={(event) => setPassword(event.target.value)}
+          autoComplete="new-password"
+          aria-label="Super admin password"
+          className={field}
+        />
+        <Label>Why is the scan being skipped?</Label>
+        <textarea
+          value={reason}
+          onChange={(event) => setReason(event.target.value)}
+          rows={3}
+          aria-label="Reason for skipping the scan"
+          className="w-full rounded-well border-0 bg-sunken px-3 py-2 text-detail text-ink outline-none placeholder:text-ink-faint"
+        />
+      </form>
+      {error ? <Notice tone="error">{error}</Notice> : null}
+      <p className="mt-3 text-micro text-ink-faint">
+        Only the scan check is skipped. Every other rule still applies, and the unscanned items are listed in the
+        order&rsquo;s history.
       </p>
     </Modal>
   );

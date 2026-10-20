@@ -1,6 +1,8 @@
 'use server'
 
 import { handoverShortfall, shortfallMessage } from '@/lib/orders/handover'
+import { consumeScanOverride } from '@/lib/orders/scan-override'
+import { groupIdsOf, isCheckoutLine } from '@/lib/pricing/build-groups'
 import { revalidatePath } from 'next/cache'
 import { Prisma } from '@/generated/prisma/client'
 import { prisma } from '@/lib/prisma'
@@ -206,10 +208,12 @@ function assertFlowTermsOpen(
 // Auto-generate invoice when all items are fully checked out
 async function maybeAutoInvoice(tx: TxClient, reservationId: string): Promise<boolean> {
   // Check if all physical items are fully checked out. Component rows (parentId set)
-  // are pricing line-items only, so they don't count against checkout status.
-  const allItems = await tx.reservationItem.findMany({
-    where: { reservationId, parentId: null },
-  })
+  // are pricing line-items only, so they don't count against checkout status. A
+  // sales build group is the exception: its heading needs no checkout, but its
+  // stock parts are real units (lib/pricing/build-groups).
+  const lines = await tx.reservationItem.findMany({ where: { reservationId } })
+  const groupIds = groupIdsOf(lines)
+  const allItems = lines.filter((item) => (item.parentId ? isCheckoutLine(item, groupIds) : !item.isGroup))
 
   const allCheckedOut = allItems.every((item) => item.checkedOutCount >= item.quantity)
   if (!allCheckedOut) return false
@@ -373,7 +377,10 @@ async function maybeAutoInvoice(tx: TxClient, reservationId: string): Promise<bo
       ? ` x ${formatPeriodCount(periods)} ${item.pricingType.toLowerCase()} — ${formatTermLength(reservation.startDate, reservation.endDate)}`
       : ''
     return {
-      description: `${item.asset?.name || item.description || 'Ad-hoc item'} (${item.pricingType} rate${periodLabel})`,
+      // A build group is a heading over its parts: no rate to spell out.
+      description: item.isGroup
+        ? item.description || 'Build'
+        : `${item.asset?.name || item.description || 'Ad-hoc item'} (${item.pricingType} rate${periodLabel})`,
       quantity: Number(item.quantity) || 1,
       unitPrice: Number(item.rate),
       amount: Number(item.subtotal),
@@ -1275,6 +1282,8 @@ export async function updateReservationItemQuantity(
     if (!item || item.reservationId !== reservationId) {
       throw new Error('Reservation item not found')
     }
+    // A build's machine count scales its parts with it (actions/build-groups).
+    if (item.isGroup) throw new Error("Change a build's machine count from the build itself.")
 
     // Don't allow reducing below currently-outstanding count (checked out minus returned)
     const outstandingCount = item.checkedOutCount - item.checkedInCount
@@ -1477,6 +1486,8 @@ export async function addItemToReservation(
   costBasis?: number,
   marginPercent?: number,
   cloudProductId?: string | null,
+  /** Sales build group to add this line under; `quantity` is then per machine. */
+  groupId?: string | null,
 ) {
   const authResult = await requireEditor()
   if (!authResult.authorized) throw new Error(authResult.error || 'Unauthorized')
@@ -1504,6 +1515,19 @@ export async function addItemToReservation(
       targetPackageId = defaultPkg.id
     }
 
+    // A part of a build group is stored already multiplied by the group's machine
+    // count, and always sits on the same quote option as its group.
+    let group: { id: string; packageId: string | null; quantity: number } | null = null
+    if (groupId) {
+      group = await tx.reservationItem.findFirst({
+        where: { id: groupId, reservationId, isGroup: true },
+        select: { id: true, packageId: true, quantity: true },
+      })
+      if (!group) throw new Error('Build group not found')
+      quantity = quantity * group.quantity
+      if (group.packageId) targetPackageId = group.packageId
+    }
+
     // Duplicate lines for the same asset are allowed on purpose: splitting a
     // quantity across two lines is how part of it gets a different rate.
     const periods = isOneTime ? 1 : calculatePeriodsSync(reservation.startDate, reservation.endDate, pricingType, reservation.isRecurring)
@@ -1527,6 +1551,7 @@ export async function addItemToReservation(
         isOneTime: isOneTime || false,
         addedAt: new Date(),
         sortOrder: (maxOrder._max.sortOrder ?? -1) + 1,
+        ...(group ? { parentId: group.id } : {}),
         ...(costBasis != null && { costBasis }),
         ...(marginPercent != null && { marginPercent }),
       },
@@ -2593,7 +2618,7 @@ export async function markShipped(id: string, notifyClient?: { email: string }) 
   // with no asset — a service, a fee, a spec part — has nothing to scan; an
   // order with nothing physical ships on the say-so of whoever ships it.
   const handover = await handoverShortfall(id)
-  if (handover.units > 0) {
+  if (handover.units > 0 && !consumeScanOverride(id, 'ship')) {
     return { error: shortfallMessage(handover, 'ship') }
   }
 
@@ -3032,7 +3057,9 @@ export async function activateReservation(id: string) {
   // activation is what marks it in use.
   if (existingReservation.reservationType !== 'CLOUD') {
     const handover = await handoverShortfall(id)
-    if (handover.units > 0) throw new Error(shortfallMessage(handover, 'activate'))
+    if (handover.units > 0 && !consumeScanOverride(id, 'activate')) {
+      throw new Error(shortfallMessage(handover, 'activate'))
+    }
   }
 
   const previousStatus = existingReservation.status
@@ -5138,6 +5165,7 @@ export async function duplicatePackage(
           reservationId: sourcePackage.reservationId,
           packageId: pkg.id,
           parentId,
+          isGroup: item.isGroup,
           assetId: item.assetId,
           serviceId: item.serviceId,
           cloudProductId: item.cloudProductId,

@@ -8,6 +8,7 @@ import { FLOW_NOT_INVOICED } from "@/lib/orders/types";
 import { flowQuoteProblem } from "@/lib/flow-terms-server";
 import { speedApplies, type ShippingSpeed } from "@/lib/orders/shipping";
 import { handoverShortfall, shortfallMessage, type MissingLine } from "@/lib/orders/handover";
+import { hasScanOverride } from "@/lib/orders/scan-override";
 import { parseDateInput } from "@/lib/billing/calendar";
 import { requireEditor } from "@/lib/auth-utils";
 import {
@@ -65,6 +66,9 @@ async function notReady(id: string, move: "activate" | "ship"): Promise<StageOut
   }
   const handover = await handoverShortfall(id);
   if (handover.units === 0) return null;
+  // A super admin's override (lib/orders/scan-override) stands the gate down;
+  // the ported action still consumes the grant, so it works once.
+  if (hasScanOverride(id, move)) return null;
   return { status: "blocked", message: shortfallMessage(handover, move), move, missing: handover.missing };
 }
 
@@ -742,6 +746,7 @@ export async function removeOrderLine(
     select: {
       reservationId: true,
       description: true,
+      isGroup: true,
       asset: { select: { name: true } },
       _count: { select: { units: { where: { checkedOutAt: { not: null }, checkedInAt: null } } } },
     },
@@ -751,9 +756,21 @@ export async function removeOrderLine(
   }
 
   const label = item.asset?.name ?? item.description ?? "The line";
-  const out = item._count.units;
+  // A build group's parts are real stock: take each off properly (returning its
+  // units) before the heading goes, rather than letting the delete cascade past them.
+  const parts = item.isGroup
+    ? await prisma.reservationItem.findMany({
+        where: { parentId: itemId },
+        select: {
+          id: true,
+          _count: { select: { units: { where: { checkedOutAt: { not: null }, checkedInAt: null } } } },
+        },
+      })
+    : [];
+  const out = item._count.units + parts.reduce((sum, part) => sum + part._count.units, 0);
 
   try {
+    for (const part of parts) await removeReservationItem(reservationId, part.id);
     await removeReservationItem(reservationId, itemId);
   } catch (error) {
     return { status: "error", message: reasonFrom(error) };
@@ -835,6 +852,8 @@ export async function addOrderLine(
     pricingType: PricingType;
     quantity: number;
     isOneTime?: boolean;
+    /** A sales build group to add this line under; quantity is then per machine. */
+    groupId?: string | null;
   },
   /** Which quote option the line joins. Omitted, it joins the active one. */
   packageId?: string,
@@ -860,6 +879,10 @@ export async function addOrderLine(
       undefined,
       line.isOneTime,
       packageId,
+      undefined,
+      undefined,
+      undefined,
+      line.groupId,
     );
 
     // If the asset is a SKU with a build, its default parts come with it. That
@@ -868,7 +891,8 @@ export async function addOrderLine(
     // rows by hand for the ninth time.
     let added = 0;
     const itemId = (created as { id?: string })?.id;
-    if (itemId && line.assetId) {
+    // A part of a build group is itself the part: it takes no default parts of its own.
+    if (itemId && line.assetId && !line.groupId) {
       const { expandBuildOntoLine } = await import("@/lib/actions/asset-build");
       ({ added } = await expandBuildOntoLine(reservationId, itemId));
       if (added > 0) await repriceOrder(reservationId);

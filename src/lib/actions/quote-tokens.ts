@@ -3,12 +3,15 @@
 import { prisma } from '@/lib/prisma'
 import type { Prisma } from '@/generated/prisma/client'
 import { requireEditor } from '@/lib/auth-utils'
+import { auth } from '@/lib/auth'
+import { countsAsView } from '@/lib/quotes/quote-view'
 import { serialize } from '@/lib/utils'
 import { computeReservationFinancials, deriveItemAmount } from '@/lib/pricing/financials'
 import { calculateReservationTotals } from '@/lib/pricing/reservation-totals'
 import crypto from 'crypto'
 import { portalQuoteHold, quoteGate } from '@/lib/approvals/core'
 import { lineTitle } from '@/lib/quotes/line-title'
+import { groupIdsOf, groupRollup, perMachineQty, specLabel } from '@/lib/pricing/build-groups'
 import { paymentLineForOption } from '@/lib/billing/payment-schedule'
 import { getBillingAnchor } from '@/lib/settings/business'
 import { flowQuotePayload } from '@/lib/pricing/flow-client-payload'
@@ -216,6 +219,10 @@ async function buildQuote(
     parentId?: string | null; isComponent?: boolean; configuredTotal?: number;
     // Part of the base price: shown as specification, charged nothing.
     includedInParent?: boolean;
+    // Sales build group heading: its subtotal is the rollup of its parts, shown not summed.
+    isGroup?: boolean;
+    // A build part whose price the quote hides: a spec line with no figures.
+    priceHidden?: boolean;
   }
   const groupByCategory = (items: typeof reservation.items) => {
     // Cloud-host component children (parentId + cloudProductId) are hidden
@@ -230,24 +237,44 @@ async function buildQuote(
         childrenByParent.set(it.parentId, arr)
       }
     }
+    const hidePartPrices = !!(reservation as { hideBuildPartPrices?: boolean }).hideBuildPartPrices
     const buildQuoteItem = (item: typeof items[number]): QuoteItem => {
       const isComponent = !!item.parentId
       // Derived, not the stored column — the customer-facing quote must show the same
       // figure as the order page. See src/lib/pricing/financials.ts.
-      const subtotal = deriveItemAmount(item, reservation)
+      let subtotal = deriveItemAmount(item, reservation)
+      let rate = Number(item.rate)
+      let { title: name, spec } = lineTitle(item)
       let configuredTotal: number | undefined
-      if (!isComponent) {
+      let priceHidden: boolean | undefined
+      if (item.isGroup) {
+        // A build has no price of its own: it shows what its parts add up to, and one machine's.
+        const rolled = groupRollup((childrenByParent.get(item.id) || []).map((k) => deriveItemAmount(k, reservation)), item.quantity)
+        subtotal = rolled.amount
+        rate = rolled.rate
+      } else if (!isComponent) {
         const kids = childrenByParent.get(item.id) || []
         if (kids.length > 0) {
           configuredTotal = subtotal + kids.reduce((sum, k) => sum + deriveItemAmount(k, reservation), 0)
         }
+      } else if (hidePartPrices) {
+        // Parts of a build with prices hidden read as a spec list, "4× 32GB DDR5".
+        const group = items.find((o) => o.id === item.parentId && o.isGroup)
+        if (group) {
+          name = specLabel(name, perMachineQty(item, group))
+          spec = undefined
+          subtotal = 0
+          rate = 0
+          priceHidden = true
+        }
       }
       return {
         id: item.id,
-        ...(() => { const { title, spec } = lineTitle(item); return { name: title, spec } })(),
+        name,
+        spec,
         quantity: item.quantity,
         pricingType: item.pricingType,
-        rate: Number(item.rate),
+        rate,
         subtotal,
         assetId: item.assetId,
         availableUnits: item.asset?.units?.length ?? 0,
@@ -256,6 +283,8 @@ async function buildQuote(
         isComponent,
         configuredTotal,
         includedInParent: (item as { includedInParent?: boolean }).includedInParent ?? false,
+        isGroup: item.isGroup || undefined,
+        priceHidden,
       }
     }
     // Order: parents first, each followed by its components; they share the parent's category.
@@ -545,6 +574,7 @@ export async function approveQuote(
     // Nothing below may re-rate a Flow line with rental maths: `choice` stays empty.
   } else {
     const activePackageId = reservation.packages.find((p) => p.isActive)?.id ?? null
+    const buildGroupIds = groupIdsOf(reservation.items)
     const checked = validateApprovalChoice({
       selectedPackageId,
       quantityChanges,
@@ -554,8 +584,10 @@ export async function approveQuote(
         id: item.id,
         packageId: item.packageId,
         quantity: item.quantity,
-        // A cloud host's config rows are hidden from the client (buildQuote).
-        editable: !(item.parentId && item.cloudProductId),
+        // A cloud host's config rows are hidden from the client (buildQuote), and a
+        // sales build — heading or part — is priced as a whole: its quantities
+        // are stored multiplied by the machine count, so a client edit would corrupt them.
+        editable: !(item.parentId && item.cloudProductId) && !item.isGroup && !buildGroupIds.has(item.parentId ?? ''),
       })),
     })
     if (!checked.ok) throw new Error(checked.error)
@@ -876,7 +908,7 @@ export async function sendQuoteLinkEmail(
   const toEmail = recipientEmail?.trim() || reservation.client.email
   if (!toEmail) throw new Error('Client has no email address')
 
-  const { url } = await generateQuoteToken(reservationId)
+  const { token, url } = await generateQuoteToken(reservationId)
 
   const { quotePageLinkEmail } = await import('@/lib/email/templates')
   const { sendEmail } = await import('@/lib/email')
@@ -929,6 +961,12 @@ export async function sendQuoteLinkEmail(
 
   if (!result.success) throw new Error(result.error || 'Failed to send email')
 
+  // This link is now the client's: only a sent link's opens count as client views.
+  await prisma.quoteToken.update({
+    where: { token },
+    data: { sentAt: new Date(), sentTo: toEmail },
+  })
+
   // Auto-transition to QUOTE_SENT if currently DRAFT or REVISION
   if (reservation.status === 'DRAFT' || reservation.status === 'REVISION') {
     const previousStatus = reservation.status
@@ -960,6 +998,60 @@ export async function sendQuoteLinkEmail(
   }
 
   return { success: true, url }
+}
+
+/**
+ * Record a client opening a quote link (NO AUTH — called from the quote page once
+ * it has rendered in a browser, so mail scanners that only fetch the URL don't
+ * count). Ignored for a logged-in staff user, for links never emailed (previews),
+ * for expired links and for reloads within 30 minutes. The first count tells the
+ * Orders recipients; a failed notice never loses the count.
+ */
+export async function recordQuoteView(token: string) {
+  if (typeof token !== 'string' || !token) return
+  const session = await auth()
+  if (session?.user?.id) return
+
+  const qt = await prisma.quoteToken.findUnique({
+    where: { token },
+    include: { reservation: { select: { id: true, reservationNumber: true, total: true, client: { select: { name: true } } } } },
+  })
+  const now = new Date()
+  if (!qt || !countsAsView(qt, now)) return
+
+  // Counted only if nobody else counted since this read, so two tabs opening at
+  // once are one view and one notice.
+  const counted = await prisma.quoteToken.updateMany({
+    where: { id: qt.id, lastViewedAt: qt.lastViewedAt },
+    data: {
+      viewCount: { increment: 1 },
+      lastViewedAt: now,
+      ...(qt.firstViewedAt ? {} : { firstViewedAt: now }),
+    },
+  })
+  if (counted.count !== 1 || qt.firstViewedAt) return
+
+  try {
+    const { quoteViewedEmail } = await import('@/lib/email/templates')
+    const { sendEmail } = await import('@/lib/email')
+    const { recipientsFor } = await import('@/lib/notifications/recipients')
+    const { dayYear } = await import('@/lib/format')
+
+    const recipients = await recipientsFor('reservations')
+    const template = quoteViewedEmail({
+      clientName: qt.reservation.client.name,
+      reservationNumber: qt.reservation.reservationNumber,
+      reservationId: qt.reservation.id,
+      sentTo: qt.sentTo,
+      sentAt: qt.sentAt ? dayYear(qt.sentAt) : undefined,
+      total: Number(qt.reservation.total),
+    })
+    for (const email of recipients) {
+      await sendEmail({ to: email, subject: template.subject, html: template.html })
+    }
+  } catch (error) {
+    console.error('Failed to send quote viewed notification:', error)
+  }
 }
 
 /**

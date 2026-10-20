@@ -19,6 +19,13 @@ export async function getUnitHeader(id: string) {
       createdAt: true,
       retiredAt: true,
       soldAt: true,
+      soldPrice: true,
+      saleChannel: true,
+      saleFees: true,
+      retiredTo: true,
+      soldNotes: true,
+      purchasePrice: true,
+      landedCostAdjustment: true,
       asset: {
         select: {
           id: true,
@@ -80,6 +87,19 @@ export async function getUnitHeader(id: string) {
     id: unit.id,
     retiredAt: unit.retiredAt,
     soldAt: unit.soldAt,
+    // The sale on record, for the sell dialog to correct. Cost only feeds its
+    // gain-or-loss line; null when nobody costed the unit.
+    sale: {
+      price: unit.soldPrice === null ? null : Number(unit.soldPrice),
+      channel: unit.saleChannel,
+      fees: unit.saleFees === null ? null : Number(unit.saleFees),
+      soldTo: unit.retiredTo,
+      notes: unit.soldNotes,
+    },
+    cost:
+      unit.purchasePrice !== null && Number(unit.purchasePrice) > 0
+        ? Number(unit.purchasePrice) + Number(unit.landedCostAdjustment)
+        : null,
     retiredButBookable,
     barcode: unit.barcode,
     serialNumber: unit.serialNumber,
@@ -291,6 +311,8 @@ export async function getUnitOwnership(id: string) {
       amortizationEndDate: true,
       soldAt: true,
       soldPrice: true,
+      saleChannel: true,
+      saleFees: true,
       soldViaReservation: true,
       soldNotes: true,
       retiredAt: true,
@@ -352,6 +374,8 @@ export async function getUnitOwnership(id: string) {
     amortizationEndDate: unit.amortizationEndDate,
     soldAt: unit.soldAt,
     soldPrice: unit.soldPrice === null ? null : Number(unit.soldPrice),
+    saleChannel: unit.saleChannel,
+    saleFees: unit.saleFees === null ? null : Number(unit.saleFees),
     soldViaReservation: unit.soldViaReservation,
     soldNotes: unit.soldNotes,
     retiredAt: unit.retiredAt,

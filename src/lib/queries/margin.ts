@@ -54,7 +54,9 @@ const COMMITTED = [...OPEN_STATUSES, "COMPLETED"] as const;
  * cost would be understated and this comment is the place it will be found.
  */
 const SALE_LINES: Prisma.ReservationItemWhereInput = {
-  parentId: null,
+  // A build group's parts are the priced lines of a sale — the group row itself
+  // is a $0 heading (lib/pricing/build-groups).
+  OR: [{ parentId: null }, { parent: { isGroup: true } }],
   package: { isActive: true },
   reservation: {
     status: { in: [...COMMITTED] },

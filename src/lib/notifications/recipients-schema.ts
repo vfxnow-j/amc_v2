@@ -57,8 +57,8 @@ export const CATEGORY_META: Record<RecipientCategory, CategoryMeta> = {
   reservations: {
     short: "Orders",
     label: "Orders and quote replies",
-    what: "An order is confirmed (with the prep list), or a client approves, declines or asks for changes on a quote link. As it happens.",
-    senders: ["notifyReservationConfirmed", "approveQuote", "denyQuote", "requestQuoteChanges"],
+    what: "An order is confirmed (with the prep list), a client first opens a quote link, or approves, declines or asks for changes on it. As it happens.",
+    senders: ["notifyReservationConfirmed", "approveQuote", "denyQuote", "requestQuoteChanges", "recordQuoteView"],
   },
   purchaseOrders: {
     short: "POs",

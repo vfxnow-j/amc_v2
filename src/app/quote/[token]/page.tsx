@@ -1,5 +1,6 @@
 import { getQuoteByToken } from "@/lib/actions/quote-tokens";
 import { QuotePortal, type QuoteData } from "@/components/quote/quote-portal";
+import { ViewBeacon } from "@/components/quote/view-beacon";
 
 /**
  * Operate → the client's half of a quote.
@@ -37,7 +38,12 @@ export default async function QuotePage({ params }: Params) {
     );
   }
 
-  return <QuotePortal token={token} quote={result as unknown as QuoteData} />;
+  return (
+    <>
+      <QuotePortal token={token} quote={result as unknown as QuoteData} />
+      <ViewBeacon token={token} />
+    </>
+  );
 }
 
 /** A quote answered once cannot be answered again — say which answer it got. */

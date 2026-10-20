@@ -5,6 +5,7 @@ import { prisma } from '@/lib/prisma'
 import { generateBarcode } from '@/lib/utils/barcode'
 import { serialize } from '@/lib/utils'
 import { requireAuth, requireEditor, requireAdmin } from '@/lib/auth-utils'
+import { normalizeSale, type SaleChannelValue } from '@/lib/sales/sale-channel'
 import type { AssetStatus, DepreciationMethod, DepreciationCategory, OwnershipType, CoverageType } from '@/lib/types'
 
 export type AssetFormData = {
@@ -499,6 +500,10 @@ export async function markUnitAsSold(id: string, data: {
   soldAt?: Date | null
   soldPrice?: number | null
   soldNotes?: string | null
+  /** How it was sold; recorded as given, with no default. */
+  saleChannel?: SaleChannelValue | null
+  /** Selling fees taken out of soldPrice. */
+  saleFees?: number | null
 }) {
   const authResult = await requireEditor()
   if (!authResult.authorized) throw new Error(authResult.error)
@@ -512,6 +517,15 @@ export async function markUnitAsSold(id: string, data: {
     throw new Error(`Unit must be RETIRED to mark as sold (current status: ${unit.status})`)
   }
 
+  // Fees only make sense against a price; the channel and fees are checked
+  // together so a half-recorded eBay sale cannot be stored.
+  const channel = data.saleChannel ?? undefined
+  const fees = data.saleFees ?? undefined
+  if (channel !== undefined || fees !== undefined) {
+    if (data.soldPrice == null) throw new Error('A sale price is needed to record fees or a channel')
+    normalizeSale({ saleChannel: channel, soldTo: 'x', soldPrice: data.soldPrice, saleFees: fees })
+  }
+
   await prisma.assetUnit.update({
     where: { id },
     data: {
@@ -520,12 +534,102 @@ export async function markUnitAsSold(id: string, data: {
       soldAt: data.soldAt ?? new Date(),
       soldPrice: data.soldPrice ?? undefined,
       soldNotes: data.soldNotes ?? undefined,
+      saleChannel: channel,
+      saleFees: fees,
     },
   })
 
   revalidatePath('/dashboard/assets')
   revalidatePath(`/dashboard/assets/${unit.asset.id}`)
   revalidatePath(`/dashboard/assets/${unit.asset.id}/units/${id}`)
+
+  return { success: true, barcode: unit.barcode }
+}
+
+/**
+ * Record the sale of a unit: when, to whom, how, for how much and after what
+ * fees. Works from any status, and again on a unit that is already SOLD to
+ * correct the record. The first sale closes any open checkout and recounts the
+ * asset's stock.
+ */
+export async function sellAssetUnit(id: string, data: {
+  /** Sale date as YYYY-MM-DD */
+  soldAt: string
+  soldPrice: number
+  soldTo: string
+  soldNotes?: string | null
+  /** EBAY forces soldTo to 'eBay' and requires fees. */
+  saleChannel?: SaleChannelValue | null
+  /** Selling fees taken out of soldPrice; net received = soldPrice - saleFees. */
+  saleFees?: number | null
+}) {
+  const authResult = await requireEditor()
+  if (!authResult.authorized) throw new Error(authResult.error)
+
+  const { saleChannel, soldTo, saleFees } = normalizeSale({
+    saleChannel: data.saleChannel,
+    soldTo: data.soldTo,
+    soldPrice: data.soldPrice,
+    saleFees: data.saleFees,
+  })
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(data.soldAt || '')) throw new Error('Sale date is required')
+  // Noon UTC so the calendar date doesn't shift in any US timezone.
+  const soldAt = new Date(`${data.soldAt}T12:00:00Z`)
+  if (Number.isNaN(soldAt.getTime())) throw new Error('Sale date is invalid')
+  if (soldAt.getTime() > Date.now() + 24 * 60 * 60 * 1000) {
+    throw new Error('Sale date cannot be in the future')
+  }
+
+  const unit = await prisma.assetUnit.findUnique({
+    where: { id },
+    select: { id: true, status: true, barcode: true, assetId: true },
+  })
+  if (!unit) throw new Error('Unit not found')
+
+  const wasSold = unit.status === 'SOLD'
+  const soldNotes = data.soldNotes?.trim() || `Sold to ${soldTo}`
+
+  await prisma.$transaction(async (tx) => {
+    await tx.assetUnit.update({
+      where: { id },
+      data: {
+        status: 'SOLD',
+        retirementReason: 'SOLD',
+        retiredAt: soldAt,
+        retiredTo: soldTo,
+        soldAt,
+        soldPrice: data.soldPrice,
+        soldNotes,
+        saleChannel,
+        saleFees,
+      },
+    })
+
+    if (wasSold) return
+
+    // Custody ends at the sale: close any checkout still open on the unit,
+    // otherwise it keeps showing as out on rental.
+    await tx.checkout.updateMany({
+      where: {
+        assetUnitId: id,
+        status: { in: ['PENDING_APPROVAL', 'APPROVED', 'ACTIVE', 'OVERDUE'] },
+      },
+      data: { status: 'RETURNED', actualReturn: soldAt },
+    })
+
+    const remainingCount = await tx.assetUnit.count({
+      where: { assetId: unit.assetId, status: { notIn: ['SOLD', 'RETIRED'] } },
+    })
+    await tx.asset.update({
+      where: { id: unit.assetId },
+      data: { totalQuantity: remainingCount },
+    })
+  })
+
+  revalidatePath('/dashboard/assets')
+  revalidatePath(`/dashboard/assets/${unit.assetId}`)
+  revalidatePath(`/dashboard/units/${id}`)
+  revalidatePath('/dashboard/reports/sale-lifecycle')
 
   return { success: true, barcode: unit.barcode }
 }
@@ -792,6 +896,8 @@ export async function restoreUnit(id: string) {
       retiredTo: null,
       soldAt: null,
       soldPrice: null,
+      saleChannel: null,
+      saleFees: null,
       soldNotes: null,
       soldViaReservation: null,
     },

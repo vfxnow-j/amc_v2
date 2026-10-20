@@ -45,10 +45,10 @@ export async function validateCredentials(
 
     const user = await prisma.user.findUnique({
       where: { email: normalizedEmail },
-      select: { id: true, passwordHash: true, mfaEnabled: true, mfaSecret: true, mfaDefault: true, email: true },
+      select: { id: true, passwordHash: true, mfaEnabled: true, mfaSecret: true, mfaDefault: true, email: true, disabledAt: true },
     })
 
-    if (!user || !user.passwordHash) {
+    if (!user || !user.passwordHash || user.disabledAt) {
       // Dummy bcrypt compare to prevent timing-based enumeration
       await bcrypt.compare(password, '$2a$12$x'.padEnd(60, '0'))
       return { success: false, mfaRequired: false, error: 'Invalid email or password.' }

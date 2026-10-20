@@ -3,7 +3,17 @@ import { Card, CardSkeleton } from "@/components/record/record-card";
 import { RemoveLine } from "@/components/orders/remove-line";
 import { AddLine } from "@/components/orders/add-line";
 import { ConfigureLine } from "@/components/orders/configure-line";
+import { AddCloudHost, EditCloudHost } from "@/components/orders/cloud-controls";
 import { LineEditor } from "@/components/orders/line-editor";
+import {
+  AddBuildGroup,
+  BuildGroupEditor,
+  BuildPartEditor,
+  HidePartPrices,
+  MoveToBuild,
+} from "@/components/orders/build-groups";
+import { prisma } from "@/lib/prisma";
+import { BUILD_EDITABLE_STATUSES } from "@/lib/pricing/build-groups";
 import { FlowLineEditor } from "@/components/orders/flow/flow-line-editor";
 import {
   getReservationActivity,
@@ -74,6 +84,32 @@ export async function LinesCard({
 }) {
   const lines = await getReservationLines(id, option?.id);
   const title = option?.several ? `Lines · ${option.name}` : "Lines";
+  // A sale can group its lines into builds (lib/pricing/build-groups). The
+  // structure — new builds, machine counts, moving lines — is offered only
+  // while nothing has been pulled; parts can still be added or repriced after.
+  const order = await prisma.reservation.findUnique({
+    where: { id },
+    select: { reservationType: true, status: true, hideBuildPartPrices: true },
+  });
+  const isSale = order?.reservationType === "SALE";
+  // A cloud order is drafted from a spec: hosts and environment lines instead
+  // of (or as well as) units. The cloud controls sit with Add a line.
+  const isCloud = order?.reservationType === "CLOUD";
+  const structure = editable && isSale && !!order && BUILD_EDITABLE_STATUSES.includes(order.status);
+  const builds = lines.filter((line) => line.isGroup);
+  const buildChoices = (packageId: string | null) =>
+    builds
+      .filter((build) => build.packageId === packageId)
+      .map((build) => ({ id: build.id, name: build.label }));
+  const buildControls =
+    structure || (isSale && builds.length > 0 && editable) ? (
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 pb-3">
+        {structure ? <AddBuildGroup reservationId={id} packageId={option?.id} /> : null}
+        {builds.length > 0 && editable ? (
+          <HidePartPrices reservationId={id} hidden={!!order?.hideBuildPartPrices} />
+        ) : null}
+      </div>
+    ) : null;
   // One set of tracks for the line, its components and the configured total,
   // so the figures stay in columns. The rate column is sized for what it holds:
   // an editable rate is an input plus a basis select ("2700.00 /project"), and at
@@ -90,6 +126,7 @@ export async function LinesCard({
           Nothing has been added to this order yet — add a line to price it, or
           scan a unit to add one as you pull it.
         </p>
+        {editable && isCloud ? <AddCloudHost reservationId={id} packageId={option?.id} /> : null}
         {editable && window ? (
           <AddLine
             reservationId={id}
@@ -99,6 +136,7 @@ export async function LinesCard({
             optionName={option?.several ? option.name : undefined}
           />
         ) : null}
+        {buildControls}
       </Card>
     );
   }
@@ -127,10 +165,32 @@ export async function LinesCard({
                 ) : (
                   line.label
                 )}
+                {line.isGroup ? (
+                  <span className="ml-2 rounded-pill bg-accent-tint px-[6px] align-middle text-micro font-normal text-accent-on-tint">
+                    build
+                  </span>
+                ) : null}
+                {/* A plain line can be put under one of the order's builds. */}
+                {structure && line.movable && buildChoices(line.packageId).length > 0 ? (
+                  <span className="ml-2 inline-flex align-middle font-normal">
+                    <MoveToBuild
+                      reservationId={id}
+                      itemId={line.id}
+                      current={null}
+                      builds={buildChoices(line.packageId)}
+                    />
+                  </span>
+                ) : null}
                 {/* A configurable machine (Settings → Configurable items). */}
                 {editable && line.configurable ? (
                   <span className="ml-2 inline-flex align-middle font-normal">
                     <ConfigureLine reservationId={id} itemId={line.id} />
+                  </span>
+                ) : null}
+                {/* A cloud host is edited as a whole: its parts are its spec. */}
+                {editable && line.isCloudHost ? (
+                  <span className="ml-2 inline-flex align-middle font-normal">
+                    <EditCloudHost reservationId={id} itemId={line.id} />
                   </span>
                 ) : null}
                 {/* The option is in the card title when one is being viewed. */}
@@ -170,6 +230,14 @@ export async function LinesCard({
                     </span>
                   </>
                 )
+              ) : line.isGroup ? (
+                <BuildGroupEditor
+                  reservationId={id}
+                  groupId={line.id}
+                  machines={line.quantity}
+                  perMachine={line.quantity > 0 ? line.subtotal / line.quantity : line.subtotal}
+                  structure={structure}
+                />
               ) : editable ? (
                 <LineEditor
                   reservationId={id}
@@ -220,6 +288,16 @@ export async function LinesCard({
                   >
                     <span className="min-w-0 break-words text-ink-muted">
                       <span className="text-ink-faint">↳ </span>
+                      {line.isGroup && structure ? (
+                        <span className="mr-1 inline-flex align-middle">
+                          <MoveToBuild
+                            reservationId={id}
+                            itemId={part.id}
+                            current={line.id}
+                            builds={buildChoices(line.packageId)}
+                          />
+                        </span>
+                      ) : null}
                       {part.unitBarcodes.length > 0 ? (
                         <span className="mr-1 rounded-pill bg-accent-tint px-[6px] text-micro text-accent-on-tint">
                           out: {part.unitBarcodes.join(", ")}
@@ -245,20 +323,46 @@ export async function LinesCard({
                         part.label
                       )}
                     </span>
-                    <span className="text-right tabular-nums text-ink-faint">
-                      ×{part.quantity}
-                    </span>
-                    <span className="text-right tabular-nums text-ink-faint">
-                      {part.includedInParent
-                        ? "included"
-                        : `${MONEY.format(part.rate)}${part.isOneTime ? " once" : ` /${part.pricingType.toLowerCase()}`}`}
-                    </span>
+                    {line.isGroup && editable ? (
+                      <BuildPartEditor
+                        reservationId={id}
+                        partId={part.id}
+                        perMachine={part.perMachine}
+                        stored={part.quantity}
+                        rate={part.rate}
+                        structure={structure}
+                      />
+                    ) : (
+                      <>
+                        <span className="text-right tabular-nums text-ink-faint">
+                          ×{line.isGroup ? part.perMachine : part.quantity}
+                          {line.isGroup && part.perMachine !== part.quantity ? (
+                            <span className="text-micro"> ({part.quantity} in all)</span>
+                          ) : null}
+                        </span>
+                        <span className="text-right tabular-nums text-ink-faint">
+                          {part.isCloudPart
+                            ? "per host"
+                            : part.includedInParent
+                            ? "included"
+                            : `${MONEY.format(part.rate)}${line.isGroup ? " each" : part.isOneTime ? " once" : ` /${part.pricingType.toLowerCase()}`}`}
+                        </span>
+                      </>
+                    )}
                     <span className="text-right tabular-nums text-ink-muted">
-                      {part.includedInParent ? "—" : MONEY.format(part.subtotal)}
+                      {part.includedInParent || part.isCloudPart ? "—" : MONEY.format(part.subtotal)}
                     </span>
+                    {line.isGroup && editable ? (
+                      <RemoveLine
+                        reservationId={id}
+                        itemId={part.id}
+                        label={part.label}
+                        unitsOut={Math.max(0, part.unitBarcodes.length)}
+                      />
+                    ) : null}
                   </li>
                 ))}
-                {line.components.some((part) => !part.includedInParent) ? (
+                {!line.isGroup && !line.isCloudHost && line.components.some((part) => !part.includedInParent) ? (
                   <li className={`grid ${tracks} items-baseline gap-2 px-2 pt-[3px] text-detail`}>
                     <span className="col-span-3 text-right text-ink-muted">
                       Configured
@@ -275,6 +379,16 @@ export async function LinesCard({
                   </li>
                 ) : null}
               </ul>
+            ) : null}
+
+            {line.isGroup && editable && window ? (
+              <AddLine
+                reservationId={id}
+                start={window.start}
+                end={window.end}
+                packageId={line.packageId ?? option?.id}
+                group={{ id: line.id, name: line.label }}
+              />
             ) : null}
 
             {line.units.length > 0 ? (
@@ -319,6 +433,13 @@ export async function LinesCard({
                   ? `Ordered quantity and counters are both exactly double the ${line.units.length} units attached — this line was imported twice. The units are here; the quantity is what needs correcting.`
                   : `The line counter says ${line.countedOut} out, the attached units say ${line.attachedOut}. The units are the physical record; the counter is derived and has drifted.`}
               </p>
+            ) : line.isGroup ? (
+              line.partsUnassigned > 0 ? (
+                <p className="mt-1 px-2 text-detail text-ink-muted">
+                  {line.partsUnassigned} of {line.partsToScan} {line.partsToScan === 1 ? "part" : "parts"} from stock still
+                  to assign — scan each unit to attach it.
+                </p>
+              ) : null
             ) : line.unassigned + line.partsUnassigned > 0 ? (
               <p className="mt-1 px-2 text-detail text-ink-muted">
                 {line.unassigned + line.partsUnassigned} of {line.quantity + line.partsToScan} still to assign
@@ -331,6 +452,7 @@ export async function LinesCard({
           </li>
         ))}
       </ul>
+      {editable && isCloud ? <AddCloudHost reservationId={id} packageId={option?.id} /> : null}
       {editable && window ? (
         <AddLine
             reservationId={id}
@@ -340,6 +462,7 @@ export async function LinesCard({
             optionName={option?.several ? option.name : undefined}
           />
       ) : null}
+      {buildControls}
     </Card>
   );
 }

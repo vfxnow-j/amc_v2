@@ -73,10 +73,11 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             passwordHash: true,
             mfaEnabled: true,
             mfaSecret: true,
+            disabledAt: true,
           },
         });
 
-        if (!user || !user.passwordHash) {
+        if (!user || !user.passwordHash || user.disabledAt) {
           // Dummy bcrypt compare to prevent timing-based enumeration
           await bcrypt.compare(credentials.password as string, '$2a$12$x'.padEnd(60, '0'));
           return null;
@@ -229,8 +230,13 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       if (token.id && token.iat) {
         const user = await prisma.user.findUnique({
           where: { id: token.id as string },
-          select: { passwordChangedAt: true },
+          select: { passwordChangedAt: true, disabledAt: true },
         });
+        // A disabled user's existing session ends here, not at its 30-day expiry.
+        if (user?.disabledAt) {
+          session.user = undefined as any;
+          return session;
+        }
         if (user?.passwordChangedAt) {
           const changedAtSec = Math.floor(user.passwordChangedAt.getTime() / 1000);
           if ((token.iat as number) < changedAtSec) {

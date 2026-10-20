@@ -16,6 +16,7 @@ import {
   InvoicesCard,
   OrdersCard,
 } from "@/components/clients/record-cards";
+import { ClientForecastCard } from "@/components/forecast/client-forecast";
 import { RequirementsCard } from "@/components/clients/requirements-card";
 import { PortalAccountCard } from "@/components/clients/portal-account-card";
 import { ConversationsCard } from "@/components/tracker/conversations-card";
@@ -25,6 +26,7 @@ import { dayYear } from "@/lib/format";
 import { getClientHeader } from "@/lib/queries/client-record";
 import { readTemplateMeta } from "@/lib/requirements/store";
 import { getSessionUser } from "@/lib/roles";
+import { isAdminRole } from "@/lib/settings/pages";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -178,6 +180,12 @@ export default async function ClientRecordPage({ params }: Params) {
         </div>
 
         <div className="flex min-h-0 flex-col gap-3">
+          {/* Admins only, like Accounting → Forecast it comes from. */}
+          {role && isAdminRole(role) ? (
+            <Suspense fallback={<CardSkeleton title="Forecast" rows={8} />}>
+              <ClientForecastCard clientId={id} />
+            </Suspense>
+          ) : null}
           <Suspense fallback={<CardSkeleton title="Invoices" rows={8} />}>
             <InvoicesCard id={id} />
           </Suspense>

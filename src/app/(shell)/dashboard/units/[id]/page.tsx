@@ -19,6 +19,7 @@ import {
 import { dayYear } from "@/lib/format";
 import { UNIT_STATUS_LABEL } from "@/lib/inventory/labels";
 import { getUnitHeader } from "@/lib/queries/unit-record";
+import { SellUnitDialog } from "@/components/inventory/sell-unit-dialog";
 import { UnitOfferingControl } from "@/components/inventory/unit-offering-control";
 import { getSessionUser } from "@/lib/roles";
 import { canEdit } from "@/lib/auth";
@@ -39,7 +40,8 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
  * end here. It answers, in order, where is it and who has it; where has it been;
  * what has been done to it; and what is it worth.
  *
- * Read-only, deliberately. Scanning a unit out, back in, or into service happens
+ * Read-only apart from selling it, which is a disposal and not a move.
+ * Scanning a unit out, back in, or into service happens
  * on the order and on the work order, where the rates and the sign-off live — a
  * second place to move stock is exactly what the dropped Desk was, and it would
  * drift from the order's version the moment either changed.
@@ -75,6 +77,27 @@ export default async function UnitRecordPage({ params }: Params) {
             <span className="rounded-pill bg-sunken px-3 py-1 text-pill text-ink">
               {UNIT_STATUS_LABEL[unit.status]}
             </span>
+            {user && canEdit(user.role) ? (
+              <SellUnitDialog
+                unitId={unit.id}
+                barcode={unit.barcode}
+                cost={unit.cost}
+                sold={
+                  unit.status === "SOLD"
+                    ? {
+                        soldAt: (unit.soldAt ?? new Date())
+                          .toISOString()
+                          .slice(0, 10),
+                        soldPrice: unit.sale.price,
+                        soldTo: unit.sale.soldTo,
+                        soldNotes: unit.sale.notes,
+                        saleChannel: unit.sale.channel,
+                        saleFees: unit.sale.fees,
+                      }
+                    : null
+                }
+              />
+            ) : null}
             {unit.holder?.orderId ? (
               <Link
                 href={`/dashboard/orders/${unit.holder.orderId}`}

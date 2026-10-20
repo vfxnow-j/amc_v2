@@ -142,3 +142,14 @@ export function ledgerPrunePredicate(opts: { table: string; stage: string; pk: s
       and not exists (select 1 from ${opts.stage} s where ${keyOf(opts.pk, "s")} = o.key)
       and not exists (select 1 from ${heldTable(opts.table)} h where h.key = o.key)`;
 }
+
+/**
+ * Per-row v2 ownership of a column: where `predicate` (over the v2 row `p`) holds, the staged value is
+ * replaced by v2's own, so the diff sees no change and the update leaves it alone. Rows the predicate
+ * does not match keep following v1. Used for columns v2 changed on purpose for particular rows
+ * (e.g. Current RMS corrections, listed in current_rms_apply_log) without freezing the column fleet-wide.
+ */
+export function v2OwnedWhereSql(opts: { table: string; stage: string; column: string; join: string; predicate: string }): string {
+  return `update ${opts.stage} s set ${q(opts.column)} = p.${q(opts.column)}
+            from public.${q(opts.table)} p where ${opts.join} and (${opts.predicate})`;
+}

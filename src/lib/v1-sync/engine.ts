@@ -12,6 +12,7 @@ import {
   q,
   stageWhere,
   unknownEnumValuesSql,
+  v2OwnedWhereSql,
   type EnumColumn,
 } from "./sql";
 
@@ -94,11 +95,39 @@ function calendarDay(column: string): string {
   end`;
 }
 
+/**
+ * v1 wins when it has a value; a blank in v1 keeps what v2 already holds.
+ * For fields typed into v2 that v1 mostly leaves empty — the 2026-10-01 pull
+ * erased 18 delivery addresses the owner had entered in Shipping because v1
+ * had nothing (or "TBD") there. Text arrives as text, so v2's side is cast too.
+ */
+function v1ElseV2(table: string, column: string, opts: { blanks?: string[]; type?: string } = {}): string {
+  const c = `r."${column}"`;
+  const blank = `nullif(${(opts.blanks ?? []).reduce((e, b) => `nullif(${e}, '${b}')`, `trim(${c}::text)`)}, '') is null`;
+  const v1 = `case when ${blank} then null else ${c}::text end`;
+  const v2 = `(select p."${column}"::text from public."${table}" p where p.id = r.id)`;
+  return `coalesce(${v1}, ${v2}, ${c}::text)${opts.type ? `::${opts.type}` : ""}`;
+}
+
+/** Shipping fields kept from v2 when v1 has nothing — see v1ElseV2. Enums are cast by the stage. */
+const SHIPPING_KEPT: Record<string, string> = Object.fromEntries([
+  ...["deliveryCourier", "deliveryNotes", "deliveryTrackingProvider", "deliveryTrackingNumber",
+    "returnCourier", "returnTrackingProvider", "returnTrackingNumber", "shippingMarginType",
+    "deliveryMethod", "returnMethod"].map((c) => [c, v1ElseV2("reservations", c)]),
+  ...["deliveryCost", "returnCost", "shippingMargin"].map((c) => [c, v1ElseV2("reservations", c, { type: "numeric(12,2)" })]),
+  ["deliveryAddress", v1ElseV2("reservations", "deliveryAddress", { blanks: ["TBD", "tbd", "N/A"] })],
+]);
+
 type TableRule = {
   /** v1 column → SQL expression over the v1 row `r`, producing v2's value. */
   transform?: Record<string, string>;
   /** Written on insert, never overwritten on update: v2 owns them once the row exists. */
   v2OwnedOnUpdate?: string[];
+  /**
+   * Column -> SQL predicate over the v2 row `p`: where it holds, v2's value stands and v1's is ignored
+   * (per row, unlike v2OwnedOnUpdate which freezes the column for every row).
+   */
+  v2OwnedWhere?: Record<string, string>;
   /** Only v1 rows matching this SQL predicate over `r` are brought across. */
   where?: string;
 };
@@ -111,6 +140,7 @@ const DISPLACED_LABEL: Record<string, string> = {
 const TABLE_RULES: Record<string, TableRule> = {
   reservations: {
     transform: {
+      ...SHIPPING_KEPT,
       startDate: calendarDay("startDate"),
       // A sale has no term: its end date is its order date.
       endDate: `case when r."reservationType" = 'SALE' then ${calendarDay("startDate")} else ${calendarDay("endDate")} end`,
@@ -150,7 +180,19 @@ const TABLE_RULES: Record<string, TableRule> = {
   // switch and books a fixed term's whole charge up front, v2 by the billing
   // period (owner, 2026-09-17). scripts/sync-from-v1.ts re-derives it after
   // every apply, so a new unit's v1 figure does not stand either.
-  asset_units: { v2OwnedOnUpdate: ["totalRevenue"] },
+  asset_units: {
+    v2OwnedOnUpdate: ["totalRevenue"],
+    // scripts/current-rms/apply-high-confidence.ts (2026-10-19) corrects these columns from Current RMS
+    // for particular units and logs every change in current_rms_apply_log. Those units keep v2's value
+    // for those columns until the apply is undone (undoneAt set); every other unit still follows v1, so
+    // v1's live status/sale changes keep flowing. Keep this list equal to SYNC_PROTECTED_COLUMNS there.
+    v2OwnedWhere: Object.fromEntries(
+      ["purchaseDate", "purchasePrice", "status", "retirementReason", "soldAt", "soldPrice", "retiredTo", "soldNotes"].map((c) => [
+        c,
+        `exists (select 1 from public.current_rms_apply_log l where l."unitId" = p.id and l."column" = '${c}' and l."undoneAt" is null)`,
+      ]),
+    ),
+  },
   funding_requests: { v2OwnedOnUpdate: ["leaseId"] },
   users: {
     // v2's sign-in is its own: the dev password differs from v1's by design,
@@ -220,7 +262,38 @@ async function rows<T>(tx: Tx, sql: string): Promise<T[]> {
 async function relink(tx: Tx) {
   await tx.$executeRawUnsafe(`drop schema if exists v1_remote cascade`);
   await tx.$executeRawUnsafe(`create schema v1_remote`);
-  await tx.$executeRawUnsafe(`import foreign schema public from server v1 into v1_remote`);
+  // A table with a column of an enum type v2 doesn't have (v1's asset_units.saleChannel,
+  // 2026-10) can't be imported: the foreign table names the type in v2's public schema and
+  // the import fails. v2's schema is never touched to fix that — those tables are declared
+  // by hand from v1's column list, the missing enum read as text, and the column then shows
+  // in the report as one v2 has no field for.
+  await tx.$executeRawUnsafe(`drop schema if exists v1_meta cascade`);
+  await tx.$executeRawUnsafe(`create schema v1_meta`);
+  await tx.$executeRawUnsafe(`import foreign schema information_schema limit to (columns) from server v1 into v1_meta`);
+  const blocked = await rows<{ table: string }>(
+    tx,
+    `select distinct c.table_name as table from v1_meta.columns c
+      where c.table_schema = 'public' and c.data_type = 'USER-DEFINED'
+        and not exists (select 1 from pg_type t where t.typnamespace = 'public'::regnamespace and t.typname = c.udt_name)`,
+  );
+  const except = blocked.length ? ` except (${blocked.map((b) => q(b.table)).join(", ")})` : "";
+  await tx.$executeRawUnsafe(`import foreign schema public${except} from server v1 into v1_remote`);
+  for (const { table } of blocked) {
+    const cols = await rows<{ name: string; type: string }>(
+      tx,
+      `select column_name as name,
+              case when data_type = 'USER-DEFINED' then 'text'
+                   when data_type = 'ARRAY' then case when substr(udt_name, 2) in (select typname from pg_type where typtype = 'e') or substr(udt_name, 2) not in (select typname from pg_type) then 'text' else substr(udt_name, 2) end || '[]'
+                   when data_type = 'numeric' and numeric_precision is not null then format('numeric(%s,%s)', numeric_precision, numeric_scale)
+                   when data_type = 'character varying' and character_maximum_length is not null then format('varchar(%s)', character_maximum_length)
+                   else data_type end as type
+         from v1_meta.columns where table_schema = 'public' and table_name = '${table}' order by ordinal_position`,
+    );
+    await tx.$executeRawUnsafe(
+      `create foreign table v1_remote.${q(table)} (${cols.map((c) => `${q(c.name)} ${c.type}`).join(", ")}) server v1 options (schema_name 'public', table_name '${table}')`,
+    );
+  }
+  await tx.$executeRawUnsafe(`drop schema v1_meta cascade`);
 
   // v1's enum columns come across declared as v2's enum types, so one v1 value
   // v2 doesn't have (v1's FLOW orders did, until 84a32b4 added the column,
@@ -441,6 +514,11 @@ export async function syncFromV1(options: {
       );
 
       const join = pk.map((c) => `p.${q(c)} = s.${q(c)}`).join(" and ");
+      // Per-row v2 ownership: restore v2's value into the stage before anything compares or writes.
+      for (const [column, predicate] of Object.entries(rule.v2OwnedWhere ?? {})) {
+        if (!shared.includes(column) || pk.includes(column)) continue;
+        await tx.$executeRawUnsafe(v2OwnedWhereSql({ table, stage, column, join, predicate }));
+      }
       const deleted = deletedPredicate({ table, stage, join, pk });
       const tableUniques = uniques.filter((u) => u.table === table && u.cols.every((c) => shared.includes(c)));
       const updatable = shared.filter((c) => !pk.includes(c) && !rule.v2OwnedOnUpdate?.includes(c));

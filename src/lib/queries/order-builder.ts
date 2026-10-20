@@ -157,7 +157,8 @@ async function availabilityFor(
       units: { where: { status: { notIn: OUT_OF_FLEET } }, select: { status: true } },
       reservationItems: {
         where: {
-          parentId: null,
+          // A sales build group's parts hold stock too; the group row has none.
+          AND: [{ OR: [{ parentId: null }, { parent: { isGroup: true } }] }],
           // Only the option an order goes ahead with holds stock. A quote
           // offering three builds would otherwise count all three against the
           // shelf, and an alternative nobody chose would block the next order.
@@ -245,7 +246,7 @@ export async function findSubstitutes(
       units: { where: { status: { notIn: OUT_OF_FLEET } }, select: { status: true } },
       reservationItems: {
         where: {
-          parentId: null,
+          AND: [{ OR: [{ parentId: null }, { parent: { isGroup: true } }] }],
           // The chosen option only — see availabilityFor.
           OR: [{ packageId: null }, { package: { isActive: true } }],
           reservation: {

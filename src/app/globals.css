@@ -970,3 +970,29 @@
     }
   }
 }
+
+/* Printing the forecast report: drop the app chrome, let the page flow across
+   sheets instead of scrolling inside the viewport, and print landscape. Only
+   when a report is on screen — other screens print as they always did. */
+@media print {
+  @page {
+    size: landscape;
+    margin: 12mm;
+  }
+  html:has([data-print-report]),
+  body:has([data-print-report]) {
+    height: auto;
+    overflow: visible;
+    background: #fff;
+  }
+  body:has([data-print-report]) * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  body:has([data-print-report]) main {
+    overflow: visible;
+  }
+  body:has([data-print-report]) [data-print-hide] {
+    display: none !important;
+  }
+}

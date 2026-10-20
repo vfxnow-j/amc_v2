@@ -1,4 +1,5 @@
 import { handoverShortfall, type MissingLine } from "@/lib/orders/handover";
+import { summariseActivity, type QuoteActivity } from "@/lib/quotes/quote-view";
 import type {
   BillingCycleType,
   DiscountType,
@@ -83,6 +84,8 @@ export type OrderLifecycle = {
   };
   /** Live links to the online quote, and when the newest one dies. */
   quoteLinks: { count: number; latestExpiry: Date | null };
+  /** Links emailed to the client and how often the client has opened them. */
+  quoteActivity: QuoteActivity;
   /**
    * Whether everything physical is out of the building.
    *
@@ -127,7 +130,7 @@ export async function getOrderLifecycle(
   id: string,
 ): Promise<OrderLifecycle | null> {
   const now = new Date();
-  const [order, invoices, scannable, links] = await Promise.all([
+  const [order, invoices, scannable, links, sentLinks] = await Promise.all([
     prisma.reservation.findUnique({
       where: { id },
       select: {
@@ -200,6 +203,10 @@ export async function getOrderLifecycle(
       where: { reservationId: id, expiresAt: { gt: now }, usedAt: null },
       _max: { expiresAt: true },
       _count: true,
+    }),
+    prisma.quoteToken.findMany({
+      where: { reservationId: id, sentAt: { not: null } },
+      select: { sentAt: true, sentTo: true, firstViewedAt: true, lastViewedAt: true, viewCount: true },
     }),
   ]);
 
@@ -276,6 +283,7 @@ export async function getOrderLifecycle(
       count: links._count,
       latestExpiry: links._max.expiresAt,
     },
+    quoteActivity: summariseActivity(sentLinks),
     handover: {
       linesOutstanding: scannable.missing.length,
       unitsOutstanding: scannable.units,

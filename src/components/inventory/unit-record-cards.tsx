@@ -3,6 +3,7 @@ import { CoverageDocuments } from "@/components/documents/attachment-cards";
 import { Card, CardEmpty, Field, Unset } from "@/components/record/record-card";
 import { Figure } from "@/components/inventory/record-cards";
 import { dayYear, money } from "@/lib/format";
+import { SALE_CHANNEL_LABEL, netReceived } from "@/lib/sales/sale-channel";
 import {
   getUnitCoverage,
   getUnitMovements,
@@ -522,7 +523,13 @@ export async function OwnershipCard({ id }: { id: string }) {
       {own.soldAt ? (
         <p className="mx-4 mb-4 rounded-well bg-sunken p-2 text-detail text-ink-muted">
           Sold {dayYear(own.soldAt)}
+          {own.saleChannel
+            ? ` via ${SALE_CHANNEL_LABEL[own.saleChannel]}`
+            : ""}
           {own.soldPrice === null ? "" : ` for ${money(own.soldPrice)}`}
+          {own.saleFees !== null && own.soldPrice !== null
+            ? `, less ${money(own.saleFees)} fees, ${money(netReceived(own.soldPrice, own.saleFees)!)} net`
+            : ""}
           {own.soldNotes ? ` — ${own.soldNotes}` : ""}.
         </p>
       ) : null}
