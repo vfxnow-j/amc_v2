@@ -41,3 +41,10 @@ test("ids are bounded and a good move passes", () => {
   assert.equal(check(unitMoveSchema, { unitId: "u", type: "MOVE", toLocationId: "l", notes: "ok", occurredAt: "2026-10-20" }).ok, true);
   assert.equal(check(correctionSchema, { movementId: "m", note: "  " }).ok, false);
 });
+
+test("an unselected location says so; unknown fields are named", () => {
+  assert.equal(msg(check(receiveUnitsSchema, { itemId: "i", toLocationId: "", units: [{}] })), "Choose a location.");
+  const ok = check(unitMoveSchema, { unitId: "u", type: "RELEASE", toLocationId: "", newSiteName: "Stage" });
+  assert.ok(ok.ok && ok.data.toLocationId === null);
+  assert.equal(msg(check(unitMoveSchema, { unitId: "u", type: "MOVE", extra: 1 })), "Unexpected field: extra.");
+});

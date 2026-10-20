@@ -6,7 +6,9 @@ import { z } from "zod";
 import { MAX_QUANTITY, MAX_UNITS_PER_RECEIPT, quantityProblem } from "@/lib/entities/ledger";
 
 const id = z.string().min(1, "Missing id.").max(64, "That id is too long.");
-const optId = id.nullish();
+const locId = z.string().min(1, "Choose a location.").max(64, "That id is too long.");
+// An unselected <select> sends ""; for an optional place that means "none", and the rules then ask for one.
+const optLoc = z.union([z.literal("").transform(() => null), locId]).nullish();
 const text = (max: number, what = "That") => z.string().trim().max(max, `${what} is too long (${max} characters at most).`).nullish();
 const name = z.string("Name the item.").trim().min(1, "Name the item.").max(200, "The name is too long (200 characters at most).");
 const notes = text(2000, "The notes are");
@@ -30,7 +32,7 @@ export const idSchema = id;
 
 const common = { reference: short("The reference is"), notes, occurredAt: date };
 const destination = {
-  toLocationId: optId,
+  toLocationId: optLoc,
   newSiteName: text(120, "The site name is"),
   newSiteAddress: text(300, "The site address is"),
 };
@@ -42,7 +44,7 @@ const handoff = {
 export const receiveUnitsSchema = z.strictObject({
   ...common,
   itemId: id,
-  toLocationId: id,
+  toLocationId: locId,
   units: z
     .array(
       z.strictObject({
@@ -65,7 +67,7 @@ export const stockMoveSchema = z.strictObject({
   itemId: id,
   type: z.enum(["RECEIVE", "MOVE", "RELEASE", "RETURN"], "Unknown movement."),
   quantity,
-  fromLocationId: optId,
+  fromLocationId: optLoc,
 });
 
 export const correctionSchema = z.strictObject({
@@ -76,7 +78,10 @@ export const correctionSchema = z.strictObject({
 /** The first problem with the input, or the parsed value. */
 export function check<S extends z.ZodType>(schema: S, input: unknown): { ok: true; data: z.infer<S> } | { ok: false; message: string } {
   const r = schema.safeParse(input);
-  return r.success ? { ok: true, data: r.data } : { ok: false, message: r.error.issues[0]?.message ?? "That input isn't valid." };
+  if (r.success) return { ok: true, data: r.data };
+  const issue = r.error.issues[0];
+  if (issue?.code === "unrecognized_keys") return { ok: false, message: `Unexpected field: ${issue.keys[0]}.` };
+  return { ok: false, message: issue?.message ?? "That input isn't valid." };
 }
 
 export { MAX_QUANTITY };

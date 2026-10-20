@@ -4,8 +4,8 @@ import { logAudit } from "@/lib/actions/audit";
 
 /**
  * Entity code's only reach into the main database: read-only name lookups,
- * plus createSite below, which is the ONE write from entity code to the main
- * database.
+ * plus createSite below, which is entity code's only write to the main
+ * database: creating a destination site, plus that site's audit-log entry.
  */
 
 /** Warehouse locations and customer sites, as a flat list with a readable path. */
@@ -40,8 +40,8 @@ export async function existingLocationIds(ids: string[]): Promise<Set<string>> {
 
 /**
  * Finds or creates a destination site (a real VFXnow location) on the spot
- * during a release. This is the single write from entity code into the main
- * database; everything else in this file only reads.
+ * during a release. This (the site and its audit-log row) is the only write from
+ * entity code into the main database; everything else in this file only reads.
  *
  * It follows the main app's createLocation rules: the name is matched
  * case-insensitively, so releasing again to "stage 9" reuses "Stage 9" (and a

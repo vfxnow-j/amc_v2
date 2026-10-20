@@ -29,7 +29,7 @@ server and a modular workspace. Only the **Inventory** module is built now.
   `notes`. Holds no gear.
 - **Entity schema.** `prisma/entity/schema.prisma`, generating a separate client. The main schema is not touched.
 - **No cross-reach.** Main code never imports the entity client. Entity code reaches the main database only
-  through one small module, read-only apart from creating a destination site on the spot, that resolves location and user names from plain IDs. No cross-database joins.
+  through one small module, read-only apart from creating a destination site on the spot (and that site's audit-log entry), that resolves location and user names from plain IDs. No cross-database joins.
 - **Routes.** Entity screens live under `/entity/[slug]/...`, with a reduced nav built from the enabled modules.
   Initial nav: Dashboard, Inventory, Receive, Release/Return, Movement log, Locations.
 - **Guard.** `db-guard.ts` stays strict for the main client. The entity client accepts only database names matching

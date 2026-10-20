@@ -19,18 +19,26 @@ const bad = (reason: string): ParsedDate => ({ ok: false, reason });
 
 export function parseOccurredAt(value: string, now: Date = new Date()): ParsedDate {
   const v = value.trim();
+  const written = /^(\d{4})-(\d{2})-(\d{2})/.exec(v);
+  if (!written || !(DAY.test(v) || DATETIME.test(v))) {
+    return bad("Enter the date as YYYY-MM-DD, or a full date and time with its time zone.");
+  }
+  // The day as written must be a real day: Feb 30 would otherwise roll over into March.
+  const [y, m, d] = [Number(written[1]), Number(written[2]), Number(written[3])];
+  const probe = new Date(Date.UTC(y, m - 1, d, 12));
+  if (probe.getUTCFullYear() !== y || probe.getUTCMonth() !== m - 1 || probe.getUTCDate() !== d) return bad("That date isn't valid.");
   let date: Date;
-  const day = DAY.exec(v);
-  if (day) {
-    const [y, m, d] = [Number(day[1]), Number(day[2]), Number(day[3])];
-    date = new Date(Date.UTC(y, m - 1, d, 12));
-    // Feb 31 rolls over into March; a real day round-trips.
-    if (date.getUTCFullYear() !== y || date.getUTCMonth() !== m - 1 || date.getUTCDate() !== d) return bad("That date isn't valid.");
-  } else if (DATETIME.test(v)) {
+  if (DAY.test(v)) {
+    date = probe;
+  } else {
+    const hour = Number(v.slice(11, 13)), minute = Number(v.slice(14, 16));
+    if (hour > 23 || minute > 59) return bad("That time isn't valid.");
+    const sec = /^.{16}:(\d{2})/.exec(v);
+    if (sec && Number(sec[1]) > 59) return bad("That time isn't valid.");
+    const off = /([+-])(\d{2}):(\d{2})$/.exec(v);
+    if (off && (Number(off[2]) * 60 + Number(off[3]) > 14 * 60 || Number(off[3]) > 59)) return bad("That time zone isn't valid.");
     date = new Date(v);
     if (Number.isNaN(date.getTime())) return bad("That date isn't valid.");
-  } else {
-    return bad("Enter the date as YYYY-MM-DD, or a full date and time with its time zone.");
   }
   if (date.getTime() < EARLIEST) return bad("That date is too far in the past.");
   if (date.getTime() > now.getTime() + 86_400_000) return bad("That date is in the future.");

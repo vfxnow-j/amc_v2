@@ -67,6 +67,8 @@ const refused = (r: { ok: boolean }, label: string, reason?: RegExp & { source: 
     refused(await writeUnitMovement(db, { actorUserId: actor, unitId: unit.id, type: "MOVE", toLocationId: WH }), "a handed-back unit cannot be moved");
 
     // Re-receiving a handed-back unit by its scan tag brings the same unit back.
+    refused(await receiveUnitsTx(db, { actorUserId: actor, itemId: cam.id, toLocationId: WH, units: [{ scanTag: "TAG1", serial: "OTHER" }] }), "re-receive with a different serial refused", /different serial/);
+    ok("...and the unit's serial was not overwritten", (await db.unit.findUniqueOrThrow({ where: { id: unit.id } })).serial === "S1");
     const again = await receiveUnitsTx(db, { actorUserId: actor, itemId: cam.id, toLocationId: WH, units: [{ scanTag: "TAG1", condition: "serviced" }] });
     u = await db.unit.findUniqueOrThrow({ where: { id: unit.id } });
     ok("re-receive reuses the returned unit (same id, IN_STORAGE, no second unit)", again.ok && u.status === "IN_STORAGE" && u.currentLocationId === WH && u.condition === "serviced" && (await db.unit.count({ where: { itemId: cam.id } })) === 1);
@@ -98,6 +100,7 @@ const refused = (r: { ok: boolean }, label: string, reason?: RegExp & { source: 
     ok("stock is 25 stored and 15 deployed", rows.find((r) => !r.deployed)?.quantity === 25 && rows.find((r) => r.deployed)?.quantity === 15);
     refused(await q("RELEASE", 26, { fromLocationId: WH, toLocationId: SITE, recipient: "Acme" }), "releasing more than is stored refused", /not that much/);
     for (const bad of [0, -3, 2.5, 2 ** 53, 1_000_001]) refused(await q("RECEIVE", bad, { toLocationId: WH }), `quantity ${bad} refused`);
+    refused(await q("RETURN", 1, { fromLocationId: SITE, toLocationId: SITE }), "stock return to the place it comes from refused", /where it already is/);
     ok("return 15", (await q("RETURN", 15, { fromLocationId: SITE, toLocationId: WH })).ok);
     rows = await db.stock.findMany({ where: { itemId: cable.id } });
     ok("stock is 40 stored, nothing deployed", rows.length === 1 && rows[0].quantity === 40 && !rows[0].deployed);

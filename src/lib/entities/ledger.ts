@@ -112,11 +112,13 @@ export async function receiveUnitsTx(
         // A unit handed back to its owner and now received again keeps its scan tag: the same
         // unit comes back into custody rather than a second one colliding with the tag.
         if (held.itemId !== item.id || held.status !== "RETURNED_TO_OWNER") throw new Refusal("That scan tag is already on another unit.");
+        const serial = blank(u.serial);
+        if (serial && held.serial && serial !== held.serial) throw new Refusal("That scan tag belongs to a unit with a different serial.");
         await tx.unit.update({
           where: { id: held.id },
           data: {
             status: applied.next.status, currentLocationId: applied.next.locationId,
-            serial: blank(u.serial) ?? held.serial, ownerTag: blank(u.ownerTag) ?? held.ownerTag, condition: blank(u.condition) ?? held.condition,
+            serial: serial ?? held.serial, ownerTag: blank(u.ownerTag) ?? held.ownerTag, condition: blank(u.condition) ?? held.condition,
           },
         });
         unitId = held.id;
@@ -209,7 +211,7 @@ export async function writeStockMovement(
   // A receipt comes from outside: whatever "from" a caller sends is ignored.
   const from = input.type === "RECEIVE" ? null : input.fromLocationId ?? null;
   const run = (rows: StockRow[], to: string | null) => {
-    if (input.type === "RELEASE" && !input.finalToOwner && to && to === from) return no("That is where it already is.");
+    if ((input.type === "RELEASE" || input.type === "RETURN") && !input.finalToOwner && to && to === from) return no("That is where it already is.");
     return applyStockMovement(rows, {
       type: input.type, quantity: input.quantity, fromLocationId: from, toLocationId: to,
       recipient: input.recipient, finalToOwner: input.finalToOwner,
