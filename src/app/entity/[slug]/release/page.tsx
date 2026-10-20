@@ -33,7 +33,7 @@ export default async function ReleasePage({ params, searchParams }: { params: Pr
     const held = stock.filter((s) => !s.deployed && s.quantity > 0);
     total = stored.length + held.length;
     const places = await locationNames([...stored.map((u) => u.currentLocationId), ...held.map((s) => s.locationId)].filter((x): x is string => !!x));
-    const at = (id: string | null) => (id ? (places.get(id) ?? "Unknown location") : "No location recorded");
+    const at = (id: string | null) => (id ? (places.get(id) ?? "Removed location") : "No location recorded");
     rows = [
       ...stored
         .filter((u) => matchesQuery(q, u.item.name, u.serial, u.ownerTag, u.scanTag))
@@ -60,7 +60,7 @@ export default async function ReleasePage({ params, searchParams }: { params: Pr
       locationNames([...units.map((u) => u.currentLocationId), ...stock.map((s) => s.locationId)].filter((x): x is string => !!x)),
       userNames([...last.values()].map((n) => n.actorUserId)),
     ]);
-    const at = (id: string | null) => (id ? (places.get(id) ?? "Unknown location") : "No location recorded");
+    const at = (id: string | null) => (id ? (places.get(id) ?? "Removed location") : "No location recorded");
     const since = (key: string) => {
       const n = last.get(key);
       if (!n) return null;

@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  duplicateIdentity, groupDeployed, groupStored, latestReleases, matchesQuery, releaseKey, parseLogFilter, parseQuery, parseTab, splitSerials, unitsToSend,
+  duplicateIdentity, missingIdentity, groupDeployed, groupStored, latestReleases, matchesQuery, releaseKey, parseLogFilter, parseQuery, parseTab, splitSerials, unitsToSend,
   type PlacedStock, type PlacedUnit,
 } from './screens'
 
@@ -75,7 +75,7 @@ test('groupStored groups by location name and ignores deployed, returned and emp
     [stock({ id: 's1' }), stock({ id: 's2', deployed: true }), stock({ id: 's3', quantity: 0 })],
     names,
   )
-  assert.deepEqual(g.map((x) => x.name), ['Stage 9', 'Unknown location', 'Warehouse'])
+  assert.deepEqual(g.map((x) => x.name), ['Removed location', 'Stage 9', 'Warehouse'])
   const wh = g.find((x) => x.name === 'Warehouse')!
   assert.equal(wh.entries.length, 2)
   assert.ok(wh.entries.some((e) => e.quantity === 5))
@@ -125,4 +125,9 @@ test('release, return, release again: the second release wins; return and hand-b
   ])
   assert.equal(m.get(releaseKey.unit('u1'))?.actorUserId, 'second')
   assert.equal(m.size, 1)
+})
+
+test('missingIdentity refuses a unit with only a condition', () => {
+  assert.equal(missingIdentity([{ serial: 'A' }, { scanTag: 'T' }]), null)
+  assert.match(missingIdentity([{ serial: 'A' }, {}]) ?? '', /serial, owner tag or scan tag/)
 })

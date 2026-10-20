@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { Notice } from "@/components/feedback/notice";
 import { receiveStock, receiveUnits } from "@/lib/actions/entity-inventory";
 import { businessToday, toDateInput } from "@/lib/billing/calendar";
-import { duplicateIdentity, matchesQuery, MAX_RECEIVE_UNITS, splitSerials, unitsToSend, type DraftUnit } from "@/lib/entities/screens";
+import { duplicateIdentity, matchesQuery, missingIdentity, MAX_RECEIVE_UNITS, splitSerials, unitsToSend, type DraftUnit } from "@/lib/entities/screens";
 import { AREA, FIELD, Label, NETWORK_ERROR, PILL, PRIMARY } from "./fields";
 import type { LocationChoice } from "./movement-form";
 
@@ -66,6 +66,8 @@ export function ReceiveForm({ slug, items, locations, initialItemId }: { slug: s
     if (serialized) {
       const units = unitsToSend(rows);
       if (units.length === 0) return setError("Add at least one unit (a serial or a tag).");
+      const noId = missingIdentity(units);
+      if (noId) return setError(noId);
       const dup = duplicateIdentity(rows);
       if (dup) return setError(dup);
       start(async () => {

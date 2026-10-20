@@ -72,6 +72,11 @@ export function unitsToSend(rows: DraftUnit[]): { serial?: string; ownerTag?: st
     .filter((r) => r.serial || r.ownerTag || r.scanTag || r.condition)
 }
 
+/** A message when any unit to send has no serial, owner tag or scan tag (only a condition): it could not be told apart later. */
+export function missingIdentity(units: { serial?: string; ownerTag?: string; scanTag?: string }[]): string | null {
+  return units.some((u) => !u.serial && !u.ownerTag && !u.scanTag) ? 'Give each unit a serial, owner tag or scan tag.' : null
+}
+
 /** Repeated serials, owner tags or scan tags inside one receipt (case-insensitive): a typo caught before the round trip. */
 export function duplicateIdentity(rows: DraftUnit[]): string | null {
   for (const field of ['serial', 'ownerTag', 'scanTag'] as const) {
@@ -99,7 +104,7 @@ function group(entries: { locationId: string | null; entry: GroupEntry }[], name
     const id = locationId ?? ''
     let g = by.get(id)
     if (!g) {
-      g = { locationId: id, name: locationId ? (names.get(locationId) ?? 'Unknown location') : 'No location recorded', entries: [] }
+      g = { locationId: id, name: locationId ? (names.get(locationId) ?? 'Removed location') : 'No location recorded', entries: [] }
       by.set(id, g)
     }
     g.entries.push(entry)

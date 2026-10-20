@@ -5,7 +5,7 @@ import { findSiteMatch } from "@/lib/entities/match";
 
 /**
  * Entity code's only reach into the main database: read-only name lookups,
- * plus createSite below, which is entity code's only write to the main
+ * plus findOrCreateSite below, which is entity code's only write to the main
  * database: creating a destination site, plus that site's audit-log entry.
  */
 
@@ -72,9 +72,4 @@ export async function findOrCreateSite(name: string, address: string | undefined
   revalidatePath("/dashboard/settings/locations");
   revalidatePath("/dashboard/assets");
   return { id: site.id, name: site.name, existed: false };
-}
-
-/** Same as findOrCreateSite, returning just the id. */
-export async function createSite(name: string, address: string | undefined, actorUserId: string) {
-  return (await findOrCreateSite(name, address, actorUserId)).id;
 }

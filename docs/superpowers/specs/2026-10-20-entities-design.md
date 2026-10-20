@@ -1,6 +1,20 @@
 # Entities — design
 
-Status: approved in conversation 2026-10-20, awaiting written-spec review. Nothing built.
+Status: built (Inventory module, Settings → Entities, access, Switch Entity), awaiting rebuild and rollout. See
+`docs/entities-operations.md` for operating it.
+
+Deliberate deviations from this spec as built:
+
+- The entity rail is built from a fixed list (`nav.ts`) while Inventory is the only module, not from the
+  entity's `modules` list; the list becomes data-driven when a second module exists.
+- Migrations are one global numbered list (`prisma/entity/migrations/NNNN_*.sql`) applied to every entity
+  database, not a numbered list per module. `schemaVersion` is that global number.
+- Switch Entity lists the entities the user may open and a "Back to VFXnow" link; it is not a full workspace
+  switcher.
+- Releasing to a new site calls `findOrCreateSite` in `main-lookup.ts`: find by normalised name, else create
+  the location and write its audit entry. This is the one write from entity code into the main database.
+- A VFXnow location can be removed later; entity records keep its id and show "Removed location". Only the
+  destination of a movement must exist, so such gear can still be moved out or returned.
 
 ## Why
 

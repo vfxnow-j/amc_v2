@@ -10,6 +10,8 @@ import { entityDb } from "@/lib/entities/client";
 import { entityUrl } from "@/lib/entities/url";
 import { buildPlans } from "@/lib/entities/import-plan";
 import { getItems } from "@/lib/queries/entity-inventory";
+import { getReleasesFor } from "@/lib/queries/entity-screens";
+import { latestReleases, releaseKey } from "@/lib/entities/screens";
 import { findSiteMatch } from "@/lib/entities/match";
 import { groupRows, parseItemCsv } from "@/lib/entities/csv";
 import { importItemsTx, receiveUnitsTx, writeCorrection, writeStockMovement, writeUnitMovement } from "@/lib/entities/ledger";
@@ -200,7 +202,7 @@ const refused = (r: { ok: boolean }, label: string, reason?: RegExp & { source: 
     ok("a search for _ finds nothing here (no literal underscore except Cable_A)", (await getItems(db, "_")).map((i) => i.name).join() === "Cable_A");
     const now = new Date();
     const sitesList = [{ id: "s1", name: "Stage 9", createdAt: now }, { id: "s2", name: "%", createdAt: now }];
-    ok("site matching: createSite's picker finds a site literally named % and never reuses another for it", findSiteMatch(sitesList, "%")?.id === "s2" && findSiteMatch([sitesList[0]], "%") === undefined && findSiteMatch(sitesList, "Stage %") === undefined);
+    ok("site matching: findOrCreateSite's picker finds a site literally named % and never reuses another for it", findSiteMatch(sitesList, "%")?.id === "s2" && findSiteMatch([sitesList[0]], "%") === undefined && findSiteMatch(sitesList, "Stage %") === undefined);
 
     // 500-unit import timing (informational).
     const bigCsv = Array.from({ length: 500 }, (_, i) => `Bulk import,,,,serialized,BI${i},,,Warehouse A`).join("\n");
@@ -208,6 +210,61 @@ const refused = (r: { ok: boolean }, label: string, reason?: RegExp & { source: 
     const bigRes = await runImport(`${H}\n${bigCsv}`, false);
     console.log(`     500-row import took ${Date.now() - t1} ms`);
     ok("a 500-row import succeeds with 500 units", bigRes.ok && (await db.unit.count({ where: { item: { name: "Bulk import" } } })) === 500);
+
+    // Stranded stock: a location removed from VFXnow later must not trap what is recorded there.
+    const GONE = "loc-removed-from-vfxnow";
+    const strand = await db.item.create({ data: { name: "Stranded cable", trackingMode: "QUANTITY" } });
+    await writeStockMovement(db, { actorUserId: actor, itemId: strand.id, type: "RECEIVE", quantity: 10, toLocationId: WH });
+    ok("stock released to a site", (await writeStockMovement(db, { actorUserId: actor, itemId: strand.id, type: "RELEASE", quantity: 10, fromLocationId: WH, toLocationId: GONE, recipient: "Acme" })).ok);
+    ok("stock deployed at a location id that no longer exists can still be RETURNED to a valid location", (await writeStockMovement(db, { actorUserId: actor, itemId: strand.id, type: "RETURN", quantity: 10, fromLocationId: GONE, toLocationId: WH2 })).ok);
+    ok("...and it is stored on the shelf", (await db.stock.findMany({ where: { itemId: strand.id } })).every((r) => r.locationId === WH2 && !r.deployed));
+    const strandU = await db.item.create({ data: { name: "Stranded unit", trackingMode: "SERIALIZED" } });
+    await receiveUnitsTx(db, { actorUserId: actor, itemId: strandU.id, toLocationId: WH, units: [{ serial: "ST1" }] });
+    const su = await db.unit.findFirstOrThrow({ where: { itemId: strandU.id } });
+    await writeUnitMovement(db, { actorUserId: actor, unitId: su.id, type: "RELEASE", toLocationId: GONE, recipient: "Acme" });
+    ok("a unit deployed at a removed location can still be returned", (await writeUnitMovement(db, { actorUserId: actor, unitId: su.id, type: "RETURN", toLocationId: WH })).ok);
+
+    // Receive identity: no duplicate physical units, no identity-less units.
+    const dupI = await db.item.create({ data: { name: "Dup check", trackingMode: "SERIALIZED" } });
+    const otherI = await db.item.create({ data: { name: "Dup other", trackingMode: "SERIALIZED" } });
+    const rx = (itemId: string, units: { serial?: string; ownerTag?: string; scanTag?: string; condition?: string }[]) => receiveUnitsTx(db, { actorUserId: actor, itemId, toLocationId: WH, units });
+    ok("first receive of a serial", (await rx(dupI.id, [{ serial: "D-1", ownerTag: "OT-1" }])).ok);
+    refused(await rx(dupI.id, [{ serial: "D-1" }]), "a second receive of the same serial is refused", /serial D-1.*in storage at location loc-warehouse/);
+    refused(await rx(dupI.id, [{ serial: "  d-1 " }]), "...also with case and spacing variants", /serial/);
+    refused(await rx(dupI.id, [{ ownerTag: "ot-1" }]), "...and the same owner tag", /owner tag/);
+    refused(await rx(dupI.id, [{ serial: "D-2" }, { serial: "d-2" }]), "...and a repeat inside one batch", /serial/);
+    ok("...which rolled back the batch's first unit", (await db.unit.count({ where: { itemId: dupI.id } })) === 1);
+    ok("the same serial on a DIFFERENT item is allowed", (await rx(otherI.id, [{ serial: "D-1" }])).ok);
+    refused(await rx(dupI.id, [{ condition: "scratched" }]), "a unit with no serial, owner tag or scan tag is refused", /Give each unit a serial, owner tag or scan tag/);
+    // Hand back, then re-receive: via the scan tag it is the same unit; without one it is a fresh unit (existing behaviour, proven).
+    await rx(dupI.id, [{ serial: "D-3", scanTag: "SCAN-D3" }]);
+    const d3 = await db.unit.findFirstOrThrow({ where: { itemId: dupI.id, serial: "D-3" } });
+    await writeUnitMovement(db, { actorUserId: actor, unitId: d3.id, type: "RELEASE", recipient: "Owner", finalToOwner: true });
+    ok("re-receiving a handed-back unit by scan tag reuses it", (await rx(dupI.id, [{ scanTag: "SCAN-D3" }])).ok && (await db.unit.count({ where: { itemId: dupI.id, serial: "D-3" } })) === 1);
+    await writeUnitMovement(db, { actorUserId: actor, unitId: d3.id, type: "RELEASE", recipient: "Owner", finalToOwner: true });
+    ok("a handed-back unit's serial may be received again as a fresh unit (it is not in custody)", (await rx(dupI.id, [{ serial: "D-3" }])).ok && (await db.unit.count({ where: { itemId: dupI.id, serial: "D-3" } })) === 2);
+
+    // Latest release per unit / stock row (getReleasesFor + latestReleases).
+    const relI = await db.item.create({ data: { name: "Release order", trackingMode: "SERIALIZED" } });
+    await rx(relI.id, [{ serial: "R1" }, { serial: "R2" }, { serial: "R3" }]);
+    const [r1u, r2u, r3u] = await db.unit.findMany({ where: { itemId: relI.id }, orderBy: { serial: "asc" } });
+    const relU = (unitId: string, type: "RELEASE" | "RETURN", to: string, recipient?: string, occurredAt?: Date) =>
+      writeUnitMovement(db, { actorUserId: actor, unitId, type, toLocationId: to, recipient, occurredAt });
+    await relU(r1u.id, "RELEASE", SITE, "First"); await relU(r1u.id, "RETURN", WH); await relU(r1u.id, "RELEASE", SITE, "Second");
+    const noon = new Date(Date.UTC(2026, 9, 1, 12));
+    await relU(r2u.id, "RELEASE", SITE, "Early same day", noon); await relU(r2u.id, "RETURN", WH, undefined, noon); await relU(r2u.id, "RELEASE", SITE, "Later same day", noon);
+    await writeUnitMovement(db, { actorUserId: actor, unitId: r3u.id, type: "RELEASE", recipient: "Owner", finalToOwner: true });
+    const relS = await db.item.create({ data: { name: "Release stock", trackingMode: "QUANTITY" } });
+    await writeStockMovement(db, { actorUserId: actor, itemId: relS.id, type: "RECEIVE", quantity: 20, toLocationId: WH });
+    await writeStockMovement(db, { actorUserId: actor, itemId: relS.id, type: "RELEASE", quantity: 5, fromLocationId: WH, toLocationId: SITE, recipient: "Stock A" });
+    await writeStockMovement(db, { actorUserId: actor, itemId: relS.id, type: "RELEASE", quantity: 5, fromLocationId: WH, toLocationId: WH2, recipient: "Stock B" });
+    const lastRel = await db.movement.findFirstOrThrow({ where: { itemId: relI.id, type: "RELEASE", unitId: r1u.id }, orderBy: { createdAt: "desc" } });
+    await writeCorrection(db, { movementId: lastRel.id, note: "typo in recipient", actorUserId: actor });
+    const got = latestReleases(await getReleasesFor(db, [r1u.id, r2u.id, r3u.id], [relS.id]));
+    ok("released, returned, released again: the second release wins", got.get(releaseKey.unit(r1u.id))?.recipient === "Second");
+    ok("two same-day releases: the later-created wins", got.get(releaseKey.unit(r2u.id))?.recipient === "Later same day");
+    ok("a hand-back is not a release to a site, and a correction does not replace a release", !got.has(releaseKey.unit(r3u.id)) && got.get(releaseKey.unit(r1u.id))?.recipient === "Second");
+    ok("stock releases are keyed by item and destination", got.get(releaseKey.stock(relS.id, SITE))?.recipient === "Stock A" && got.get(releaseKey.stock(relS.id, WH2))?.recipient === "Stock B");
   } catch (error) {
     failed++;
     console.log("FAIL", "unexpected error:", (error as Error).message);

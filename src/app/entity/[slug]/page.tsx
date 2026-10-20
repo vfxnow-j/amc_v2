@@ -25,7 +25,7 @@ export default async function EntityDashboardPage({ params }: { params: Promise<
     locationNames(locationIds),
     userNames(dash.recent.map((m) => m.actorUserId)),
   ]);
-  const place = (id: string | null) => (id ? (places.get(id) ?? "Unknown location") : null);
+  const place = (id: string | null) => (id ? (places.get(id) ?? "Removed location") : null);
 
   const figures = [
     { label: "Items", value: dash.items },

@@ -172,7 +172,9 @@ export async function moveStock(slug: string, input: StockMoveInput): Promise<En
     const d = p.data;
     const m = meta(c, d);
     if (typeof m === "string") return fail(m);
-    const missing = await missingLocation([d.toLocationId, d.type === "RECEIVE" ? null : d.fromLocationId]);
+    // Only the destination must exist: where stock IS now is checked against its own Stock rows, so gear at a
+    // location that was later removed from VFXnow can still be moved out or returned.
+    const missing = await missingLocation([d.toLocationId]);
     if (missing) return fail(missing);
     const sites = siteRecorder(c.userId);
     const result = await writeStockMovement(c.db, {

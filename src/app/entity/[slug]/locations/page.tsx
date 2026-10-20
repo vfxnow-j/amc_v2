@@ -37,9 +37,16 @@ export default async function LocationsPage({ params }: { params: Promise<{ slug
   const stored = groupStored(placedUnits, placedStock, names);
   const deployed = groupDeployed(placedUnits, placedStock, names);
 
+  const hasRemoved = [...stored, ...deployed].some((g) => g.locationId && g.name === "Removed location");
+
   return (
     <>
       <PageHeader eyebrow={ctx.entity.name} title="Locations" blurb="Where everything is right now." />
+      {hasRemoved ? (
+        <p className="rounded-card bg-panel px-4 py-3 text-body text-ink-muted shadow-sm">
+          Some gear is attached to a location that was removed from VFXnow. It can still be moved or returned; removing a location does not move entity records.
+        </p>
+      ) : null}
       <Card title="In storage" meta={`${stored.length} location${stored.length === 1 ? "" : "s"}`}>
         <Groups slug={slug} groups={stored} empty="Nothing is in storage." />
       </Card>

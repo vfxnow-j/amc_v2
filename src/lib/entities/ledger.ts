@@ -10,7 +10,7 @@
  * ledger happens here, not in the action.
  */
 import type { EntityDb } from "@/lib/entities/client";
-import { itemIdentity } from "@/lib/entities/match";
+import { itemIdentity, normKey } from "@/lib/entities/match";
 import { applyStockMovement, applyUnitMovement, type StockRow, type UnitState } from "@/lib/entities/movements";
 
 export type LedgerResult = { ok: true; itemId: string } | { ok: false; reason: string };
@@ -91,12 +91,39 @@ async function destination(toLocationId: string | null | undefined, site: NewSit
 
 type UnitIn = { serial?: string | null; ownerTag?: string | null; scanTag?: string | null; condition?: string | null };
 
+type Held = { serial: string | null; ownerTag: string | null; status: string; locationId: string | null };
+
+/**
+ * Serials and owner tags of the units this item already holds in custody (anything not handed back),
+ * compared on match.ts's normKey, kept current as units are added in the same transaction. Loaded
+ * once per item per call, not once per unit.
+ */
+async function identityGuard(tx: Tx, itemId: string) {
+  const rows = await tx.unit.findMany({ where: { itemId, status: { not: "RETURNED_TO_OWNER" } }, select: { serial: true, ownerTag: true, status: true, currentLocationId: true } });
+  const held: Held[] = rows.map((r) => ({ serial: r.serial, ownerTag: r.ownerTag, status: r.status, locationId: r.currentLocationId }));
+  const where = (h: Held) => `${h.status === "DEPLOYED" ? "deployed" : "in storage"}${h.locationId ? ` at location ${h.locationId}` : ""}`;
+  return {
+    check(u: UnitIn) {
+      for (const [label, value, pick] of [["serial", u.serial, (h: Held) => h.serial], ["owner tag", u.ownerTag, (h: Held) => h.ownerTag]] as const) {
+        const key = normKey(value);
+        const clash = key ? held.find((h) => normKey(pick(h)) === key) : undefined;
+        if (clash) throw new Refusal(`This item already has a unit with ${label} ${blank(value)} (${where(clash)}). Nothing was received.`);
+      }
+    },
+    add(u: UnitIn, status: string, locationId: string | null) {
+      held.push({ serial: blank(u.serial), ownerTag: blank(u.ownerTag), status, locationId });
+    },
+  };
+}
+type Guard = Awaited<ReturnType<typeof identityGuard>>;
+
 /** One received unit and its RECEIVE movement. Shared by receiveUnitsTx and the CSV import, so there is one write path. */
 async function receiveOneUnit(
   tx: Tx, itemId: string, next: UnitState,
-  toLocationId: string, meta: MovementMeta, u: UnitIn,
+  toLocationId: string, meta: MovementMeta, u: UnitIn, guard: Guard,
 ): Promise<void> {
   const scanTag = blank(u.scanTag);
+  if (!blank(u.serial) && !blank(u.ownerTag) && !scanTag) throw new Refusal("Give each unit a serial, owner tag or scan tag.");
   const held = scanTag ? await tx.unit.findUnique({ where: { scanTag } }) : null;
   let unitId: string;
   if (held) {
@@ -114,6 +141,7 @@ async function receiveOneUnit(
     });
     unitId = held.id;
   } else {
+    guard.check(u);
     const unit = await tx.unit.create({
       data: {
         itemId, serial: blank(u.serial), ownerTag: blank(u.ownerTag), scanTag,
@@ -121,6 +149,7 @@ async function receiveOneUnit(
       },
     });
     unitId = unit.id;
+    guard.add(u, next.status, next.locationId);
   }
   await tx.movement.create({
     data: {
@@ -146,7 +175,8 @@ export async function receiveUnitsTx(
   return transact(db, async (tx) => {
     const item = await tx.item.findUnique({ where: { id: input.itemId } });
     if (!item || item.trackingMode !== "SERIALIZED") throw new Refusal("That item isn't tracked by unit.");
-    for (const u of input.units) await receiveOneUnit(tx, item.id, applied.next, input.toLocationId, input, u);
+    const guard = await identityGuard(tx, item.id);
+    for (const u of input.units) await receiveOneUnit(tx, item.id, applied.next, input.toLocationId, input, u, guard);
     return { ok: true as const, itemId: item.id };
   });
 }
@@ -325,13 +355,14 @@ export async function importItemsTx(db: EntityDb, input: { actorUserId: string; 
       let quantity = 0;
       if (plan.trackingMode === "SERIALIZED") {
         const existing = created ? [] : await tx.unit.findMany({ where: { itemId: item.id }, select: { serial: true, ownerTag: true } });
+        const guard = await identityGuard(tx, item.id);
         for (const u of plan.units) {
           const serial = blank(u.serial), tag = blank(u.ownerTag);
           if (serial && existing.some((e) => e.serial?.toLowerCase() === serial.toLowerCase())) throw new Refusal(`${plan.name} already has a unit with serial ${serial}; nothing was imported.`);
           if (tag && existing.some((e) => e.ownerTag?.toLowerCase() === tag.toLowerCase())) throw new Refusal(`${plan.name} already has a unit with owner tag ${tag}; nothing was imported.`);
           const applied = applyUnitMovement(null, { type: "RECEIVE", toLocationId: u.locationId });
           if (!applied.ok) throw new Refusal(applied.reason);
-          await receiveOneUnit(tx, item.id, applied.next, u.locationId, meta, { serial, ownerTag: tag });
+          await receiveOneUnit(tx, item.id, applied.next, u.locationId, meta, { serial, ownerTag: tag }, guard);
           existing.push({ serial, ownerTag: tag });
         }
       } else {

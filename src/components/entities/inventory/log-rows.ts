@@ -20,7 +20,7 @@ export type LogRow = {
 }
 
 export function toLogRows(movements: MovementRecord[], places: Map<string, string>, people: Map<string, string>): LogRow[] {
-  const place = (id: string | null) => (id ? (places.get(id) ?? "Unknown location") : null);
+  const place = (id: string | null) => (id ? (places.get(id) ?? "Removed location") : null);
   return movements.map((m) => ({
     id: m.id,
     label: movementLabel(m),

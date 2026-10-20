@@ -28,7 +28,7 @@ export default async function ItemPage({ params }: { params: Promise<{ slug: str
     userNames(movements.map((m) => m.actorUserId)),
     ctx.canWrite ? locationOptions() : Promise.resolve([]),
   ]);
-  const place = (id: string | null) => (id ? (places.get(id) ?? "Unknown location") : null);
+  const place = (id: string | null) => (id ? (places.get(id) ?? "Removed location") : null);
   const serialized = item.trackingMode === "SERIALIZED";
   const trackingLabel = serialized ? "by unit" : "by quantity";
 
@@ -86,7 +86,7 @@ export default async function ItemPage({ params }: { params: Promise<{ slug: str
             canWrite={ctx.canWrite}
             locations={locations}
             stock={item.stock
-              .map((s) => ({ id: s.id, locationId: s.locationId, locationName: place(s.locationId) ?? "Unknown location", deployed: s.deployed, quantity: s.quantity }))
+              .map((s) => ({ id: s.id, locationId: s.locationId, locationName: place(s.locationId) ?? "Removed location", deployed: s.deployed, quantity: s.quantity }))
               .sort((a, b) => Number(a.deployed) - Number(b.deployed) || a.locationName.localeCompare(b.locationName))}
           />
         </Card>

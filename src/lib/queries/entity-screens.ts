@@ -27,10 +27,10 @@ const RELEASE_FIELDS = { type: true, correctsId: true, finalToOwner: true, unitI
 export async function getReleasesFor(db: EntityDb, unitIds: string[], stockItemIds: string[]) {
   const real = { type: "RELEASE" as const, correctsId: null, finalToOwner: false };
   const unitQueries = chunks(unitIds).map((ids) =>
-    db.movement.findMany({ where: { ...real, unitId: { in: ids } }, select: RELEASE_FIELDS, orderBy: { occurredAt: "desc" }, distinct: ["unitId"] }),
+    db.movement.findMany({ where: { ...real, unitId: { in: ids } }, select: RELEASE_FIELDS, orderBy: [{ occurredAt: "desc" }, { createdAt: "desc" }, { id: "desc" }], distinct: ["unitId"] }),
   );
   const stockQueries = chunks(stockItemIds).map((ids) =>
-    db.movement.findMany({ where: { ...real, unitId: null, itemId: { in: ids } }, select: RELEASE_FIELDS, orderBy: { occurredAt: "desc" }, distinct: ["itemId", "toLocationId"] }),
+    db.movement.findMany({ where: { ...real, unitId: null, itemId: { in: ids } }, select: RELEASE_FIELDS, orderBy: [{ occurredAt: "desc" }, { createdAt: "desc" }, { id: "desc" }], distinct: ["itemId", "toLocationId"] }),
   );
   return (await Promise.all([...unitQueries, ...stockQueries])).flat();
 }
