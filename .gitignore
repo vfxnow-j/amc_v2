@@ -54,6 +54,7 @@ yarn-error.log*
 # `prisma migrate diff`, but reconstructing is not the same as having the file
 # that was actually run.
 !/prisma/manual/*.sql
+!/prisma/entity/migrations/*.sql
 
 # local tooling
 .claude/settings.local.json
