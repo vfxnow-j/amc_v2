@@ -125,7 +125,7 @@ ALTER TABLE "Stock" ADD CONSTRAINT "Stock_itemId_fkey" FOREIGN KEY ("itemId") RE
 ALTER TABLE "Movement" ADD CONSTRAINT "Movement_itemId_fkey" FOREIGN KEY ("itemId") REFERENCES "Item"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "Movement" ADD CONSTRAINT "Movement_unitId_fkey" FOREIGN KEY ("unitId") REFERENCES "Unit"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "Movement" ADD CONSTRAINT "Movement_unitId_fkey" FOREIGN KEY ("unitId") REFERENCES "Unit"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 
 -- Movements are a ledger: never edited, never deleted. A correction is a new row.
@@ -138,3 +138,8 @@ $$ LANGUAGE plpgsql;
 CREATE TRIGGER "Movement_append_only"
   BEFORE UPDATE OR DELETE ON "Movement"
   FOR EACH ROW EXECUTE FUNCTION movement_is_append_only();
+
+-- TRUNCATE skips row triggers, so it needs its own statement-level guard.
+CREATE TRIGGER "Movement_no_truncate"
+  BEFORE TRUNCATE ON "Movement"
+  FOR EACH STATEMENT EXECUTE FUNCTION movement_is_append_only();

@@ -26,7 +26,10 @@ export function entityDb(dbName: string): EntityDb {
   const existing = clients.get(dbName);
   if (existing) return existing;
   const connectionString = assertEntityDatabase(entityUrl(dbName));
-  const client = new PrismaClient({ adapter: new PrismaPg(new Pool({ connectionString, max: 4 })) });
+  const pool = new Pool({ connectionString, max: 4 });
+  // An error on an idle pooled connection must not crash the process.
+  pool.on("error", (error) => console.error(`entity pool ${dbName}:`, error.message));
+  const client = new PrismaClient({ adapter: new PrismaPg(pool) });
   clients.set(dbName, client);
   return client;
 }

@@ -89,7 +89,7 @@ model Movement {
   itemId         String
   item           Item         @relation(fields: [itemId], references: [id])
   unitId         String?
-  unit           Unit?        @relation(fields: [unitId], references: [id])
+  unit           Unit?        @relation(fields: [unitId], references: [id], onDelete: Restrict)
   quantity       Int          @default(1)
   fromLocationId String?
   toLocationId   String?
