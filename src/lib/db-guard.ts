@@ -1,3 +1,5 @@
+import { ENTITY_DB_RE } from "./entities/naming";
+
 /**
  * Refuses any connection that is not v2's own database.
  *
@@ -39,5 +41,30 @@ export function assertV2Database(url: string | undefined): string {
     );
   }
 
+  return url;
+}
+
+/**
+ * The entity client's counterpart to `assertV2Database`: an entity database
+ * and nothing else. The main database and v1 are refused by name shape alone —
+ * neither starts `vfxnow_ent_` — so there is no list of forbidden names to
+ * keep current.
+ */
+export function assertEntityDatabase(url: string | undefined): string {
+  if (!url) throw new Error("DATABASE_URL is not set");
+
+  let name: string;
+  try {
+    name = decodeURIComponent(new URL(url).pathname).replace(/^\//, "");
+  } catch {
+    throw new Error("DATABASE_URL is not a valid connection string");
+  }
+
+  if (!ENTITY_DB_RE.test(name)) {
+    throw new Error(
+      `Refusing to connect to the database "${name}" as an entity database.\n` +
+        `Entity databases are named vfxnow_ent_<slug>.`,
+    );
+  }
   return url;
 }

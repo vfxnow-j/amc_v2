@@ -1,0 +1,112 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../../src/generated/entity-prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum TrackingMode {
+  SERIALIZED
+  QUANTITY
+}
+
+enum UnitStatus {
+  IN_STORAGE
+  DEPLOYED
+  RETURNED_TO_OWNER
+}
+
+enum MovementType {
+  RECEIVE
+  MOVE
+  RELEASE
+  RETURN
+}
+
+model Category {
+  id    String @id @default(cuid())
+  name  String @unique
+  items Item[]
+}
+
+model Item {
+  id           String       @id @default(cuid())
+  name         String
+  description  String?
+  manufacturer String?
+  model        String?
+  categoryId   String?
+  category     Category?    @relation(fields: [categoryId], references: [id])
+  trackingMode TrackingMode @default(SERIALIZED)
+  specs        Json?
+  imageUrl     String?
+  notes        String?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  units     Unit[]
+  stock     Stock[]
+  movements Movement[]
+}
+
+model Unit {
+  id                String     @id @default(cuid())
+  itemId            String
+  item              Item       @relation(fields: [itemId], references: [id])
+  serial            String?
+  ownerTag          String?
+  scanTag           String?    @unique
+  condition         String?
+  notes             String?
+  status            UnitStatus @default(IN_STORAGE)
+  // A plain reference to a VFXnow location/site. No foreign key: it lives in another database.
+  currentLocationId String?
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+
+  movements Movement[]
+
+  @@index([itemId])
+  @@index([status])
+}
+
+model Stock {
+  id         String  @id @default(cuid())
+  itemId     String
+  item       Item    @relation(fields: [itemId], references: [id])
+  locationId String
+  deployed   Boolean @default(false)
+  quantity   Int
+
+  @@unique([itemId, locationId, deployed])
+}
+
+model Movement {
+  id             String       @id @default(cuid())
+  type           MovementType
+  itemId         String
+  item           Item         @relation(fields: [itemId], references: [id])
+  unitId         String?
+  unit           Unit?        @relation(fields: [unitId], references: [id])
+  quantity       Int          @default(1)
+  fromLocationId String?
+  toLocationId   String?
+  recipient      String?
+  destination    String?
+  reference      String?
+  carrier        String?
+  tracking       String?
+  finalToOwner   Boolean      @default(false)
+  correctsId     String?
+  occurredAt     DateTime     @default(now())
+  // A plain reference to a VFXnow user.
+  actorUserId    String
+  notes          String?
+  createdAt      DateTime     @default(now())
+
+  @@index([itemId])
+  @@index([unitId])
+  @@index([occurredAt])
+}
