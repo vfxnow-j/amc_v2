@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev --port 3001",
-    "build": "npm run db:generate && next build",
+    "build": "npm run db:generate && npm run check:entities && next build",
     "start": "next start --port 3001",
     "lint": "eslint",
     "check:entities": "tsx scripts/check-entity-isolation.ts",
