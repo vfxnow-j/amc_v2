@@ -81,3 +81,29 @@ test('arrange: hidden part prices are zeroed but the group keeps its total', () 
   assert.equal(specLabel('32GB DDR5', 4), '4× 32GB DDR5')
   assert.equal(specLabel('CPU', 1), 'CPU')
 })
+
+test('movedWithin swaps a step, stops at the ends and ignores strangers', async () => {
+  const { movedWithin } = await import('./build-groups')
+  assert.deepEqual(movedWithin(['a', 'b', 'c'], 'b', 'up'), ['b', 'a', 'c'])
+  assert.deepEqual(movedWithin(['a', 'b', 'c'], 'b', 'down'), ['a', 'c', 'b'])
+  assert.equal(movedWithin(['a', 'b', 'c'], 'a', 'up'), null)
+  assert.equal(movedWithin(['a', 'b', 'c'], 'c', 'down'), null)
+  assert.equal(movedWithin(['a', 'b'], 'z', 'up'), null)
+})
+
+test('build structure is editable on a draft or a revision only', async () => {
+  const { buildStructureEditable, BUILD_EDITABLE_STATUSES, BUILD_LOCKED_MESSAGE } = await import('./build-groups')
+  assert.deepEqual(BUILD_EDITABLE_STATUSES, ['DRAFT', 'REVISION'])
+  assert.equal(buildStructureEditable('DRAFT'), true)
+  assert.equal(buildStructureEditable('REVISION'), true)
+  for (const s of ['QUOTE_SENT', 'APPROVED', 'PREPARING', 'SHIPPED', 'ACTIVE', 'COMPLETED', 'CANCELLED', 'LOST']) {
+    assert.equal(buildStructureEditable(s), false, s)
+  }
+  assert.match(BUILD_LOCKED_MESSAGE, /Request a revision/)
+})
+
+test('a client change request or a staff revision lands in REVISION, which reopens editing', async () => {
+  const { buildStructureEditable } = await import('./build-groups')
+  // Sent quote locked -> revision (either path) unlocked -> re-sent locked again.
+  assert.deepEqual(['QUOTE_SENT', 'REVISION', 'QUOTE_SENT'].map(buildStructureEditable), [false, true, false])
+})

@@ -1,5 +1,7 @@
 'use server'
 
+import { assertQuoteEditable, assertQuoteEditableForPackage } from '@/lib/orders/quote-lock-server'
+import { QUOTE_LOCKED_MESSAGE, quoteEditable, updateChangesQuote } from '@/lib/orders/quote-lock'
 import { handoverShortfall, shortfallMessage } from '@/lib/orders/handover'
 import { consumeScanOverride } from '@/lib/orders/scan-override'
 import { groupIdsOf, isCheckoutLine } from '@/lib/pricing/build-groups'
@@ -14,7 +16,6 @@ import { logAudit } from './audit'
 import { quoteGate } from '@/lib/approvals/core'
 import { syncReservationDeal } from '@/lib/integrations/hubspot'
 import type { ReservationStatus, ReservationType, PricingType, BillingCycleType } from '@/lib/types'
-import { PACKAGE_EDITABLE_STATUSES } from '@/lib/types'
 import { addDays } from 'date-fns'
 import {
   calculatePeriods as calculateTermPeriods,
@@ -697,6 +698,19 @@ export async function updateReservation(id: string, input: Partial<ReservationFo
       throw new Error('Can only edit draft, revision, or active reservations')
     }
 
+    // What was quoted is fixed once the quote goes out (lib/orders/quote-lock). A
+    // form that posts the whole record back unchanged passes; shipping details,
+    // tracking, notes and billing terms are not quote changes. An order already
+    // shipped or live moves its dates only through Extend.
+    if (
+      !quoteEditable(existingReservation.status, existingReservation.reservationType) &&
+      updateChangesQuote(data as Record<string, unknown>, existingReservation, {
+        ignoreDates: ['SHIPPED', 'ACTIVE'].includes(existingReservation.status),
+      })
+    ) {
+      throw new Error(QUOTE_LOCKED_MESSAGE)
+    }
+
     // An order can't switch into or out of Flow (v1 01a81f5): a Flow order is
     // priced and scheduled from its own columns, which no other type carries.
     if (
@@ -1198,6 +1212,7 @@ export async function updateReservationItemRate(
 ) {
   const authResult = await requireEditor()
   if (!authResult.authorized) throw new Error(authResult.error || 'Unauthorized')
+  await assertQuoteEditable(reservationId)
 
   await prisma.$transaction(async (tx) => {
     const reservation = await tx.reservation.findUnique({ where: { id: reservationId } })
@@ -1266,6 +1281,7 @@ export async function updateReservationItemQuantity(
 ) {
   const authResult = await requireEditor()
   if (!authResult.authorized) throw new Error(authResult.error || 'Unauthorized')
+  await assertQuoteEditable(reservationId)
 
   if (!Number.isInteger(newQuantity) || newQuantity < 1) {
     throw new Error('Quantity must be a positive integer')
@@ -1341,6 +1357,7 @@ export async function updateReservationItemCategory(
 ) {
   const authResult = await requireEditor()
   if (!authResult.authorized) throw new Error(authResult.error || 'Unauthorized')
+  await assertQuoteEditable(reservationId)
 
   await prisma.$transaction(async (tx) => {
     const reservation = await tx.reservation.findUnique({ where: { id: reservationId } })
@@ -1377,6 +1394,7 @@ export async function updateReservationItemDescription(
 ) {
   const authResult = await requireEditor()
   if (!authResult.authorized) throw new Error(authResult.error || 'Unauthorized')
+  await assertQuoteEditable(reservationId)
 
   const trimmed = description.trim()
   if (!trimmed) throw new Error('Description cannot be empty')
@@ -1415,6 +1433,7 @@ export async function updateReservationItemOneTime(
 ) {
   const authResult = await requireEditor()
   if (!authResult.authorized) throw new Error(authResult.error || 'Unauthorized')
+  await assertQuoteEditable(reservationId)
 
   await prisma.$transaction(async (tx) => {
     const reservation = await tx.reservation.findUnique({ where: { id: reservationId } })
@@ -1491,6 +1510,7 @@ export async function addItemToReservation(
 ) {
   const authResult = await requireEditor()
   if (!authResult.authorized) throw new Error(authResult.error || 'Unauthorized')
+  await assertQuoteEditable(reservationId)
 
   if (!assetId && !description && !cloudProductId) {
     throw new Error('Either an asset, a cloud product, or a description is required')
@@ -1802,6 +1822,7 @@ export async function addCloudHostToReservation(
 ) {
   const authResult = await requireEditor()
   if (!authResult.authorized) throw new Error(authResult.error || 'Unauthorized')
+  await assertQuoteEditable(reservationId)
 
   if (!data.components.length) throw new Error('At least one component is required')
   if (data.quantity < 1) throw new Error('Quantity must be at least 1')
@@ -1957,6 +1978,7 @@ export async function updateCloudHostInReservation(
 ) {
   const authResult = await requireEditor()
   if (!authResult.authorized) throw new Error(authResult.error || 'Unauthorized')
+  await assertQuoteEditable(reservationId)
 
   if (!data.components.length) throw new Error('At least one component is required')
   if (data.quantity < 1) throw new Error('Quantity must be at least 1')
@@ -2073,6 +2095,7 @@ export async function addServiceItemToReservation(
 ) {
   const authResult = await requireEditor()
   if (!authResult.authorized) throw new Error(authResult.error || 'Unauthorized')
+  await assertQuoteEditable(reservationId)
 
   const service = await prisma.service.findUnique({ where: { id: serviceId } })
   if (!service) throw new Error('Service not found')
@@ -2156,6 +2179,7 @@ export async function reorderReservationItems(
 ) {
   const authResult = await requireEditor()
   if (!authResult.authorized) throw new Error(authResult.error || 'Unauthorized')
+  await assertQuoteEditable(reservationId)
 
   await prisma.$transaction(async (tx) => {
     const reservation = await tx.reservation.findUnique({ where: { id: reservationId } })
@@ -2184,6 +2208,7 @@ export async function addReservationComponent(
 ) {
   const authResult = await requireEditor()
   if (!authResult.authorized) throw new Error(authResult.error || 'Unauthorized')
+  await assertQuoteEditable(reservationId)
 
   const result = await prisma.$transaction(async (tx) => {
     const reservation = await tx.reservation.findUnique({ where: { id: reservationId } })
@@ -2287,6 +2312,7 @@ export async function removeReservationItem(
 ) {
   const authResult = await requireEditor()
   if (!authResult.authorized) throw new Error(authResult.error || 'Unauthorized')
+  await assertQuoteEditable(reservationId)
 
   await prisma.$transaction(async (tx) => {
     const reservation = await tx.reservation.findUnique({ where: { id: reservationId } })
@@ -4946,15 +4972,13 @@ export async function createPackage(
 ) {
   const authResult = await requireEditor()
   if (!authResult.authorized) throw new Error(authResult.error)
+  await assertQuoteEditable(reservationId)
 
   const reservation = await prisma.reservation.findUnique({
     where: { id: reservationId },
     include: { packages: true },
   })
   if (!reservation) throw new Error('Reservation not found')
-  if (!PACKAGE_EDITABLE_STATUSES.includes(reservation.status)) {
-    throw new Error('Packages can only be changed before the order enters fulfillment')
-  }
 
   const trimmedName = name?.trim()
   if (!trimmedName) throw new Error('Package name is required')
@@ -4982,6 +5006,7 @@ export async function updatePackage(
 ) {
   const authResult = await requireEditor()
   if (!authResult.authorized) throw new Error(authResult.error)
+  await assertQuoteEditableForPackage(packageId)
 
   const pkg = await prisma.package.findUnique({
     where: { id: packageId },
@@ -5039,6 +5064,7 @@ export async function updatePackage(
 export async function deletePackage(packageId: string) {
   const authResult = await requireEditor()
   if (!authResult.authorized) throw new Error(authResult.error)
+  await assertQuoteEditableForPackage(packageId)
 
   const pkg = await prisma.package.findUnique({
     where: { id: packageId },
@@ -5047,9 +5073,6 @@ export async function deletePackage(packageId: string) {
   if (!pkg) throw new Error('Package not found')
   if (pkg.isActive) throw new Error('Cannot delete the active package')
   if (pkg.reservation.packages.length <= 1) throw new Error('Cannot delete the last package')
-  if (!PACKAGE_EDITABLE_STATUSES.includes(pkg.reservation.status)) {
-    throw new Error('Packages can only be changed before the order enters fulfillment')
-  }
 
   await prisma.package.delete({ where: { id: packageId } })
 
@@ -5063,15 +5086,13 @@ export async function setActivePackage(
 ) {
   const authResult = await requireEditor()
   if (!authResult.authorized) throw new Error(authResult.error)
+  await assertQuoteEditable(reservationId)
 
   await prisma.$transaction(async (tx) => {
     const reservation = await tx.reservation.findUnique({
       where: { id: reservationId },
     })
     if (!reservation) throw new Error('Reservation not found')
-    if (!PACKAGE_EDITABLE_STATUSES.includes(reservation.status)) {
-      throw new Error('Packages can only be changed before the order enters fulfillment')
-    }
 
     // Verify package belongs to this reservation
     const pkg = await tx.package.findUnique({ where: { id: packageId } })
@@ -5124,6 +5145,7 @@ export async function duplicatePackage(
 ) {
   const authResult = await requireEditor()
   if (!authResult.authorized) throw new Error(authResult.error)
+  await assertQuoteEditableForPackage(packageId)
 
   const sourcePackage = await prisma.package.findUnique({
     where: { id: packageId },
@@ -5133,9 +5155,6 @@ export async function duplicatePackage(
     },
   })
   if (!sourcePackage) throw new Error('Package not found')
-  if (!PACKAGE_EDITABLE_STATUSES.includes(sourcePackage.reservation.status)) {
-    throw new Error('Packages can only be changed before the order enters fulfillment')
-  }
 
   const trimmedNewName = newName?.trim()
   if (!trimmedNewName) throw new Error('Package name is required')
@@ -5490,6 +5509,7 @@ export async function resetItemUnitCheckout(
 export async function updateFlowLineBasis(reservationId: string, itemId: string, basis: number) {
   const authResult = await requireEditor()
   if (!authResult.authorized) throw new Error(authResult.error || 'Unauthorized')
+  await assertQuoteEditable(reservationId)
   if (!Number.isFinite(basis) || basis <= 0) throw new Error('Enter a cost basis above $0')
 
   await prisma.$transaction(async (tx) => {
@@ -5518,6 +5538,7 @@ export async function updateFlowLineBasis(reservationId: string, itemId: string,
 export async function updateFlowStepPct(reservationId: string, pct: number | null) {
   const authResult = await requireEditor()
   if (!authResult.authorized) throw new Error(authResult.error || 'Unauthorized')
+  await assertQuoteEditable(reservationId)
 
   if (pct != null && (!Number.isFinite(pct) || pct < 1 || pct > 100)) {
     throw new Error('The month-13 payment must be between 1% and 100% of the year-one payment.')

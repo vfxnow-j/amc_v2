@@ -17,14 +17,6 @@ export type DepreciationCategory = 'THREE_YEAR' | 'FIVE_YEAR' | 'SEVEN_YEAR' | '
 
 export type ReservationStatus = 'DRAFT' | 'QUOTE_SENT' | 'APPROVED' | 'REVISION' | 'PREPARING' | 'SHIPPED' | 'ACTIVE' | 'COMPLETED' | 'CANCELLED' | 'LOST'
 
-/**
- * Statuses where quote packages can still be added, renamed, duplicated, deleted,
- * or switched. Matches the window where line items and pricing stay editable — a
- * quote that has already been sent (or approved) can still gain another option
- * until the order moves into fulfillment.
- */
-export const PACKAGE_EDITABLE_STATUSES: readonly string[] = ['DRAFT', 'QUOTE_SENT', 'REVISION', 'APPROVED']
-
 export type ReservationType = 'RENTAL' | 'SALE' | 'RENT_TO_OWN' | 'FLOW' | 'CLOUD'
 
 export type BillingCycleType = 'DAILY' | 'WEEKLY' | 'BI_WEEKLY' | 'MONTHLY' | 'CUSTOM' | 'ONE_TIME'

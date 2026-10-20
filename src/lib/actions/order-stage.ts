@@ -7,7 +7,7 @@ import { recurringFor } from "@/lib/orders/recurring";
 import { FLOW_NOT_INVOICED } from "@/lib/orders/types";
 import { flowQuoteProblem } from "@/lib/flow-terms-server";
 import { speedApplies, type ShippingSpeed } from "@/lib/orders/shipping";
-import { handoverShortfall, shortfallMessage, type MissingLine } from "@/lib/orders/handover";
+import { gateApplies, handoverShortfall, shortfallMessage, type HandoverMove, type MissingLine } from "@/lib/orders/handover";
 import { hasScanOverride } from "@/lib/orders/scan-override";
 import { parseDateInput } from "@/lib/billing/calendar";
 import { requireEditor } from "@/lib/auth-utils";
@@ -56,19 +56,18 @@ export type StageOutcome =
   | { status: "ok"; message: string; href?: string }
   | { status: "error"; message: string }
   /** Refused by the stop gap: what is still to check out, for the dialog. */
-  | { status: "blocked"; message: string; move: "activate" | "ship"; missing: MissingLine[] };
+  | { status: "blocked"; message: string; move: HandoverMove; missing: MissingLine[] };
 
 /** The stop gap, before anything is saved: every asset checked out. */
-async function notReady(id: string, move: "activate" | "ship"): Promise<StageOutcome | null> {
-  if (move === "activate") {
-    const order = await prisma.reservation.findUnique({ where: { id }, select: { reservationType: true } });
-    if (order?.reservationType === "CLOUD") return null;
-  }
+async function notReady(id: string, move: HandoverMove): Promise<StageOutcome | null> {
+  const order = await prisma.reservation.findUnique({ where: { id }, select: { reservationType: true } });
+  if (order && !gateApplies(move, order.reservationType)) return null;
   const handover = await handoverShortfall(id);
   if (handover.units === 0) return null;
-  // A super admin's override (lib/orders/scan-override) stands the gate down;
-  // the ported action still consumes the grant, so it works once.
-  if (hasScanOverride(id, move)) return null;
+  // A super admin's override (lib/orders/scan-override) stands the gate down for
+  // ship and activate; the ported action still consumes the grant, so it works
+  // once. Completing a sale has no override: it must be crisp.
+  if (move !== "complete" && hasScanOverride(id, move)) return null;
   return { status: "blocked", message: shortfallMessage(handover, move), move, missing: handover.missing };
 }
 
@@ -758,6 +757,9 @@ export async function activateOrder(
 }
 
 export async function completeOrder(id: string): Promise<StageOutcome> {
+  // A sale cannot be closed with units still to check out (see gateApplies).
+  const blocked = await notReady(id, "complete");
+  if (blocked) return blocked;
   try {
     await completeReservation(id);
     touch(id);
@@ -918,6 +920,7 @@ export async function addOrderLine(
   }
 
   try {
+    // Locked once the quote is sent: addItemToReservation refuses (lib/orders/quote-lock).
     const created = await addItemToReservation(
       reservationId,
       line.assetId ?? null,

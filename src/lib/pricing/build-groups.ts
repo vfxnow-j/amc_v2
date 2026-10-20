@@ -15,12 +15,28 @@
  * Pure — no prisma, no 'use server', no next/*.
  */
 
+import { QUOTE_EDITABLE_STATUSES, QUOTE_LOCKED_MESSAGE, quoteEditable } from '@/lib/orders/quote-lock'
+
 /**
- * Statuses in which a build's structure may change. After that the parts are
- * being scanned out, and moving one between builds would leave a machine's
- * counters describing a different machine.
+ * Statuses in which a build's structure (builds, machine counts, parts and
+ * their order, the hide-part-prices choice) may change: a draft, or a revision.
+ * The one list every build action and the order screen share.
+ *
+ * Once the quote is sent what was quoted and what the client approves must read
+ * the same, so everything locks (owner, 2026-10-20); a revision reopens it,
+ * whether staff request it or the client asks for changes on the online quote.
+ * Later still, parts are being scanned out and moving one between builds would
+ * leave a machine's counters describing a different machine.
  */
-export const BUILD_EDITABLE_STATUSES = ['DRAFT', 'QUOTE_SENT', 'REVISION', 'APPROVED']
+export const BUILD_EDITABLE_STATUSES = QUOTE_EDITABLE_STATUSES
+
+/** Whether a build's structure can change on an order in this status. */
+export function buildStructureEditable(status: string): boolean {
+  return quoteEditable(status, 'SALE')
+}
+
+/** The refusal for a locked order, with the way forward. */
+export const BUILD_LOCKED_MESSAGE = QUOTE_LOCKED_MESSAGE
 
 const qtyOf = (i: { quantity?: number | null }) => i.quantity || 1
 
@@ -129,4 +145,22 @@ export function arrangeBuildGroups<
     }
   }
   return out
+}
+
+/**
+ * Move one id a step up or down a list of siblings, returning the new order or
+ * null when it is already at that end (or not in the list). The order page lists
+ * a build's parts under their heading, so a top-level line moves among top-level
+ * lines (its parts travel with it, being children) and a part among its siblings.
+ * Order is presentation only: it never touches a quantity, rate or total.
+ */
+export function movedWithin(ids: string[], id: string, direction: 'up' | 'down'): string[] | null {
+  const from = ids.indexOf(id)
+  if (from < 0) return null
+  const to = direction === 'up' ? from - 1 : from + 1
+  if (to < 0 || to >= ids.length) return null
+  const next = [...ids]
+  next.splice(from, 1)
+  next.splice(to, 0, id)
+  return next
 }

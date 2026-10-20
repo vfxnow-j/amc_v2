@@ -75,10 +75,4 @@ export async function handoverShortfall(reservationId: string, db: Db = prisma):
   };
 }
 
-/** The refusal, in words — for the server when there is no dialog to show it. */
-export function shortfallMessage(handover: Handover, move: "activate" | "ship"): string {
-  const { units, missing } = handover;
-  return `${units} ${units === 1 ? "unit is" : "units are"} still to be checked out across ${missing.length} ${
-    missing.length === 1 ? "line" : "lines"
-  }. Scan everything out before ${move === "ship" ? "shipping" : "activating"}.`;
-}
+export { gateApplies, shortfallMessage, type HandoverMove } from "./handover-rules";

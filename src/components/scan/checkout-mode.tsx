@@ -16,7 +16,7 @@ import {
 } from "@/lib/actions/scan-desk";
 import { shipOrder, activateOrder, completeOrder } from "@/lib/actions/order-stage";
 import { NotReadyDialog } from "@/components/orders/order-actions";
-import type { MissingLine } from "@/lib/orders/handover";
+import type { HandoverMove, MissingLine } from "@/lib/orders/handover";
 import { movesFor } from "@/lib/orders/lifecycle";
 import { STATUS_LABEL } from "@/lib/reservations/status";
 import type { Tone } from "@/lib/scan/audio";
@@ -83,7 +83,7 @@ export function CheckoutMode() {
   const [stray, setStray] = useState<{ assetName: string; barcode: string } | null>(null);
   const [notice, setNotice] = useState<{ tone: "ok" | "error"; message: string } | null>(null);
   const [busy, setBusy] = useState(false);
-  const [notReady, setNotReady] = useState<{ move: "activate" | "ship"; missing: MissingLine[] } | null>(null);
+  const [notReady, setNotReady] = useState<{ move: HandoverMove; missing: MissingLine[] } | null>(null);
 
   const seq = useRef(0);
   const heldCode = useRef("");
