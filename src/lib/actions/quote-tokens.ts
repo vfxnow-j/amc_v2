@@ -992,6 +992,9 @@ export async function sendQuoteLinkEmail(
       })
     } catch { /* non-critical */ }
 
+    const { advanceLeadOnQuoteSent } = await import('@/lib/leads/quote-sent')
+    await advanceLeadOnQuoteSent(reservationId, authResult.userId)
+
     const { revalidatePath } = await import('next/cache')
     revalidatePath(`/dashboard/orders/${reservationId}`)
     revalidatePath('/dashboard/orders')

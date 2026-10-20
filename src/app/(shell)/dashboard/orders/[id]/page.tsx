@@ -32,6 +32,7 @@ import { getFlowRecord } from "@/lib/queries/flow-record";
 import { flowQuoteProblem } from "@/lib/flow-terms-server";
 import { OrderDocumentsCard } from "@/components/orders/documents-card";
 import { ShippingCard } from "@/components/orders/shipping-card";
+import { EditDates } from "@/components/orders/edit-dates";
 import { ConversionCard } from "@/components/tracker/conversion-card";
 import { getSessionUser } from "@/lib/roles";
 import { ApprovalCard } from "@/components/approvals/approval-card";
@@ -49,6 +50,7 @@ import {
   businessToday,
   isAnchoredCycle,
   periodFromAnchor,
+  toDateInput,
 } from "@/lib/billing/calendar";
 import { getBillingAnchor } from "@/lib/settings/business";
 
@@ -232,6 +234,12 @@ export default async function OrderRecordPage({
         }
         actions={
           <>
+            {header.type === "RENTAL" &&
+            (header.status === "DRAFT" || header.status === "REVISION") &&
+            user &&
+            user.role !== "VIEWER" ? (
+              <EditDates id={id} start={toDateInput(header.start)} end={toDateInput(header.end)} />
+            ) : null}
             {/* What the client sees, at whatever stage the order is — a draft
                 before it is sent, the live page once it is, what their link
                 says after they answer. A preview: no link is issued and nothing

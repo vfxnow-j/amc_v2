@@ -4,13 +4,14 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { bindLeadToOrder, convertLeadToReservation } from "@/lib/actions/leads";
 import { Notice } from "@/components/feedback/notice";
+import { parseDateInput } from "@/lib/billing/calendar";
 
 /**
  * The two ways an enquiry stops being an enquiry.
  *
- * **Convert** creates the client if there isn't one, then a draft order, and
- * advances the lead to Quoted. It does *not* mark the lead Won — that happens
- * when the quote is approved, which is the order's business, not this screen's.
+ * **Convert** creates the client if there isn't one, then a draft order. The
+ * lead stays where it is: it becomes Quoted when the quote is sent and Won when
+ * it is approved, which are the order's business, not this screen's.
  *
  * **Bind** is the other outcome, and the reason `BOUND` exists: the caller
  * turns out to be a second contact on an account that already has an order
@@ -28,6 +29,14 @@ const TYPES = [
   { value: "RENT_TO_OWN", label: "Rent to own" },
   { value: "CLOUD", label: "Cloud" },
 ] as const;
+
+const DAY = new Intl.DateTimeFormat("en-US", {
+  weekday: "short",
+  month: "short",
+  day: "numeric",
+  year: "numeric",
+  timeZone: "UTC",
+});
 
 function isoToday(offsetDays = 0) {
   const date = new Date();
@@ -59,6 +68,10 @@ export function LeadResolve({
   function convert(event: React.FormEvent) {
     event.preventDefault();
     setError("");
+    if (type !== "SALE" && !(start < end)) {
+      setError("The order has to end after it starts.");
+      return;
+    }
     startTransition(async () => {
       try {
         const outcome = await convertLeadToReservation(leadId, {
@@ -148,6 +161,11 @@ export function LeadResolve({
               className={field}
             />
           </label>
+          {parseDateInput(start) && parseDateInput(end) ? (
+            <p className="col-span-2 text-micro text-ink-muted">
+              {DAY.format(parseDateInput(start)!)} – {DAY.format(parseDateInput(end)!)}
+            </p>
+          ) : null}
           {type === "RENT_TO_OWN" ? (
             <label className="col-span-2 flex flex-col gap-[2px]">
               <span className="text-micro uppercase text-ink-muted">

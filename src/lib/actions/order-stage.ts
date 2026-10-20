@@ -413,6 +413,55 @@ export type ShippingDetails = {
   shipDate: string;
 };
 
+/**
+ * Move a rental's dates while it is still a draft or in revision.
+ *
+ * Refused once the quote has gone out or the order is further on: the client
+ * has seen a price built on these days, and a quiet change would move the
+ * number under them. A revision is the way back to editing. Lines are repriced
+ * by `updateReservation`, which also recomputes the next billing date.
+ */
+export async function saveOrderDates(
+  id: string,
+  startInput: string,
+  endInput: string,
+): Promise<StageOutcome> {
+  const auth = await requireEditor();
+  if (!auth.authorized) return { status: "error", message: auth.error ?? "Unauthorized" };
+
+  const start = parseDateInput(startInput);
+  const end = parseDateInput(endInput);
+  if (!start || !end) return { status: "error", message: "Enter both dates." };
+  if (!(start < end)) return { status: "error", message: "The order has to end after it starts." };
+
+  const order = await prisma.reservation.findUnique({
+    where: { id },
+    select: { status: true, reservationType: true },
+  });
+  if (!order) return { status: "error", message: "Order not found." };
+  if (order.reservationType !== "RENTAL") {
+    return { status: "error", message: "Only a rental's dates can be changed here." };
+  }
+  if (order.status !== "DRAFT" && order.status !== "REVISION") {
+    return {
+      status: "error",
+      message: "The quote has gone out on these dates. Request a revision first, then change them.",
+    };
+  }
+
+  try {
+    await updateReservation(id, { startDate: start, endDate: end });
+    touch(id);
+    revalidatePath("/dashboard/calendar");
+    return { status: "ok", message: "Dates saved. The lines were repriced for the new term." };
+  } catch (error) {
+    return {
+      status: "error",
+      message: error instanceof Error ? error.message : "The dates could not be saved.",
+    };
+  }
+}
+
 export async function saveShipping(
   id: string,
   shipping: ShippingDetails,

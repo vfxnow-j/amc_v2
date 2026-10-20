@@ -2396,6 +2396,9 @@ export async function markQuoteSent(id: string) {
     })
   } catch { /* non-critical */ }
 
+  const { advanceLeadOnQuoteSent } = await import('@/lib/leads/quote-sent')
+  await advanceLeadOnQuoteSent(id, authResult.userId)
+
   // Sync deal stage to HubSpot (fire-and-forget)
   syncReservationDeal({
     id: updated.id,

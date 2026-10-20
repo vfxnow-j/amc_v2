@@ -12,7 +12,7 @@ import { logAudit } from './audit'
 import { notifyNewLead } from '@/lib/notifications/outbound'
 import { generateReservationNumber } from './reservations'
 import { syncLeadContactSafely, syncReservationDeal } from '@/lib/integrations/hubspot'
-import { findMatchingLead, mergeIntoLead, shouldAdvanceStatus } from '@/lib/leads/dedupe'
+import { findMatchingLead, mergeIntoLead } from '@/lib/leads/dedupe'
 import { adoptLeadOwner } from '@/lib/tracker/lead-link'
 import {
   applyOnboardingToLead,
@@ -499,12 +499,12 @@ export async function convertLeadToReservation(
     },
   })
 
-  // Advance lead to PROSPECT (WON happens when quote is approved)
-  const newStatus = shouldAdvanceStatus(lead.status, 'PROSPECT') ? 'PROSPECT' : lead.status
+  // The lead stays where it is: it becomes Quoted (PROSPECT) when the quote is
+  // sent (lib/leads/quote-sent), and Won when it is approved. A draft is neither.
+  const newStatus = lead.status
   await prisma.lead.update({
     where: { id: leadId },
     data: {
-      status: newStatus,
       convertedToClientId: clientId,
       convertedReservationId: reservation.id,
       convertedAt: new Date(),
@@ -1054,9 +1054,10 @@ export async function requestOnboarding(input: {
  * requested" and the order sits under a client nobody can explain; with it,
  * opening either one leads to the other.
  *
- * PROSPECT, not WON: a quote exists, which is what this stage means here.
- * Winning is the order being approved, and an order held for somebody who has
- * not onboarded is the one thing `approveOrder` refuses to do.
+ * The status does not move here: a held draft is not a quote anyone has seen.
+ * The lead becomes PROSPECT ("Quoted") when the quote is sent, and WON when the
+ * order is approved — which an order held for somebody who has not onboarded
+ * is the one thing `approveOrder` refuses to do.
  */
 export async function linkLeadToProspectOrder(
   leadId: string,
@@ -1073,8 +1074,6 @@ export async function linkLeadToProspectOrder(
   })
   if (!lead) return { status: 'error' as const, message: 'Lead not found' }
 
-  const advanced = shouldAdvanceStatus(lead.status, 'PROSPECT')
-
   await adoptLeadOwner(clientId, leadId)
 
   await prisma.lead.update({
@@ -1083,7 +1082,6 @@ export async function linkLeadToProspectOrder(
       convertedToClientId: clientId,
       convertedReservationId: reservationId,
       convertedAt: new Date(),
-      ...(advanced ? { status: 'PROSPECT' as LeadStatus } : {}),
     },
   })
 
@@ -1097,19 +1095,6 @@ export async function linkLeadToProspectOrder(
       createdById: auth.userId,
     },
   })
-
-  if (advanced) {
-    await prisma.leadActivity.create({
-      data: {
-        leadId,
-        type: 'STATUS_CHANGE',
-        title: `Pipeline advanced: ${lead.status} → PROSPECT`,
-        description: 'A quote exists for them.',
-        metadata: { previousStatus: lead.status, newStatus: 'PROSPECT' },
-        createdById: auth.userId,
-      },
-    })
-  }
 
   revalidatePath('/dashboard/leads')
   revalidatePath(`/dashboard/leads/${leadId}`)
