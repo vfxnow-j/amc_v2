@@ -7,7 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { assessBackup, assessVerify, formatBytes, summariseDatabases } from "../src/lib/backups/status";
 
-const root = process.env.BACKUP_ROOT ?? path.join(os.homedir(), "backups", "v2");
+const root = process.env.BACKUP_ROOT || path.join(os.homedir(), "backups", "v2");
 function read(name: string): Record<string, unknown> | null | "unreadable" {
   let raw: string;
   try {

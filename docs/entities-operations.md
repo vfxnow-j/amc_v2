@@ -63,7 +63,11 @@ pg_dump completion footer and a sha256; a failed run leaves earlier sets untouch
 `STATUS.json`. Each dump must contain its anchor tables (main: `entities`, `settings`, `users`; entity:
 `_entity_migrations`, `Movement`, `Unit`) and is compared with the previous good set: a lost table, or a row
 total that fell by more than half (previous total at least 20), flags the new set "suspect" in its manifest,
-sets `ok: false`, skips rotation and exits 2. Run with `BACKUP_ACCEPT_SHRINK=1` after a deliberate purge.
+sets `ok: false`, skips rotation and exits 2. The per-table rule flags any table of 50 or more rows that fell below half (sessions, tokens, notifications and
+the portal/Current RMS logs are exempt: `CHURN_TABLES` in `src/lib/backups/compare.ts`), and an entity's `Movement`
+or `Unit` count may never fall at all; the database-wide total is a backstop. After a deliberate purge, a
+`refresh-from-v1.sh`, or a `db push` that drops v2-only tables, run the next backup once with
+`BACKUP_ACCEPT_SHRINK=1`.
 Exit codes: 0 ok, 1 failed (no set written), 2 set written but partial or suspect (a skipped or undumpable
 database, a failed rotation, shrunk data), 75 another run holds the lock.
 
@@ -88,14 +92,15 @@ when a backup is older than 26 hours, failed, or has never run. Alerts: the hour
 applies; the record of what was mailed is the `backup_alert_state` row in `settings`. The Dashboard shows a red strip
 to super admins while a problem stands.
 
-Schedule both daily with cron (no secrets in the lines; the scripts find node themselves when cron's PATH has none):
+Schedule both daily with cron, away from the 02:00 daylight-saving change (no secrets in the lines; the scripts find node themselves when cron's PATH has none):
 
-    30 2 * * * cd /home/docker/projects/vfxnow-amc-v2 && scripts/backup-v2.sh >> /home/docker/logs/v2-backup.log 2>&1
-    30 3 * * * cd /home/docker/projects/vfxnow-amc-v2 && scripts/verify-backups.sh >> /home/docker/logs/v2-backup.log 2>&1
+    45 3 * * * cd /home/docker/projects/vfxnow-amc-v2 && scripts/backup-v2.sh >> /home/docker/logs/v2-backup.log 2>&1
+    45 4 * * * cd /home/docker/projects/vfxnow-amc-v2 && scripts/verify-backups.sh >> /home/docker/logs/v2-backup.log 2>&1
 
 Keep the log from growing without bound with `/etc/logrotate.d/v2-backup` (not installed by anything here):
 
     /home/docker/logs/v2-backup.log {
+        su docker docker
         weekly
         rotate 8
         compress
@@ -104,7 +109,10 @@ Keep the log from growing without bound with `/etc/logrotate.d/v2-backup` (not i
         notifempty
     }
 
-A stale card means the schedule stopped.
+`BACKUP_ROOT`, if you ever set it, must be set in BOTH the app's environment and the cron lines, or in neither
+(an empty value counts as unset). Verify notes (a dump older than a migration, a skipped sweep) appear as amber
+warnings on the card. A skipped run (exit 75, previous run still running) is only logged; a hung run shows up as a
+stale card. A stale card means the schedule stopped.
 
 **Restoring one database from a set.** Never restore over a live database, and never touch v1.
 

@@ -32,6 +32,7 @@ export type VerifyStatus = {
   ok?: unknown;
   setDir?: unknown;
   checks?: unknown;
+  warnings?: unknown;
 };
 
 export type Verdict = { state: BackupState; ageHours: number | null; reason: string };
@@ -57,7 +58,7 @@ function judge(
       outcome === "partial"
         ? `The last ${what} wrote a set but with problems (something was skipped or rotation failed).`
         : outcome === "suspect"
-          ? `The last ${what} wrote a set that looks suspect (data shrank sharply since the previous one).`
+          ? `The last ${what} wrote a set that looks suspect (data shrank sharply since the previous one). If that was deliberate, such as a purge or a refresh from v1, run the next backup once with BACKUP_ACCEPT_SHRINK=1.`
           : `The last ${what} failed.`;
     return { state: "failed", ageHours, reason: why };
   }

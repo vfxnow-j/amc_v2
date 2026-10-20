@@ -49,6 +49,7 @@ function BackupCard({ status, verify }: { status: FileRead<BackupStatus>; verify
   // Things that do not make the run fail but should not pass unseen.
   const notes = [
     ...stringList(usable?.warnings),
+    ...stringList(usableVerify?.warnings),
     ...stringList(usable?.unregistered).map(
       (name) => `Database ${name} is not in the entity registry (it is still backed up). Register or remove it.`,
     ),
@@ -66,8 +67,8 @@ function BackupCard({ status, verify }: { status: FileRead<BackupStatus>; verify
           server, or check the schedule.
           {errors.length > 0 && (
             <ul className="mt-1 list-disc pl-5">
-              {errors.map((e) => (
-                <li key={e}>{e}</li>
+              {errors.map((e, i) => (
+                <li key={`${i}-${e}`}>{e}</li>
               ))}
             </ul>
           )}
@@ -76,8 +77,8 @@ function BackupCard({ status, verify }: { status: FileRead<BackupStatus>; verify
       {notes.length > 0 && (
         <Notice tone="warn" className="mb-3">
           <ul className="list-disc pl-5">
-            {notes.map((n) => (
-              <li key={n}>{n}</li>
+            {notes.map((n, i) => (
+              <li key={`${i}-${n}`}>{n}</li>
             ))}
           </ul>
         </Notice>

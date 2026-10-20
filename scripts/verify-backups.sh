@@ -49,6 +49,7 @@ while (($#)); do
 done
 
 CHECKS=()
+WARNS=()
 FAILED=0
 CREATED=()
 SETNAME=""
@@ -71,8 +72,9 @@ write_verify() {
   ((FAILED)) && ok=false
   [[ -d "$BACKUP_ROOT" ]] || return 0
   jq -n --arg at "$(date -u +%FT%TZ)" --argjson ok "$ok" --arg set "$SETNAME" \
+    --argjson warnings "$(if ((${#WARNS[@]})); then printf '%s\n' "${WARNS[@]}" | jq -R . | jq -sc .; else echo '[]'; fi)" \
     --argjson checks "$(if ((${#CHECKS[@]})); then printf '%s\n' "${CHECKS[@]}" | jq -sc .; else echo '[]'; fi)" \
-    '{verifiedAt:$at, ok:$ok, setDir:(if $set=="" then null else $set end), checks:$checks}' \
+    '{verifiedAt:$at, ok:$ok, setDir:(if $set=="" then null else $set end), warnings:$warnings, checks:$checks}' \
     >"$BACKUP_ROOT/.VERIFY.json.tmp.$$"
   mv -f "$BACKUP_ROOT/.VERIFY.json.tmp.$$" "$BACKUP_ROOT/VERIFY.json"
   WRITTEN=1
@@ -175,6 +177,7 @@ verify_db() { # name kind slug schemaVersion
     elif ((maxv > HIGHEST_MIGRATION)); then
       check "$db: migration version" false "dump is at v$maxv, newer than any migration file (v$HIGHEST_MIGRATION)"
     else
+      WARNS+=("$db: dump is at migration v$maxv, registry says v$regver")
       check "$db: migration version vs registry" true "NOTE: dump is at v$maxv, registry says v$regver (migrations ship up to v$HIGHEST_MIGRATION)"
     fi
 
@@ -207,6 +210,7 @@ HIGHEST_MIGRATION=$((10#${HIGHEST_MIGRATION:-0}))
 sweep_stale() {
   local names n count=0
   if ! names="$(pg postgres "select datname from pg_database where datname ~ '^(zz_verify_|vfxnow_ent_zz_verify_)[a-z0-9]+\$' and (pg_stat_file('base/'||oid||'/PG_VERSION')).modification < now() - interval '1 day'" 2>/dev/null)"; then
+    WARNS+=("stale throwaway sweep skipped: could not read database creation times")
     check "stale throwaway sweep" true "skipped: could not read database creation times"; return 0
   fi
   while read -r n; do

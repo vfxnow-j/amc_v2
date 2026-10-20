@@ -70,7 +70,6 @@ OUTCOME=failed
 TMPSET=""
 FINAL=""
 ERRORS=()
-WARNINGS=()
 DB_RESULTS=()
 MANIFEST_DBS=()
 UNREGISTERED=()
@@ -97,11 +96,15 @@ psql_main() {
 
 # Stamp directories (with a MANIFEST) under BACKUP_ROOT, oldest first.
 list_sets() {
-  local d
+  local d e now_e
+  now_e="$(date +%s)"
   [[ -d "$BACKUP_ROOT" ]] || return 0
   for d in "$BACKUP_ROOT"/*/; do
     d="$(basename "$d")"
-    [[ "$d" =~ $STAMP_RE && -f "$BACKUP_ROOT/$d/MANIFEST.json" && ! -L "$BACKUP_ROOT/$d" ]] && echo "$d"
+    [[ "$d" =~ $STAMP_RE && -f "$BACKUP_ROOT/$d/MANIFEST.json" && ! -L "$BACKUP_ROOT/$d" ]] || continue
+    # A stamp more than an hour in the future is not trusted (same rule as rotation and verify).
+    e="$(date -u -d "${d:0:4}-${d:4:2}-${d:6:2} ${d:9:2}:${d:11:2}:${d:13:2}" +%s 2>/dev/null)" || continue
+    ((e <= now_e + 3600)) && echo "$d"
   done | sort
 }
 
@@ -115,11 +118,10 @@ write_status() { # $1 = true|false ; outcome from $OUTCOME
     --arg setDir "$([[ $PROMOTED == 1 ]] && echo "$FINAL" || true)" \
     --argjson databases "$(objs_json "${DB_RESULTS[@]+"${DB_RESULTS[@]}"}")" \
     --argjson errors "$(arr_json "${ERRORS[@]+"${ERRORS[@]}"}")" \
-    --argjson warnings "$(arr_json "${WARNINGS[@]+"${WARNINGS[@]}"}")" \
     --argjson unregistered "$(arr_json "${UNREGISTERED[@]+"${UNREGISTERED[@]}"}")" \
     --arg oldest "$oldest" --argjson kept "$kept" --arg outcome "$OUTCOME" \
     '{lastRunAt:$at, ok:$ok, outcome:$outcome, setDir:(if $setDir=="" then null else $setDir end),
-      databases:$databases, errors:$errors, warnings:$warnings, unregistered:$unregistered,
+      databases:$databases, errors:$errors, unregistered:$unregistered,
       oldestKeptSet:(if $oldest=="" then null else $oldest end), keptSets:$kept}' \
     > "$BACKUP_ROOT/.STATUS.json.tmp.$$"
   mv -f "$BACKUP_ROOT/.STATUS.json.tmp.$$" "$BACKUP_ROOT/STATUS.json"
@@ -231,7 +233,8 @@ dump_one() { # db kind slug
   bad() { add_error "$db: $1"; DB_RESULTS+=("$(jq -nc --arg n "$db" --argjson b "${bytes:-0}" '{name:$n, ok:false, bytes:$b}')") || true; return 1; }
   bytes=0
   log "dumping $db ($kind)"
-  if ! timeout 20m docker exec "$CONTAINER" pg_dump -U postgres --no-password --lock-wait-timeout=300s "$db" 2>"$err" | gzip -c >"$part"; then
+  # `timeout 1200` inside the container ends pg_dump itself; the host timeout is a backstop for a hung docker client.
+  if ! timeout 25m docker exec "$CONTAINER" timeout 1200 pg_dump -U postgres --no-password --lock-wait-timeout=300s "$db" 2>"$err" | gzip -c >"$part"; then
     bad "pg_dump failed or timed out: $(head -n 2 "$err" | head -c 300)"; return 1
   fi
   gzip -t "$part" 2>/dev/null || { bad "dump failed gzip integrity test"; return 1; }
@@ -356,8 +359,9 @@ main() {
   prev="$(previous_good_manifest)"
   local cmp_args=("$manifest" "${prev:--}")
   [[ "${BACKUP_ACCEPT_SHRINK:-}" == "1" ]] && cmp_args+=(--accept-shrink)
-  if ! problems="$("$TSX" "$REPO/scripts/backup-compare.ts" "${cmp_args[@]}" 2>&1)"; then
-    add_error "could not compare with the previous set: $(head -n 2 <<<"$problems" | head -c 300)"
+  # stdout only is the verdict; stderr (a Node warning, say) goes to the log, never into the set's flags.
+  if ! problems="$("$TSX" "$REPO/scripts/backup-compare.ts" "${cmp_args[@]}" 2>"$TMPSET/compare.err")"; then
+    add_error "could not compare with the previous set: $(head -n 2 "$TMPSET/compare.err" | head -c 300)"
     partial=1
   elif [[ -n "$problems" ]]; then
     while read -r s; do [[ -n "$s" ]] && add_error "suspect: $s"; done <<<"$problems"
@@ -365,6 +369,8 @@ main() {
     jq --argjson r "$(arr_json "$(head -c 2000 <<<"$problems")")" '. + {suspect:true, suspectReasons:$r}' "$manifest" >"$manifest.new" &&
       mv -f "$manifest.new" "$manifest" || fail "could not flag the set as suspect"
   fi
+  [[ -s "$TMPSET/compare.err" ]] && log "compare stderr: $(head -c 300 "$TMPSET/compare.err")"
+  rm -f "$TMPSET/compare.err"
   [[ "${BACKUP_ACCEPT_SHRINK:-}" == "1" ]] && log "BACKUP_ACCEPT_SHRINK=1: comparison with the previous set skipped"
 
   mv "$TMPSET" "$BACKUP_ROOT/$FINAL"
