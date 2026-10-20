@@ -4,7 +4,10 @@ import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Check, Copy, ExternalLink, ScanLine } from "lucide-react";
-import { gateApplies, type HandoverMove, type MissingLine } from "@/lib/orders/handover";
+// The pure rule comes from handover-rules: handover.ts reads the database, and a value import of it
+// from this client component drags the database client (pg, fs, net) into the browser bundle.
+import { gateApplies, type HandoverMove } from "@/lib/orders/handover-rules";
+import type { MissingLine } from "@/lib/orders/handover";
 import type {
   BillingCycleType,
   ReservationStatus,
