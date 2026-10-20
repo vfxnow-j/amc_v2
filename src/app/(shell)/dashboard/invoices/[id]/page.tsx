@@ -16,6 +16,8 @@ import {
 } from "@/components/accounting/invoice-cards";
 import { dayYear, daysUntil, moneyExact } from "@/lib/format";
 import { getInvoiceHeader } from "@/lib/queries/invoice-record";
+import { DeleteDraftInvoice } from "@/components/accounting/delete-draft-invoice";
+import { auth, isAdmin } from "@/lib/auth";
 import { INVOICE_STATUS_LABEL } from "@/lib/accounting/labels";
 
 type Params = { params: Promise<{ id: string }> };
@@ -44,6 +46,8 @@ export default async function InvoiceRecordPage({ params }: Params) {
   const invoice = await getInvoiceHeader(id);
   if (!invoice) notFound();
 
+  const session = await auth();
+  const canDelete = invoice.status === "DRAFT" && !!session?.user && isAdmin(session.user.role);
   const days = daysUntil(invoice.dueDate);
   const settled = invoice.balance <= 0.005;
 
@@ -92,6 +96,9 @@ export default async function InvoiceRecordPage({ params }: Params) {
             >
               PDF
             </a>
+            {canDelete ? (
+              <DeleteDraftInvoice id={invoice.id} invoiceNumber={invoice.invoiceNumber} />
+            ) : null}
           </>
         }
       />

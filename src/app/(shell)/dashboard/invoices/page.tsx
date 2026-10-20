@@ -1,4 +1,6 @@
 import { Suspense } from "react";
+import { DraftCleanup } from "@/components/accounting/draft-cleanup";
+import { listDraftInvoices } from "@/lib/actions/invoice-delete";
 import { FilterTabs, FilterTabsSkeleton } from "@/components/list/filter-tabs";
 import { ListSearch } from "@/components/list/list-search";
 import {
@@ -71,6 +73,12 @@ async function HeaderBlurb() {
       ) : null}
     </>
   );
+}
+
+/** Admins only: the dialog that deletes drafts, several at a time. */
+async function Cleanup() {
+  const drafts = await listDraftInvoices();
+  return <DraftCleanup drafts={drafts} />;
 }
 
 async function Tabs({ view, search }: { view: InvoiceView; search: string }) {
@@ -203,7 +211,14 @@ export default async function InvoicesPage({
             <HeaderBlurb />
           </Suspense>
         }
-        actions={<ListSearch placeholder="Search invoice, order, client" />}
+        actions={
+          <>
+            <Suspense fallback={null}>
+              <Cleanup />
+            </Suspense>
+            <ListSearch placeholder="Search invoice, order, client" />
+          </>
+        }
       />
 
       <div className="flex items-center gap-3">
