@@ -15,6 +15,7 @@ import {
 } from "@/components/orders/build-groups";
 import { prisma } from "@/lib/prisma";
 import { buildStructureEditable } from "@/lib/pricing/build-groups";
+import { quoteEditable } from "@/lib/orders/quote-lock";
 import { FlowLineEditor } from "@/components/orders/flow/flow-line-editor";
 import {
   getReservationActivity,
@@ -64,7 +65,7 @@ const TONE_CLASS = {
 /** Line · units. The unit rows are the point — this is where the kit is. */
 export async function LinesCard({
   id,
-  editable = false,
+  editable: editableProp = false,
   window,
   option,
   flow,
@@ -93,6 +94,10 @@ export async function LinesCard({
     select: { reservationType: true, status: true, hideBuildPartPrices: true },
   });
   const isSale = order?.reservationType === "SALE";
+  // What was quoted is fixed once the quote is sent: line edits, adds, removals
+  // and builds are offered on a draft or a revision only (lib/orders/quote-lock),
+  // so the screen and the server agree. Scanning is unaffected.
+  const editable = editableProp && !(order && !quoteEditable(order.status, order.reservationType));
   // A cloud order is drafted from a spec: hosts and environment lines instead
   // of (or as well as) units. The cloud controls sit with Add a line.
   const isCloud = order?.reservationType === "CLOUD";
@@ -329,7 +334,7 @@ export async function LinesCard({
                       ) : null}
                       {/* An option chosen from stock is a unit to scan, like
                           the machine it goes in; a spec option is not. */}
-                      {editable && part.assetId && part.unitBarcodes.length < part.quantity ? (
+                      {editableProp && part.assetId && part.unitBarcodes.length < part.quantity ? (
                         <span className="mr-1 rounded-pill bg-sunken px-[6px] text-micro text-ink-muted">
                           {part.checkedInCount >= part.quantity && part.checkedOutCount >= part.quantity
                             ? "returned"

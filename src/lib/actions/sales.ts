@@ -1,5 +1,6 @@
 'use server'
 
+import { assertQuoteEditable } from '@/lib/orders/quote-lock-server'
 import { revalidatePath } from 'next/cache'
 import { prisma } from '@/lib/prisma'
 import { requireEditor } from '@/lib/auth-utils'
@@ -475,6 +476,7 @@ export async function convertReservationToSale(reservationId: string) {
 export async function updateBuyoutCredit(reservationId: string, creditPercent: number) {
   const authResult = await requireEditor()
   if (!authResult.authorized) throw new Error(authResult.error || 'Unauthorized')
+  await assertQuoteEditable(reservationId)
 
   if (creditPercent < 0 || creditPercent > 100) {
     throw new Error('Credit percentage must be between 0 and 100')
@@ -836,6 +838,7 @@ export async function convertSaleToRental(reservationId: string) {
 export async function updateSaleItemPrice(reservationId: string, itemId: string, newRate: number) {
   const authResult = await requireEditor()
   if (!authResult.authorized) throw new Error(authResult.error || 'Unauthorized')
+  await assertQuoteEditable(reservationId)
 
   const reservation = await prisma.reservation.findUnique({
     where: { id: reservationId },
@@ -938,6 +941,7 @@ export async function updateSaleItemPrice(reservationId: string, itemId: string,
 export async function updateSaleItemQuantity(reservationId: string, itemId: string, newQuantity: number) {
   const authResult = await requireEditor()
   if (!authResult.authorized) throw new Error(authResult.error || 'Unauthorized')
+  await assertQuoteEditable(reservationId)
 
   if (!Number.isInteger(newQuantity) || newQuantity < 1) {
     throw new Error('Quantity must be a positive integer')
@@ -1125,6 +1129,7 @@ async function recalculateSaleMarginTotals(reservationId: string) {
 export async function updateSaleItemMargin(reservationId: string, itemId: string, marginPercent: number) {
   const authResult = await requireEditor()
   if (!authResult.authorized) throw new Error(authResult.error || 'Unauthorized')
+  await assertQuoteEditable(reservationId)
 
   const reservation = await prisma.reservation.findUnique({
     where: { id: reservationId },
@@ -1257,6 +1262,7 @@ export async function updateSaleItemCost(reservationId: string, itemId: string, 
 export async function applyMarginToAll(reservationId: string, marginPercent: number) {
   const authResult = await requireEditor()
   if (!authResult.authorized) throw new Error(authResult.error || 'Unauthorized')
+  await assertQuoteEditable(reservationId)
 
   if (marginPercent >= 100) throw new Error('Margin % must be less than 100')
 

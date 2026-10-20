@@ -15,6 +15,8 @@
  * Pure — no prisma, no 'use server', no next/*.
  */
 
+import { QUOTE_EDITABLE_STATUSES, QUOTE_LOCKED_MESSAGE, quoteEditable } from '@/lib/orders/quote-lock'
+
 /**
  * Statuses in which a build's structure (builds, machine counts, parts and
  * their order, the hide-part-prices choice) may change: a draft, or a revision.
@@ -26,16 +28,15 @@
  * Later still, parts are being scanned out and moving one between builds would
  * leave a machine's counters describing a different machine.
  */
-export const BUILD_EDITABLE_STATUSES = ['DRAFT', 'REVISION']
+export const BUILD_EDITABLE_STATUSES = QUOTE_EDITABLE_STATUSES
 
 /** Whether a build's structure can change on an order in this status. */
 export function buildStructureEditable(status: string): boolean {
-  return BUILD_EDITABLE_STATUSES.includes(status)
+  return quoteEditable(status, 'SALE')
 }
 
 /** The refusal for a locked order, with the way forward. */
-export const BUILD_LOCKED_MESSAGE =
-  'Builds can only be changed on a draft or a revision. Request a revision to change this.'
+export const BUILD_LOCKED_MESSAGE = QUOTE_LOCKED_MESSAGE
 
 const qtyOf = (i: { quantity?: number | null }) => i.quantity || 1
 

@@ -1,5 +1,6 @@
 "use server";
 
+import { assertQuoteEditable } from "@/lib/orders/quote-lock-server";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireEditor } from "@/lib/auth-utils";
@@ -600,6 +601,11 @@ export async function configureLine(
 ): Promise<BuildOutcome> {
   const auth = await requireEditor();
   if (!auth.authorized) return { status: "error", message: auth.error ?? "Unauthorized" };
+  try {
+    await assertQuoteEditable(reservationId);
+  } catch (error) {
+    return { status: "error", message: error instanceof Error ? error.message : "That did not work." };
+  }
 
   const context = await lineContext(reservationId, itemId);
   if (!context) return { status: "error", message: "That line isn't a configurable machine on this order." };

@@ -14,7 +14,7 @@ import { CheckoutPanel } from "@/components/reservations/checkout-panel";
 import { CheckinSession } from "@/components/orders/checkin-session";
 import { OrderOptions } from "@/components/orders/order-options";
 import { getOrderOptions } from "@/lib/queries/packages";
-import { PACKAGE_EDITABLE_STATUSES } from "@/lib/types";
+import { quoteEditable } from "@/lib/orders/quote-lock";
 import { ExtendOrder } from "@/components/orders/extend-order";
 import { extensionLines } from "@/lib/queries/extension";
 import { unitsOutOn } from "@/lib/queries/checkin";
@@ -175,7 +175,7 @@ export default async function OrderRecordPage({
     options.find((option) => option.id === optionParam) ??
     options.find((option) => option.isActive) ??
     options[0];
-  const optionsEditable = PACKAGE_EDITABLE_STATUSES.includes(header.status);
+  const optionsEditable = quoteEditable(header.status, header.type);
 
   const { progress } = header;
   // The counters are cumulative — check-in never decrements checkedOutCount —
