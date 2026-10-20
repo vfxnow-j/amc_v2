@@ -429,7 +429,7 @@ test('sale: no sale price on file is unpriced, never invented; not offered as sa
 })
 
 test('sale: a request needs no window end', () => {
-  const parsed = parseQuoteRequest({ account_id: 'acct_1', window: { start: '2026-10-01' }, lines: [{ offer_id: 'off_sale', qty: 1, solution: 'sale' }] })
+  const parsed = parseQuoteRequest({ account_id: 'acct_1', window: { start: '2026-10-01' }, lines: [{ offer_id: 'off_sale', qty: 1, solution: 'sale' }] }, NOW)
   assert.equal(parsed.ok, true)
   if (parsed.ok) assert.equal(parsed.value.lines[0].term, null)
 })
