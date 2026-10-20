@@ -9,7 +9,7 @@ import {
   listMigrations,
   latestVersion,
 } from "@/lib/entities/provision";
-import { entityUrl } from "@/lib/entities/client";
+import { entityUrl } from "@/lib/entities/url";
 
 const db = "vfxnow_ent_zz_check";
 let failed = 0;

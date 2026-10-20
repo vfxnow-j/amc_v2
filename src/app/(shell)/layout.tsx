@@ -6,7 +6,7 @@ import { NotificationBellSlot } from "@/components/shell/notification-bell-slot"
 import { getNavCounts } from "@/lib/queries/nav-counts";
 import { getSessionUser } from "@/lib/roles";
 import { pendingCountFor } from "@/lib/approvals/core";
-import { listEntitiesFor } from "@/lib/entities/context";
+import { listEntitiesFor } from "@/lib/entities/membership";
 
 /**
  * The application shell every routed screen inherits: the rail on the left, a

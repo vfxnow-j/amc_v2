@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { Pool } from "pg";
 import { ENTITY_DB_RE } from "@/lib/entities/naming";
-import { entityUrl } from "@/lib/entities/client";
+import { entityUrl } from "@/lib/entities/url";
 import { assertEntityDatabase } from "@/lib/db-guard";
 
 // Read relative to process.cwd(): correct for scripts and for Next, which both run from the repo root.

@@ -7,6 +7,7 @@
     "build": "npm run db:generate && next build",
     "start": "next start --port 3001",
     "lint": "eslint",
+    "check:entities": "tsx scripts/check-entity-isolation.ts",
     "entities:migrate": "tsx --env-file=.env scripts/entities-migrate.ts",
     "db:generate": "prisma generate && prisma generate --schema prisma/entity/schema.prisma",
     "db:push": "prisma db push",
