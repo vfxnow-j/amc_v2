@@ -10,7 +10,7 @@
  * ledger happens here, not in the action.
  */
 import type { EntityDb } from "@/lib/entities/client";
-import { applyStockMovement, applyUnitMovement, type StockRow } from "@/lib/entities/movements";
+import { applyStockMovement, applyUnitMovement, type StockRow, type UnitState } from "@/lib/entities/movements";
 
 export type LedgerResult = { ok: true; itemId: string } | { ok: false; reason: string };
 const no = (reason: string): { ok: false; reason: string } => ({ ok: false, reason });
@@ -88,6 +88,47 @@ async function destination(toLocationId: string | null | undefined, site: NewSit
   return { toId: null, wantsSite: false };
 }
 
+type UnitIn = { serial?: string | null; ownerTag?: string | null; scanTag?: string | null; condition?: string | null };
+
+/** One received unit and its RECEIVE movement. Shared by receiveUnitsTx and the CSV import, so there is one write path. */
+async function receiveOneUnit(
+  tx: Tx, itemId: string, next: UnitState,
+  toLocationId: string, meta: MovementMeta, u: UnitIn,
+): Promise<void> {
+  const scanTag = blank(u.scanTag);
+  const held = scanTag ? await tx.unit.findUnique({ where: { scanTag } }) : null;
+  let unitId: string;
+  if (held) {
+    // A unit handed back to its owner and now received again keeps its scan tag: the same
+    // unit comes back into custody rather than a second one colliding with the tag.
+    if (held.itemId !== itemId || held.status !== "RETURNED_TO_OWNER") throw new Refusal("That scan tag is already on another unit.");
+    const serial = blank(u.serial);
+    if (serial && held.serial && serial !== held.serial) throw new Refusal("That scan tag belongs to a unit with a different serial.");
+    await tx.unit.update({
+      where: { id: held.id },
+      data: {
+        status: next.status, currentLocationId: next.locationId,
+        serial: serial ?? held.serial, ownerTag: blank(u.ownerTag) ?? held.ownerTag, condition: blank(u.condition) ?? held.condition,
+      },
+    });
+    unitId = held.id;
+  } else {
+    const unit = await tx.unit.create({
+      data: {
+        itemId, serial: blank(u.serial), ownerTag: blank(u.ownerTag), scanTag,
+        condition: blank(u.condition), status: next.status, currentLocationId: next.locationId,
+      },
+    });
+    unitId = unit.id;
+  }
+  await tx.movement.create({
+    data: {
+      type: "RECEIVE", itemId, unitId, toLocationId,
+      reference: blank(meta.reference), notes: blank(meta.notes), actorUserId: meta.actorUserId, occurredAt: meta.occurredAt,
+    },
+  });
+}
+
 /** Receive serialized units into storage: each unit and its RECEIVE movement, all or none. */
 export async function receiveUnitsTx(
   db: EntityDb,
@@ -104,40 +145,7 @@ export async function receiveUnitsTx(
   return transact(db, async (tx) => {
     const item = await tx.item.findUnique({ where: { id: input.itemId } });
     if (!item || item.trackingMode !== "SERIALIZED") throw new Refusal("That item isn't tracked by unit.");
-    for (const u of input.units) {
-      const scanTag = blank(u.scanTag);
-      const held = scanTag ? await tx.unit.findUnique({ where: { scanTag } }) : null;
-      let unitId: string;
-      if (held) {
-        // A unit handed back to its owner and now received again keeps its scan tag: the same
-        // unit comes back into custody rather than a second one colliding with the tag.
-        if (held.itemId !== item.id || held.status !== "RETURNED_TO_OWNER") throw new Refusal("That scan tag is already on another unit.");
-        const serial = blank(u.serial);
-        if (serial && held.serial && serial !== held.serial) throw new Refusal("That scan tag belongs to a unit with a different serial.");
-        await tx.unit.update({
-          where: { id: held.id },
-          data: {
-            status: applied.next.status, currentLocationId: applied.next.locationId,
-            serial: serial ?? held.serial, ownerTag: blank(u.ownerTag) ?? held.ownerTag, condition: blank(u.condition) ?? held.condition,
-          },
-        });
-        unitId = held.id;
-      } else {
-        const unit = await tx.unit.create({
-          data: {
-            itemId: item.id, serial: blank(u.serial), ownerTag: blank(u.ownerTag), scanTag,
-            condition: blank(u.condition), status: applied.next.status, currentLocationId: applied.next.locationId,
-          },
-        });
-        unitId = unit.id;
-      }
-      await tx.movement.create({
-        data: {
-          type: "RECEIVE", itemId: item.id, unitId, toLocationId: input.toLocationId,
-          reference: blank(input.reference), notes: blank(input.notes), actorUserId: input.actorUserId, occurredAt: input.occurredAt,
-        },
-      });
-    }
+    for (const u of input.units) await receiveOneUnit(tx, item.id, applied.next, input.toLocationId, input, u);
     return { ok: true as const, itemId: item.id };
   });
 }
@@ -264,4 +272,89 @@ export async function writeCorrection(db: EntityDb, input: { movementId: string;
     },
   });
   return { ok: true, itemId: original.itemId };
+}
+
+export type ImportItemPlan = {
+  name: string; manufacturer?: string | null; model?: string | null; category?: string | null
+  trackingMode: "SERIALIZED" | "QUANTITY"
+  units: { serial?: string | null; ownerTag?: string | null; locationId: string }[]
+  stock: { locationId: string; quantity: number }[]
+}
+export type ImportSummary = { name: string; created: boolean; units: number; quantity: number }
+export type ImportResult = { ok: true; items: ImportSummary[]; dryRun: boolean } | { ok: false; reason: string }
+
+/** Thrown to roll a dry run back after it has run exactly the real work. */
+class DryRunDone extends Error {
+  constructor(readonly items: ImportSummary[]) { super("dry run"); }
+}
+
+const ci = (v: string) => ({ equals: v, mode: "insensitive" as const });
+
+/**
+ * Import resolved items in ONE transaction, using the same per-unit write as a receipt and the same
+ * stock rules and rows as a stock receipt. Any refusal rolls the whole file back. A dry run executes
+ * the identical code and then rolls back, so its preview cannot differ from the real result.
+ *
+ * Items are found by name, manufacturer and model (case-insensitive) or created. Re-importing a file
+ * is refused rather than doubled: a serial or owner tag the item already has is an error, and a
+ * quantity row for an item that already holds stock is an error (use a stock receipt for more).
+ */
+export async function importItemsTx(db: EntityDb, input: { actorUserId: string; items: ImportItemPlan[]; dryRun: boolean }): Promise<ImportResult> {
+  const meta: MovementMeta = { actorUserId: input.actorUserId, notes: "CSV import" };
+  const run = async (tx: Tx): Promise<ImportSummary[]> => {
+    const summaries: ImportSummary[] = [];
+    for (const plan of input.items) {
+      const category = blank(plan.category);
+      let item = await tx.item.findFirst({
+        where: { name: ci(plan.name), manufacturer: blank(plan.manufacturer) ? ci(blank(plan.manufacturer)!) : null, model: blank(plan.model) ? ci(blank(plan.model)!) : null },
+      });
+      const created = !item;
+      if (item && item.trackingMode !== plan.trackingMode) throw new Refusal(`${plan.name} already exists and is tracked ${item.trackingMode === "SERIALIZED" ? "by unit" : "by quantity"}.`);
+      item ??= await tx.item.create({
+        data: {
+          name: plan.name, manufacturer: blank(plan.manufacturer), model: blank(plan.model), trackingMode: plan.trackingMode,
+          ...(category ? { category: { connectOrCreate: { where: { name: category }, create: { name: category } } } } : {}),
+        },
+      });
+      let quantity = 0;
+      if (plan.trackingMode === "SERIALIZED") {
+        const existing = created ? [] : await tx.unit.findMany({ where: { itemId: item.id }, select: { serial: true, ownerTag: true } });
+        for (const u of plan.units) {
+          const serial = blank(u.serial), tag = blank(u.ownerTag);
+          if (serial && existing.some((e) => e.serial?.toLowerCase() === serial.toLowerCase())) throw new Refusal(`${plan.name} already has a unit with serial ${serial}; nothing was imported.`);
+          if (tag && existing.some((e) => e.ownerTag?.toLowerCase() === tag.toLowerCase())) throw new Refusal(`${plan.name} already has a unit with owner tag ${tag}; nothing was imported.`);
+          const applied = applyUnitMovement(null, { type: "RECEIVE", toLocationId: u.locationId });
+          if (!applied.ok) throw new Refusal(applied.reason);
+          await receiveOneUnit(tx, item.id, applied.next, u.locationId, meta, { serial, ownerTag: tag });
+          existing.push({ serial, ownerTag: tag });
+        }
+      } else {
+        if (!created && (await tx.stock.count({ where: { itemId: item.id } })) > 0) {
+          throw new Refusal(`${plan.name} already holds stock; receive more from the Receive screen instead. Nothing was imported.`);
+        }
+        let rows: StockRow[] = [];
+        for (const s of plan.stock) {
+          const bad = quantityProblem(s.quantity);
+          if (bad) throw new Refusal(bad);
+          const applied = applyStockMovement(rows, { type: "RECEIVE", quantity: s.quantity, toLocationId: s.locationId });
+          if (!applied.ok) throw new Refusal(applied.reason);
+          rows = applied.rows;
+          await tx.movement.create({ data: { type: "RECEIVE", itemId: item.id, quantity: s.quantity, toLocationId: s.locationId, notes: meta.notes, actorUserId: input.actorUserId } });
+          quantity += s.quantity;
+        }
+        if (rows.length) await tx.stock.createMany({ data: rows.map((r) => ({ itemId: item.id, ...r })) });
+      }
+      summaries.push({ name: plan.name, created, units: plan.units.length, quantity });
+    }
+    return summaries;
+  };
+  const result = await transact(db, async (tx) => {
+    const items = await run(tx);
+    if (input.dryRun) throw new DryRunDone(items);
+    return { ok: true as const, items, dryRun: false };
+  }).catch((e: unknown) => {
+    if (e instanceof DryRunDone) return { ok: true as const, items: e.items, dryRun: true };
+    throw e;
+  });
+  return result;
 }

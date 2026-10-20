@@ -27,7 +27,11 @@ export default async function EntityLayout({
     if (error instanceof EntityAccessError) return <EntityDenied message={error.message} />;
     throw error;
   }
-  const entities = await listEntitiesFor(user.id);
+  // A failed lookup must never take the shell down; the switcher just shows nothing (same as the main shell).
+  const entities = await listEntitiesFor(user.id).catch((error) => {
+    console.error("listEntitiesFor failed; hiding Switch entity", error);
+    return [];
+  });
 
   return (
     <div className="flex min-h-0 flex-1 gap-3 bg-ground p-3">

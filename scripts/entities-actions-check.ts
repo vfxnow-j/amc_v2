@@ -7,7 +7,9 @@
 import { Pool } from "pg";
 import { dropFailedEntityDatabase, provisionEntityDatabase } from "@/lib/entities/provision";
 import { entityDb, entityUrl } from "@/lib/entities/client";
-import { receiveUnitsTx, writeCorrection, writeStockMovement, writeUnitMovement } from "@/lib/entities/ledger";
+import { buildPlans } from "@/lib/entities/import-plan";
+import { groupRows, parseItemCsv } from "@/lib/entities/csv";
+import { importItemsTx, receiveUnitsTx, writeCorrection, writeStockMovement, writeUnitMovement } from "@/lib/entities/ledger";
 
 const DB = "vfxnow_ent_zz_actions";
 let failed = 0;
@@ -127,6 +129,57 @@ const refused = (r: { ok: boolean }, label: string, reason?: RegExp & { source: 
     ok("ledger rows still cannot be updated", !!upd && /append-only/.test(upd));
     const del = await pool.query(`DELETE FROM "Movement" WHERE id=$1`, [first.id]).then(() => null, (e: Error) => e.message);
     ok("ledger rows still cannot be deleted", !!del && /append-only/.test(del));
+
+    // CSV import: the action's own pipeline (parse, group, resolve, importItemsTx) against fake locations.
+    const locs = [{ id: WH, name: "Warehouse A", path: "Warehouse A" }, { id: WH2, name: "Shelf", path: "Warehouse A / Shelf" }];
+    const H = "name,manufacturer,model,category,tracking,serial,owner_tag,quantity,location";
+    const runImport = (csv: string, dryRun: boolean) => {
+      const parsed = parseItemCsv(csv);
+      if (parsed.errors.length) return Promise.resolve({ ok: false as const, reason: parsed.errors.join("\n") });
+      const g = groupRows(parsed.rows);
+      if (g.errors.length) return Promise.resolve({ ok: false as const, reason: g.errors.join("\n") });
+      const b = buildPlans(g.groups, locs);
+      if (b.errors.length) return Promise.resolve({ ok: false as const, reason: b.errors.join("\n") });
+      return importItemsTx(db, { actorUserId: actor, items: b.plans, dryRun });
+    };
+    const counts = async () => ({ items: await db.item.count(), units: await db.unit.count(), stock: await db.stock.count(), mv: await db.movement.count() });
+    const same = (a: object, b: object) => JSON.stringify(a) === JSON.stringify(b);
+    const good = `${H}\nRack server,Dell,R740,Servers,serialized,SN1,A-1,,warehouse a\nRack server,Dell,R740,Servers,serialized,SN2,A-2,,Warehouse A / Shelf\nCat6 cable,,,Cabling,quantity,,,40,Warehouse A\nCat6 cable,,,Cabling,quantity,,,10,Shelf`;
+
+    let base = await counts();
+    const dry = await runImport(good, true);
+    ok("dry run reports what would happen", dry.ok && dry.dryRun && dry.items.length === 2 && dry.items[0].units === 2 && dry.items[1].quantity === 50 && dry.items.every((i) => i.created));
+    ok("dry run wrote nothing (not even the category)", same(await counts(), base) && (await db.category.count({ where: { name: "Servers" } })) === 0);
+
+    const bad = await runImport(`${good}\nGhost,,,,serialized,SN9,,,Warehouse A\nNo place,,,,serialized,SN8,,,Moon base`, false);
+    refused(bad, "a file naming an unknown location is refused, naming it", /Moon base/);
+    ok("...and writes nothing", same(await counts(), base));
+    refused(await runImport(`${H}\nA,,,,serialized,S1,,,Warehouse A\n,,,,serialized,S2,,,Warehouse A`, false), "a file with one bad row is refused");
+    ok("...and writes nothing", same(await counts(), base));
+
+    // A row that fails INSIDE the transaction (second item collides with an existing unit) rolls back the first item too.
+    const pre = await db.item.create({ data: { name: "Existing", trackingMode: "SERIALIZED" } });
+    await receiveUnitsTx(db, { actorUserId: actor, itemId: pre.id, toLocationId: WH, units: [{ serial: "E1" }] });
+    base = await counts();
+    refused(await runImport(`${H}\nFresh,,,,serialized,F1,,,Warehouse A\nExisting,,,,serialized,e1,,,Warehouse A`, false), "an existing serial (any case) inside the file refuses the whole file", /serial e1/);
+    ok("...and the earlier item in the file was rolled back", same(await counts(), base) && (await db.item.count({ where: { name: "Fresh" } })) === 0);
+
+    const real = await runImport(good, false);
+    ok("a clean import succeeds", real.ok && !real.dryRun);
+    const rack = await db.item.findFirstOrThrow({ where: { name: "Rack server" }, include: { units: true, category: true } });
+    ok("serialized item has its 2 units in the right places", rack.units.length === 2 && rack.units.find((u) => u.serial === "SN1")?.currentLocationId === WH && rack.units.find((u) => u.serial === "SN2")?.currentLocationId === WH2 && rack.category?.name === "Servers");
+    ok("units are IN_STORAGE with owner tags", rack.units.every((u) => u.status === "IN_STORAGE") && rack.units.find((u) => u.serial === "SN2")?.ownerTag === "A-2");
+    const cat6 = await db.item.findFirstOrThrow({ where: { name: "Cat6 cable" }, include: { stock: true } });
+    ok("quantity item has stock 40 at the warehouse and 10 on the shelf", cat6.stock.length === 2 && cat6.stock.find((r) => r.locationId === WH)?.quantity === 40 && cat6.stock.find((r) => r.locationId === WH2)?.quantity === 10 && cat6.stock.every((r) => !r.deployed));
+    const imv = await db.movement.findMany({ where: { itemId: { in: [rack.id, cat6.id] } } });
+    ok("4 RECEIVE movements (2 units, 2 stock) all with the actor", imv.length === 4 && imv.every((m) => m.type === "RECEIVE" && m.actorUserId === actor) && imv.filter((m) => m.unitId).length === 2);
+
+    base = await counts();
+    refused(await runImport(good, false), "re-importing the same file is refused, not doubled", /already has a unit with serial/);
+    ok("...and nothing changed", same(await counts(), base));
+    refused(await runImport(`${H}\nCat6 cable,,,,quantity,,,5,Warehouse A`, false), "a quantity row for an item that already holds stock is refused", /already holds stock/);
+    ok("...and the stock is unchanged", (await db.stock.findMany({ where: { itemId: cat6.id } })).reduce((n, r) => n + r.quantity, 0) === 50);
+    refused(await runImport(`${H}\nRack server,Dell,R740,,quantity,,,5,Warehouse A`, false), "an existing serialized item cannot be imported as quantity", /by unit/);
   } catch (error) {
     failed++;
     console.log("FAIL", "unexpected error:", (error as Error).message);
