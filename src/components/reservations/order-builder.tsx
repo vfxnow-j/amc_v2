@@ -24,6 +24,15 @@ import {
   toDateInput,
 } from "@/lib/billing/calendar";
 import { PackagePicks, usePackageSearch } from "@/components/packages/package-picks";
+import { CloudLines } from "@/components/reservations/cloud-lines";
+import { loadCloudProducts } from "@/lib/actions/cloud-host";
+import {
+  cloudDraftTotals,
+  PERIOD_NOUN,
+  type CloudEnvInput,
+  type CloudHostInput,
+  type CloudProductRow,
+} from "@/lib/cloud/host";
 import {
   getFlowBasesForAssets,
   getFlowDefaults,
@@ -106,7 +115,8 @@ const TYPE_NOTE: Record<ReservationType, string> = {
   RENT_TO_OWN:
     "Recurring monthly. The payment and buyout are worked out from the term and the order total, so they can't disagree with what it costs.",
   FLOW: "Recurring monthly from its schedule, stepping down after each 12-month anniversary. The gear always comes back.",
-  CLOUD: "Recurring per billing period. No physical units unless you add some.",
+  CLOUD:
+    "Recurring per billing period. Drafted from a spec — pick the CPU, RAM, storage and GPUs; no hardware is assigned.",
 };
 
 /** The types this builder can make: all of them. */
@@ -239,6 +249,13 @@ export function OrderBuilder({
   const [assetHits, setAssetHits] = useState<AssetAvailability[]>([]);
 
   const [lines, setLines] = useState<Line[]>([]);
+  // A cloud order is drafted from a spec, not from units: hosts composed from
+  // the cloud catalogue, plus environment lines. Ids and counts only — the
+  // server prices them (lib/cloud/host).
+  const isCloud = type === "CLOUD";
+  const [cloudProducts, setCloudProducts] = useState<CloudProductRow[] | null>(null);
+  const [cloudHosts, setCloudHosts] = useState<CloudHostInput[]>([]);
+  const [cloudEnv, setCloudEnv] = useState<CloudEnvInput[]>([]);
   const [subs, setSubs] = useState<Record<string, AssetAvailability[]>>({});
   const [error, setError] = useState("");
   const [busy, startTransition] = useTransition();
@@ -307,6 +324,11 @@ export function OrderBuilder({
    */
   function chooseType(option: ReservationType) {
     setType(option);
+    if (option === "CLOUD" && !cloudProducts) {
+      loadCloudProducts()
+        .then(setCloudProducts)
+        .catch(() => setError("The cloud catalogue couldn't be loaded."));
+    }
     if (option !== "FLOW" || flowDefaults) return;
     setFlowDefaultsError("");
     getFlowDefaults()
@@ -489,7 +511,8 @@ export function OrderBuilder({
         projectName,
         ...(type === "RENT_TO_OWN" ? { rtoTermMonths: rtoTerm } : {}),
         ...(isFlow ? { flow: { termMonths: flowTerm, ...knobValues } } : {}),
-        lines: lines.map((full) => {
+        ...(isCloud ? { cloud: { hosts: cloudHosts, env: cloudEnv } } : {}),
+        lines: (isCloud ? [] : lines).map((full) => {
           const { free, freeFrom, basisText, ...line } = full;
           void free;
           void freeFrom;
@@ -503,11 +526,26 @@ export function OrderBuilder({
     });
   }
 
-  const total = lines.reduce((sum, l) => sum + l.rate * l.quantity, 0);
-  const unresolved = lines.filter((l) => short(l) > 0 && !l.overbooked);
+  const cloudDraft =
+    isCloud && cloudProducts ? cloudDraftTotals(cloudProducts, cloudHosts, cloudEnv) : null;
+  const cloudCount = cloudHosts.length + cloudEnv.length;
+  const total = isCloud
+    ? (cloudDraft?.byPeriod.reduce((sum, t) => sum + t.amount, 0) ?? 0)
+    : lines.reduce((sum, l) => sum + l.rate * l.quantity, 0);
+  const lineCount = isCloud ? cloudCount : lines.length;
+  const unresolved = isCloud ? [] : lines.filter((l) => short(l) > 0 && !l.overbooked);
 
   return (
     <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[1.6fr_1fr]">
+      {isCloud ? (
+        <CloudLines
+          products={cloudProducts}
+          hosts={cloudHosts}
+          setHosts={setCloudHosts}
+          env={cloudEnv}
+          setEnv={setCloudEnv}
+        />
+      ) : (
       <section className="flex min-h-0 flex-col overflow-hidden rounded-card bg-panel pt-[14px] shadow-sm">
         <header className="flex items-center gap-2 px-4 pb-3">
           <h2 className="text-card-title">Equipment</h2>
@@ -799,6 +837,7 @@ export function OrderBuilder({
           })}
         </ul>
       </section>
+      )}
 
       <aside className="flex flex-col gap-3">
         <section className="rounded-card bg-panel px-4 py-[14px] shadow-sm">
@@ -1110,13 +1149,21 @@ export function OrderBuilder({
                 {type === "SALE" ? "Order total" : "Per period"}
               </span>
               <span className="text-page-title text-[22px] tabular-nums">
-                {MONEY.format(total)}
+                {/* Hosts can bill by the hour, day, week or month on one order,
+                    so the sum is shown per period rather than as one number. */}
+                {isCloud && cloudDraft && cloudDraft.byPeriod.length > 1
+                  ? cloudDraft.byPeriod
+                      .map((t) => `${MONEY.format(t.amount)}/${PERIOD_NOUN[t.period].slice(0, 2)}`)
+                      .join(" + ")
+                  : MONEY.format(total)}
               </span>
             </div>
             <p className="mt-1 text-detail text-ink-muted">
-              {lines.length === 0
+              {lineCount === 0
                 ? "Nothing added yet"
-                : `${lines.length} ${lines.length === 1 ? "line" : "lines"} · ${
+                : isCloud && cloudDraft?.problem
+                  ? cloudDraft.problem
+                  : `${lineCount} ${lineCount === 1 ? "line" : "lines"} · ${
                     type === "SALE"
                       ? "billed once when the order is approved"
                       : "the record prices the full term"
@@ -1145,7 +1192,8 @@ export function OrderBuilder({
             disabled={
               busy ||
               !client ||
-              lines.length === 0 ||
+              lineCount === 0 ||
+              (isCloud && (!cloudProducts || !!cloudDraft?.problem)) ||
               unresolved.length > 0 ||
               (isFlow && !!flowProblem)
             }

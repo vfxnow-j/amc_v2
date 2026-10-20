@@ -10,6 +10,8 @@ import { intendedDay, parseDateInput } from "@/lib/billing/calendar";
 import { addTermMonths } from "@/lib/flow/stored-money";
 import { isFlowTerm, FLOW_TERMS_MESSAGE } from "@/lib/flow/terms";
 import { flowOrderKnobsProblem } from "@/lib/flow/knob-bounds";
+import { loadCloudProducts } from "@/lib/actions/cloud-host";
+import { buildCloudOrderItems, type CloudEnvInput, type CloudHostInput } from "@/lib/cloud/host";
 import {
   findSubstitutes,
   searchAssetsForWindow,
@@ -115,6 +117,12 @@ export type CreateOrderInput = {
   rtoTermMonths?: number;
   /** Flow only; the end date is the start plus the term. */
   flow?: FlowOrderTerms;
+  /**
+   * Cloud only: the spec-based lines — hosts composed from the cloud catalogue
+   * and environment items. Product ids and counts only; they are priced here,
+   * from the catalogue, so no price from the browser is ever stored.
+   */
+  cloud?: { hosts: CloudHostInput[]; env: CloudEnvInput[] };
   lines: DraftLine[];
 };
 
@@ -147,7 +155,9 @@ export async function createOrder(
     return { status: "error", message: "Choose a client for this order." };
   }
   const isFlow = input.type === "FLOW";
-  if (input.lines.length === 0) {
+  const isCloud = input.type === "CLOUD";
+  const cloudCount = isCloud ? (input.cloud?.hosts.length ?? 0) + (input.cloud?.env.length ?? 0) : 0;
+  if (input.lines.length === 0 && cloudCount === 0) {
     return {
       status: "error",
       message: "Add at least one line — an order with nothing on it can't be priced.",
@@ -199,6 +209,23 @@ export async function createOrder(
 
   const overbooked = input.lines.filter((line) => line.overbooked);
 
+  // A cloud order's spec lines, priced and shaped as host rows + hidden parts.
+  let cloudItems: ReturnType<typeof buildCloudOrderItems> = [];
+  if (isCloud && cloudCount > 0) {
+    try {
+      cloudItems = buildCloudOrderItems(
+        await loadCloudProducts(),
+        input.cloud?.hosts ?? [],
+        input.cloud?.env ?? [],
+      );
+    } catch (error) {
+      return {
+        status: "error",
+        message: error instanceof Error ? error.message : "The cloud lines couldn't be priced. Nothing was saved.",
+      };
+    }
+  }
+
   const payload: Parameters<typeof createReservation>[0] = {
     clientId: input.clientId,
     reservationType: input.type,
@@ -232,7 +259,9 @@ export async function createOrder(
             .join(", ")}. Confirm cover before this order is approved.`,
         }
       : {}),
-    items: input.lines.map((line) => ({
+    items: [
+      ...cloudItems,
+      ...input.lines.map((line) => ({
       assetId: line.assetId,
       quantity: line.quantity,
       rate: line.rate,
@@ -241,6 +270,7 @@ export async function createOrder(
       pricingType: (isFlow ? "MONTHLY" : line.pricingType) as PricingType,
       ...(isFlow && line.costBasis != null ? { costBasis: line.costBasis } : {}),
     })),
+    ],
   };
 
   let created: Awaited<ReturnType<typeof createReservation>>;
