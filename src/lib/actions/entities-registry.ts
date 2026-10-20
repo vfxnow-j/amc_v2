@@ -5,6 +5,8 @@ import { prisma } from "@/lib/prisma";
 import { requireSuperAdmin } from "@/lib/auth-utils";
 import { checkEntityInput, cleanModules, type EntityFormInput } from "@/lib/entities/entity-input";
 import { createEntityRecord } from "@/lib/entities/create";
+import { entityAccessSchema, userIdSchema } from "@/lib/entities/access-input";
+import { saveEntityAccess } from "@/lib/entities/save-access";
 
 // slug and dbName are deliberately not editable anywhere here: the slug is the database name.
 // Entities are deactivated, never deleted: there is no delete action.
@@ -77,4 +79,24 @@ export async function setEntityActive(id: string, active: boolean): Promise<Outc
   }
   revalidatePath("/dashboard/settings/entities");
   return { status: "ok", message: active ? "Reactivated." : "Deactivated. Its data is kept." };
+}
+
+/** A super admin sets one user's entity access. Never throws to the client. */
+export async function saveUserEntityAccess(userId: string, input: unknown): Promise<Outcome> {
+  const auth = await requireSuperAdmin();
+  if (!auth.authorized) return { status: "error", message: auth.error };
+
+  const id = userIdSchema.safeParse(userId);
+  const parsed = entityAccessSchema.safeParse(input);
+  if (!id.success || !parsed.success) return { status: "error", message: "That isn't a valid request." };
+
+  try {
+    const result = await saveEntityAccess(prisma, id.data, parsed.data);
+    if (result.status === "error") return result;
+  } catch (error) {
+    console.error("[entities] save access failed:", (error as Error).message);
+    return { status: "error", message: "Could not save." };
+  }
+  revalidatePath(`/dashboard/settings/users/${id.data}`);
+  return { status: "ok", message: "Entity access saved." };
 }

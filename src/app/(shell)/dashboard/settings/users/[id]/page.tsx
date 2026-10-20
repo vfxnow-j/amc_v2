@@ -15,6 +15,9 @@ import { getUserDetail } from "@/lib/queries/settings";
 import { getSessionUser } from "@/lib/roles";
 import { isAdminRole } from "@/lib/settings/pages";
 import { roleLabel } from "@/lib/settings/roles";
+import { isSuperAdmin } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
+import { EntityAccessCard } from "@/components/entities/entity-access-card";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -57,19 +60,26 @@ export default async function UserRecordPage({ params }: Params) {
       />
 
       <div className="grid min-h-0 flex-1 items-start gap-3 lg:grid-cols-[minmax(0,420px)_1fr]">
-        <Card title="Account">
-          <UserEditor
-            user={{
-              id: user.id,
-              name: user.name,
-              email: user.email,
-              role: user.role,
-              active: user.active,
-            }}
-            canSetAdmin={viewer.role === "SUPER_ADMIN"}
-            isSelf={viewer.id === user.id}
-          />
-        </Card>
+        <div className="flex min-h-0 flex-col gap-3">
+          <Card title="Account">
+            <UserEditor
+              user={{
+                id: user.id,
+                name: user.name,
+                email: user.email,
+                role: user.role,
+                active: user.active,
+              }}
+              canSetAdmin={viewer.role === "SUPER_ADMIN"}
+              isSelf={viewer.id === user.id}
+            />
+          </Card>
+          {isSuperAdmin(viewer.role) ? (
+            <Suspense fallback={<CardSkeleton title="Entities" rows={3} />}>
+              <EntitiesCard userId={id} role={user.role} />
+            </Suspense>
+          ) : null}
+        </div>
 
         <div className="flex min-h-0 flex-col gap-3">
           <Card
@@ -108,6 +118,40 @@ export default async function UserRecordPage({ params }: Params) {
         </div>
       </div>
     </>
+  );
+}
+
+/** Super admins only: the caller has already checked. A failed load hides the card, not the page. */
+async function EntitiesCard({ userId, role }: { userId: string; role: string }) {
+  let data;
+  try {
+    const [row, entities] = await Promise.all([
+      prisma.user.findUnique({
+        where: { id: userId },
+        select: { entityAccess: true, entityScope: true, entityGrants: { select: { entityId: true } } },
+      }),
+      prisma.entity.findMany({ where: { active: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
+    ]);
+    if (!row) return null;
+    data = { row, entities };
+  } catch (error) {
+    console.error("[entities] access card load failed:", (error as Error).message);
+    return null;
+  }
+  const { row, entities } = data;
+  return (
+    <Card title="Entities">
+      <EntityAccessCard
+        userId={userId}
+        role={role}
+        initial={{
+          entityAccess: row.entityAccess,
+          scope: row.entityScope === "ALL" ? "ALL" : "SELECTED",
+          entityIds: row.entityGrants.map((g) => g.entityId),
+        }}
+        entities={entities}
+      />
+    </Card>
   );
 }
 
