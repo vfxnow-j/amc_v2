@@ -81,3 +81,12 @@ test('arrange: hidden part prices are zeroed but the group keeps its total', () 
   assert.equal(specLabel('32GB DDR5', 4), '4× 32GB DDR5')
   assert.equal(specLabel('CPU', 1), 'CPU')
 })
+
+test('movedWithin swaps a step, stops at the ends and ignores strangers', async () => {
+  const { movedWithin } = await import('./build-groups')
+  assert.deepEqual(movedWithin(['a', 'b', 'c'], 'b', 'up'), ['b', 'a', 'c'])
+  assert.deepEqual(movedWithin(['a', 'b', 'c'], 'b', 'down'), ['a', 'c', 'b'])
+  assert.equal(movedWithin(['a', 'b', 'c'], 'a', 'up'), null)
+  assert.equal(movedWithin(['a', 'b', 'c'], 'c', 'down'), null)
+  assert.equal(movedWithin(['a', 'b'], 'z', 'up'), null)
+})

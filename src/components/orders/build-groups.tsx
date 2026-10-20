@@ -2,12 +2,13 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Copy, Plus } from "lucide-react";
+import { ArrowDown, ArrowUp, Copy, Plus } from "lucide-react";
 import { Notice } from "@/components/feedback/notice";
 import {
   addBuildGroup,
   duplicateBuildGroup,
   moveLineToBuild,
+  moveOrderLine,
   setBuildGroupQuantity,
   setBuildPartQuantity,
   setHideBuildPartPrices,
@@ -393,5 +394,51 @@ export function HidePartPrices({ reservationId, hidden }: { reservationId: strin
       Hide part prices on the quote
       {error ? <span className="text-destructive">{error}</span> : null}
     </label>
+  );
+}
+
+/**
+ * Up and down arrows for a line or a build part. A line moves among the order's
+ * lines (its parts travel with it); a part moves among its build's parts. The
+ * ends are disabled rather than hidden so the column does not jump.
+ */
+export function MoveLineArrows({
+  reservationId,
+  itemId,
+  canUp,
+  canDown,
+}: {
+  reservationId: string;
+  itemId: string;
+  canUp: boolean;
+  canDown: boolean;
+}) {
+  const router = useRouter();
+  const [error, setError] = useState("");
+  const [busy, startTransition] = useTransition();
+
+  function go(direction: "up" | "down") {
+    startTransition(async () => {
+      const result = await moveOrderLine(reservationId, itemId, direction);
+      if (result.status === "error") setError(result.message);
+      else {
+        setError("");
+        router.refresh();
+      }
+    });
+  }
+
+  const button =
+    "rounded-well p-[2px] text-ink-faint hover:bg-row-hover hover:text-ink disabled:opacity-30 disabled:hover:bg-transparent";
+  return (
+    <span className="inline-flex items-center align-middle" title={error || undefined}>
+      <button type="button" aria-label="Move up" disabled={busy || !canUp} onClick={() => go("up")} className={button}>
+        <ArrowUp className="size-[12px]" aria-hidden />
+      </button>
+      <button type="button" aria-label="Move down" disabled={busy || !canDown} onClick={() => go("down")} className={button}>
+        <ArrowDown className="size-[12px]" aria-hidden />
+      </button>
+      {error ? <span className="ml-1 text-micro text-destructive">{error}</span> : null}
+    </span>
   );
 }

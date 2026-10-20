@@ -130,3 +130,21 @@ export function arrangeBuildGroups<
   }
   return out
 }
+
+/**
+ * Move one id a step up or down a list of siblings, returning the new order or
+ * null when it is already at that end (or not in the list). The order page lists
+ * a build's parts under their heading, so a top-level line moves among top-level
+ * lines (its parts travel with it, being children) and a part among its siblings.
+ * Order is presentation only: it never touches a quantity, rate or total.
+ */
+export function movedWithin(ids: string[], id: string, direction: 'up' | 'down'): string[] | null {
+  const from = ids.indexOf(id)
+  if (from < 0) return null
+  const to = direction === 'up' ? from - 1 : from + 1
+  if (to < 0 || to >= ids.length) return null
+  const next = [...ids]
+  next.splice(from, 1)
+  next.splice(to, 0, id)
+  return next
+}

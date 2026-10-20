@@ -10,6 +10,7 @@ import {
   BuildGroupEditor,
   BuildPartEditor,
   HidePartPrices,
+  MoveLineArrows,
   MoveToBuild,
 } from "@/components/orders/build-groups";
 import { prisma } from "@/lib/prisma";
@@ -147,7 +148,7 @@ export async function LinesCard({
       meta={`${lines.length} ${lines.length === 1 ? "line" : "lines"} · ${unitCount} ${unitCount === 1 ? "unit" : "units"} attached`}
     >
       <ul className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-2 pb-3">
-        {lines.map((line) => (
+        {lines.map((line, lineIndex) => (
           <li key={line.id} className="rounded-bubble bg-row-alt p-2">
             <div
               className={`grid items-baseline gap-2 px-1 ${tracks}`}
@@ -168,6 +169,17 @@ export async function LinesCard({
                 {line.isGroup ? (
                   <span className="ml-2 rounded-pill bg-accent-tint px-[6px] align-middle text-micro font-normal text-accent-on-tint">
                     build
+                  </span>
+                ) : null}
+                {/* Order matters on a quote with builds: parts travel with their build. */}
+                {editable && isSale && lines.length > 1 ? (
+                  <span className="ml-2 inline-flex font-normal">
+                    <MoveLineArrows
+                      reservationId={id}
+                      itemId={line.id}
+                      canUp={lineIndex > 0 && lines[lineIndex - 1].packageId === line.packageId}
+                      canDown={lineIndex < lines.length - 1 && lines[lineIndex + 1].packageId === line.packageId}
+                    />
                   </span>
                 ) : null}
                 {/* A plain line can be put under one of the order's builds. */}
@@ -281,13 +293,23 @@ export async function LinesCard({
                 configured total is what the client is actually quoted. */}
             {line.components.length > 0 ? (
               <ul className="mt-1 flex flex-col gap-px">
-                {line.components.map((part) => (
+                {line.components.map((part, partIndex) => (
                   <li
                     key={part.id}
                     className={`grid ${tracks} items-baseline gap-2 rounded-row px-2 py-[5px] text-detail hover:bg-row-hover`}
                   >
                     <span className="min-w-0 break-words text-ink-muted">
                       <span className="text-ink-faint">↳ </span>
+                      {line.isGroup && editable && line.components.length > 1 ? (
+                        <span className="mr-1 inline-flex align-middle">
+                          <MoveLineArrows
+                            reservationId={id}
+                            itemId={part.id}
+                            canUp={partIndex > 0}
+                            canDown={partIndex < line.components.length - 1}
+                          />
+                        </span>
+                      ) : null}
                       {line.isGroup && structure ? (
                         <span className="mr-1 inline-flex align-middle">
                           <MoveToBuild

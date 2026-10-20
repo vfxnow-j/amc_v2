@@ -6,7 +6,7 @@ import { requireEditor } from "@/lib/auth-utils";
 import { calculatePeriods } from "@/lib/actions/reservations";
 import { computeItemSubtotal } from "@/lib/pricing/periods";
 import { calculateReservationTotals } from "@/lib/pricing/reservation-totals";
-import { BUILD_CATEGORY, BUILD_EDITABLE_STATUSES, rescaledPartQuantity, storedPartQuantity } from "@/lib/pricing/build-groups";
+import { BUILD_CATEGORY, BUILD_EDITABLE_STATUSES, movedWithin, rescaledPartQuantity, storedPartQuantity } from "@/lib/pricing/build-groups";
 import type { StageOutcome } from "@/lib/actions/order-stage";
 import type { Prisma } from "@/generated/prisma/client";
 
@@ -341,6 +341,52 @@ export async function setHideBuildPartPrices(reservationId: string, hide: boolea
         ? "The quote now lists each build's parts as a spec, with the build total."
         : "The quote now shows each part's price.",
     };
+  } catch (error) {
+    return { status: "error", message: reasonFrom(error) };
+  }
+}
+
+/**
+ * Move a line one place up or down on a sales order. A top-level line moves among
+ * the other top-level lines of its quote option (a build's parts follow it, as
+ * they hang off it); a build's part moves among that build's parts. Order is
+ * presentation only, so unlike the structural edits above this is allowed on any
+ * order that is not closed, and it never reprices anything.
+ */
+export async function moveOrderLine(
+  reservationId: string,
+  itemId: string,
+  direction: "up" | "down",
+): Promise<StageOutcome> {
+  const auth = await requireEditor();
+  if (!auth.authorized) return { status: "error", message: auth.error ?? "Unauthorized" };
+  try {
+    const moved = await prisma.$transaction(async (tx) => {
+      const order = await tx.reservation.findUnique({ where: { id: reservationId } });
+      if (!order) throw new Error("Order not found.");
+      if (order.reservationType !== "SALE") throw new Error("Lines are reordered on sales orders.");
+      if (["COMPLETED", "CANCELLED", "LOST"].includes(order.status)) {
+        throw new Error("This order is closed, so its lines cannot be reordered.");
+      }
+      const item = await tx.reservationItem.findFirst({ where: { id: itemId, reservationId } });
+      if (!item) throw new Error("That line is not on this order.");
+      const siblings = await tx.reservationItem.findMany({
+        where: item.parentId
+          ? { reservationId, parentId: item.parentId }
+          : { reservationId, parentId: null, packageId: item.packageId },
+        orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+        select: { id: true },
+      });
+      const next = movedWithin(siblings.map((s) => s.id), itemId, direction);
+      if (!next) return false;
+      // Renumber the whole run, not just a swap: imported lines can share a sortOrder.
+      for (let i = 0; i < next.length; i++) {
+        await tx.reservationItem.update({ where: { id: next[i] }, data: { sortOrder: i } });
+      }
+      return true;
+    });
+    touch(reservationId);
+    return { status: "ok", message: moved ? "Moved." : "Already at the end." };
   } catch (error) {
     return { status: "error", message: reasonFrom(error) };
   }
