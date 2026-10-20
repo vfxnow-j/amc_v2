@@ -23,7 +23,9 @@ const quoteSans = Plus_Jakarta_Sans({
   display: "swap",
 });
 
-export const metadata = { title: "Quote" };
+// Static on purpose: this page is pasted into chats, so the tab title and the
+// link preview must never carry customer, order or token data.
+export const metadata = { title: { absolute: "Your quote · VFXnow" } };
 
 export default function QuoteLayout({ children }: { children: React.ReactNode }) {
   return (
