@@ -21,8 +21,8 @@ const FILTER_FOR: Record<string, string> = {
  * **Earned** is accrual-basis revenue recognized inside the window — the real
  * "revenue stream" figure, and not the same as invoiced, because recurring
  * billing stalls and invoices sit in DRAFT. The other three look forward over
- * the next twelve months, ex-tax, and come from Forecast so the two screens
- * agree: **Active** is orders running now, **Approved** is orders agreed but
+ * selected window, ex-tax, and come from Forecast so the two screens agree
+ * (a week or a day is the month's billing pro-rated by days): **Active** is orders running now, **Approved** is orders agreed but
  * not yet out, and **Quoted** is counted open quotes at their stage weight
  * (sent 60%, draft or revision 40%, one version per deal).
  *
@@ -47,7 +47,7 @@ export async function RevenueStrip({ range }: { range: Range }) {
       <div className="flex items-baseline gap-2 pb-1">
         <h2 className="text-card-title">Revenue by order type</h2>
         <span className="text-detail text-ink-muted">
-          earned {window}; the rest is the next 12 months, ex-tax
+          {window}: earned so far, then what is billing (pro-rated from the month)
         </span>
       </div>
 

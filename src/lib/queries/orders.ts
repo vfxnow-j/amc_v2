@@ -40,9 +40,11 @@ export type TypeRevenue = {
   /** How many those are. */
   openCount: number;
   /**
-   * The next twelve months, ex-tax, read from Forecast so the two screens
-   * agree: orders already running, orders approved but not yet out, and
-   * counted open quotes at their stage weight (one version per deal).
+   * What the selected window carries, ex-tax, read from Forecast so the two
+   * screens agree: orders already running, orders approved but not yet out, and
+   * counted open quotes at their stage weight (one version per deal). Forecast
+   * bills by the month, so a week or a day is that month's figure pro-rated
+   * by days; the month is the month as Forecast has it.
    */
   active: number;
   approved: number;
@@ -85,6 +87,14 @@ export async function getRevenueByType(
     ...ORDER_TYPES.map((type) => sumOrderValue(openOfType(type))),
   ]);
 
+  // Forecast is by month. The window is the whole current month, a week of it,
+  // or a day of it — so a week carries 7/30 of the month's billing.
+  const monthKey = forecast.months[0].key;
+  const [year, month] = monthKey.split("-").map(Number);
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const share = range === "month" ? 1 : range === "week" ? 7 / daysInMonth : 1 / daysInMonth;
+  const inRange = (o: { byMonth: Record<string, number> }) => (o.byMonth[monthKey] ?? 0) * share;
+
   const quotes = forecast.deals.flatMap((deal) => deal.orders).filter((o) => o.counted);
   const types = ORDER_TYPES.map((type, index) => {
     const live = forecast.booked.filter((o) => o.type === type);
@@ -94,11 +104,11 @@ export async function getRevenueByType(
       earned: earned.byType[type] ?? 0,
       booked: open[index].total,
       openCount: open[index].count,
-      active: live.filter((o) => o.status === "ACTIVE").reduce((sum, o) => sum + o.inWindow, 0),
-      approved: live.filter((o) => o.status !== "ACTIVE").reduce((sum, o) => sum + o.inWindow, 0),
-      quoted: mine.reduce((sum, o) => sum + o.inWindow * o.weight, 0),
+      active: live.filter((o) => o.status === "ACTIVE").reduce((sum, o) => sum + inRange(o), 0),
+      approved: live.filter((o) => o.status !== "ACTIVE").reduce((sum, o) => sum + inRange(o), 0),
+      quoted: mine.reduce((sum, o) => sum + inRange(o) * o.weight, 0),
       quotedCount: mine.length,
-      quotedUnweighted: mine.reduce((sum, o) => sum + o.inWindow, 0),
+      quotedUnweighted: mine.reduce((sum, o) => sum + inRange(o), 0),
     };
   });
 
