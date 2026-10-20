@@ -15,91 +15,104 @@ const FILTER_FOR: Record<string, string> = {
 };
 
 /**
- * Operate → Orders: where the money came from, split by the same types the
- * list is split by.
+ * Dashboard: where the money comes from, split by the same types the Orders
+ * list is split by — one table, one row per type, so it fits its tile.
  *
- * Two figures per card, kept apart on purpose. **Earned** is accrual-basis
- * revenue recognized inside the window — the real "revenue stream" figure, and
- * not the same as invoiced, because recurring billing stalls and invoices sit
- * in DRAFT. **Open** is the value of orders of that type running right now:
- * future money, and the reason a type can earn nothing this month and still
- * matter.
+ * **Earned** is accrual-basis revenue recognized inside the window — the real
+ * "revenue stream" figure, and not the same as invoiced, because recurring
+ * billing stalls and invoices sit in DRAFT. The other three look forward over
+ * the next twelve months, ex-tax, and come from Forecast so the two screens
+ * agree: **Active** is orders running now, **Approved** is orders agreed but
+ * not yet out, and **Quoted** is counted open quotes at their stage weight
+ * (sent 60%, draft or revision 40%, one version per deal).
  *
- * Every card is a link into the list filtered to its own type, so the strip is
- * navigation as well as a reading — a number you can't get behind is a poster,
- * not a dashboard.
+ * A type showing earned zero with money behind it is stating a real limit of
+ * the data, not a bug: earnings are recognized from checkouts, completed sales
+ * and elapsed recurring cycles, so an order that has done none of those yet has
+ * genuinely recognized nothing.
  *
- * A card showing earned zero with orders open is stating a real limit of the
- * data, not a bug: earnings are recognized from checkouts, completed sales and
- * elapsed recurring cycles, so a rent-to-own or cloud order that has done none
- * of those yet has genuinely recognized nothing.
+ * Every row is a link into the Orders list filtered to its own type.
  */
 export async function RevenueStrip({ range }: { range: Range }) {
   const { types, earnedTotal, window } = await getRevenueByType(range);
   const byType = new Map(types.map((row) => [row.type, row]));
+  const sum = (pick: (row: (typeof types)[number]) => number) =>
+    types.reduce((total, row) => total + pick(row), 0);
+
+  const columns = "grid-cols-[minmax(0,1.3fr)_repeat(4,minmax(0,1fr))]";
+  const cell = "text-right tabular-nums";
 
   return (
-    <section className="rounded-card bg-panel px-4 py-3 shadow-sm">
-      <div className="flex items-baseline gap-2 pb-2">
+    <section className="flex h-full min-h-0 flex-col rounded-card bg-panel px-4 py-3 shadow-sm">
+      <div className="flex items-baseline gap-2 pb-1">
         <h2 className="text-card-title">Revenue by order type</h2>
         <span className="text-detail text-ink-muted">
-          earned {window} · {money(earnedTotal)} across all types
+          earned {window}; the rest is the next 12 months, ex-tax
         </span>
       </div>
 
-      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div
+          className={`grid ${columns} gap-x-3 px-2 pb-1 text-micro uppercase text-ink-muted`}
+        >
+          <span>Type</span>
+          <span className="text-right">Earned</span>
+          <span className="text-right">Active</span>
+          <span className="text-right">Approved</span>
+          <span className="text-right" title="Open quotes at their stage weight">
+            Quoted ×weight
+          </span>
+        </div>
+
         {ORDER_TYPES.map((type) => {
           const row = byType.get(type);
-          const earned = row?.earned ?? 0;
-          const share =
-            earnedTotal > 0 ? Math.round((earned / earnedTotal) * 100) : null;
+          const quoteTitle = row?.quotedCount
+            ? `${money(row.quotedUnweighted)} across ${row.quotedCount} ${
+                row.quotedCount === 1 ? "quote" : "quotes"
+              } before weighting`
+            : "no open quotes counted";
 
           return (
             <Link
               key={type}
               href={`/dashboard/orders?type=${FILTER_FOR[type]}`}
-              className="flex flex-col rounded-bubble bg-sunken p-3 transition-colors hover:bg-row-hover"
+              className={`grid ${columns} gap-x-3 rounded-row px-2 py-[5px] text-detail transition-colors hover:bg-row-hover`}
             >
-              <span className="flex items-baseline gap-2">
-                <span className="text-micro uppercase text-ink-muted">
-                  {TYPE_LABEL[type]}
-                </span>
-                {share === null ? null : (
-                  <span className="ml-auto text-detail text-ink-faint">
-                    {share}%
-                  </span>
-                )}
-              </span>
-              <span className="mt-1 text-kpi">{money(earned)}</span>
-              <span className="mt-1 text-detail text-ink-muted">
-                {row && row.openCount > 0 ? (
-                  <>
-                    {money(row.booked)} open across {row.openCount}{" "}
-                    {row.openCount === 1 ? "order" : "orders"}
-                  </>
-                ) : (
-                  "nothing open"
-                )}
+              <span>{TYPE_LABEL[type]}</span>
+              <span className={cell}>{money(row?.earned ?? 0)}</span>
+              <span className={cell}>{money(row?.active ?? 0)}</span>
+              <span className={cell}>{money(row?.approved ?? 0)}</span>
+              <span className={`${cell} text-ink-muted`} title={quoteTitle}>
+                {money(row?.quoted ?? 0)}
               </span>
             </Link>
           );
         })}
+
+        <div
+          className={`mt-1 grid ${columns} gap-x-3 border-t border-hairline px-2 pt-[5px] text-detail font-medium`}
+        >
+          <span>All types</span>
+          <span className={cell} title={`${money(earnedTotal)} earned ${window}`}>
+            {money(earnedTotal)}
+          </span>
+          <span className={cell}>{money(sum((row) => row.active))}</span>
+          <span className={cell}>{money(sum((row) => row.approved))}</span>
+          <span className={cell}>{money(sum((row) => row.quoted))}</span>
+        </div>
       </div>
     </section>
   );
 }
 
-/** Matches the strip's real height so the page doesn't reflow behind it. */
+/** Matches the table's real height so the tile doesn't reflow behind it. */
 export function RevenueStripSkeleton() {
   return (
-    <section className="rounded-card bg-panel px-4 py-3 shadow-sm">
+    <section className="flex h-full flex-col rounded-card bg-panel px-4 py-3 shadow-sm">
       <div className="h-[17px] w-56 animate-pulse rounded-row bg-row-alt" />
-      <div className="mt-2 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-        {Array.from({ length: 4 }, (_, index) => (
-          <div
-            key={index}
-            className="h-[92px] animate-pulse rounded-bubble bg-sunken"
-          />
+      <div className="mt-2 flex flex-col gap-1">
+        {Array.from({ length: 7 }, (_, index) => (
+          <div key={index} className="h-[22px] animate-pulse rounded-row bg-sunken" />
         ))}
       </div>
     </section>

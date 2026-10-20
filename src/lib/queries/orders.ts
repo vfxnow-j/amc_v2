@@ -4,6 +4,7 @@ import { getEarnedRevenue } from "@/lib/analytics/earned-revenue";
 import { ORDER_TYPES } from "@/lib/orders/types";
 import { prisma } from "@/lib/prisma";
 import { orderValues, sumOrderValue } from "./order-value";
+import { getForecast } from "./forecast";
 import { OPEN_STATUSES } from "@/lib/reservations/status";
 import { windowFor, type Range } from "@/lib/queries/range";
 
@@ -38,6 +39,17 @@ export type TypeRevenue = {
   booked: number;
   /** How many those are. */
   openCount: number;
+  /**
+   * The next twelve months, ex-tax, read from Forecast so the two screens
+   * agree: orders already running, orders approved but not yet out, and
+   * counted open quotes at their stage weight (one version per deal).
+   */
+  active: number;
+  approved: number;
+  quoted: number;
+  /** Counted quotes behind `quoted`, and what they come to before weighting. */
+  quotedCount: number;
+  quotedUnweighted: number;
 };
 
 export type OrderRevenue = {
@@ -67,17 +79,28 @@ export async function getRevenueByType(
 
   // Booked is valued from the approved package rather than the stored total —
   // see `queries/order-value` for the two ways that column is wrong.
-  const [earned, ...open] = await Promise.all([
+  const [earned, forecast, ...open] = await Promise.all([
     getEarnedRevenue(from, now),
+    getForecast(now),
     ...ORDER_TYPES.map((type) => sumOrderValue(openOfType(type))),
   ]);
 
-  const types = ORDER_TYPES.map((type, index) => ({
-    type,
-    earned: earned.byType[type] ?? 0,
-    booked: open[index].total,
-    openCount: open[index].count,
-  }));
+  const quotes = forecast.deals.flatMap((deal) => deal.orders).filter((o) => o.counted);
+  const types = ORDER_TYPES.map((type, index) => {
+    const live = forecast.booked.filter((o) => o.type === type);
+    const mine = quotes.filter((o) => o.type === type);
+    return {
+      type,
+      earned: earned.byType[type] ?? 0,
+      booked: open[index].total,
+      openCount: open[index].count,
+      active: live.filter((o) => o.status === "ACTIVE").reduce((sum, o) => sum + o.inWindow, 0),
+      approved: live.filter((o) => o.status !== "ACTIVE").reduce((sum, o) => sum + o.inWindow, 0),
+      quoted: mine.reduce((sum, o) => sum + o.inWindow * o.weight, 0),
+      quotedCount: mine.length,
+      quotedUnweighted: mine.reduce((sum, o) => sum + o.inWindow, 0),
+    };
+  });
 
   return {
     types,

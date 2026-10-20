@@ -169,11 +169,11 @@ export const TILE_CATALOG: Record<TileId, TileMeta> = {
     id: "revenue-by-type",
     title: "Revenue by order type",
     blurb:
-      "Where the money came from — rental, sale, rent-to-own and cloud, earned and open.",
+      "Where the money comes from by order type — earned, then active, approved and weighted quotes over the next 12 months.",
     category: "How we are trading",
     size: {
-      default: { w: 12, h: 4 },
-      min: { w: 6, h: 2 },
+      default: { w: 12, h: 5 },
+      min: { w: 6, h: 3 },
       max: { w: 12, h: 6 },
     },
     access: "everyone",
