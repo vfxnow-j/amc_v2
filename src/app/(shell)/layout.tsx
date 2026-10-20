@@ -6,6 +6,7 @@ import { NotificationBellSlot } from "@/components/shell/notification-bell-slot"
 import { getNavCounts } from "@/lib/queries/nav-counts";
 import { getSessionUser } from "@/lib/roles";
 import { pendingCountFor } from "@/lib/approvals/core";
+import { listEntitiesFor } from "@/lib/entities/context";
 
 /**
  * The application shell every routed screen inherits: the rail on the left, a
@@ -31,7 +32,16 @@ export default async function ShellLayout({
   // null means this person approves nothing and the Approvals page stays out of
   // their rail; a number is what is waiting on them. SUPER_ADMIN costs one count;
   // everyone else one indexed lookup of their scopes first.
-  const [counts, waiting] = await Promise.all([getNavCounts(), pendingCountFor(user)]);
+  const [counts, waiting, entities] = await Promise.all([
+    getNavCounts(),
+    pendingCountFor(user),
+    // The sprocket's "Switch entity" list. A failed lookup must never take the
+    // whole app down, so it degrades to "no entities" and is logged.
+    listEntitiesFor(user.id).catch((error) => {
+      console.error("listEntitiesFor failed; hiding Switch entity", error);
+      return [];
+    }),
+  ]);
   if (waiting !== null && waiting > 0) counts.pages.approvals = waiting;
 
   return (
@@ -41,6 +51,7 @@ export default async function ShellLayout({
           user={user}
           counts={counts}
           approver={waiting !== null}
+          entities={entities}
           // Its own boundary, because this layout renders on every authenticated
           // route: a slow notification count here would be a slow app everywhere.
           // The fallback is the same bell without a badge, so nothing moves when

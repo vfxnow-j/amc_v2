@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { LogOut, Settings, SlidersHorizontal } from "lucide-react";
+import { Building2, LogOut, Settings, SlidersHorizontal } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -35,9 +35,12 @@ import type { SessionUser } from "@/lib/roles";
 export function UserPod({
   user,
   bell,
+  entities = [],
 }: {
   user: SessionUser;
   bell?: React.ReactNode;
+  /** Entities this person may enter. Empty hides the "Switch entity" group. */
+  entities?: { slug: string; name: string }[];
 }) {
   return (
     <div className="mt-[10px] flex items-center gap-[9px] rounded-well bg-sunken px-[10px] py-2">
@@ -86,6 +89,23 @@ export function UserPod({
                 Appearance
               </Link>
             </DropdownMenuItem>
+
+            {entities.length > 0 ? (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuLabel className="text-micro uppercase text-ink-muted">
+                  Switch entity
+                </DropdownMenuLabel>
+                {entities.map((e) => (
+                  <DropdownMenuItem asChild key={e.slug}>
+                    <Link href={`/entity/${e.slug}`}>
+                      <Building2 className="size-4" aria-hidden />
+                      {e.name}
+                    </Link>
+                  </DropdownMenuItem>
+                ))}
+              </>
+            ) : null}
 
             <DropdownMenuSeparator />
             <DropdownMenuItem

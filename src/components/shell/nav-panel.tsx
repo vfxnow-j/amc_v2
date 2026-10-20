@@ -50,7 +50,10 @@ export function NavPanel({
   counts,
   bell,
   approver = false,
+  entities = [],
 }: {
+  /** Entities this user may enter, for the sprocket's "Switch entity" group. */
+  entities?: { slug: string; name: string }[];
   user: SessionUser;
   counts: NavCounts;
   /**
@@ -210,7 +213,7 @@ export function NavPanel({
         ))}
       </nav>
 
-      <UserPod user={user} bell={bell} />
+      <UserPod user={user} bell={bell} entities={entities} />
 
       {paletteOpen ? (
         <CommandPalette role={user.role} approver={approver} onClose={closePalette} />
