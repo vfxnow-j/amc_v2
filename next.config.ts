@@ -1,6 +1,26 @@
 import type { NextConfig } from "next";
 
+/**
+ * Headers every response carries. No Content-Security-Policy yet: a policy that
+ * has not been walked through every screen breaks the ones it was not tested
+ * on, so it waits for its own pass. The camera stays allowed for this origin —
+ * the barcode scanner needs it.
+ */
+const SECURITY_HEADERS = [
+  { key: "Strict-Transport-Security", value: "max-age=15552000" },
+  { key: "X-Content-Type-Options", value: "nosniff" },
+  { key: "X-Frame-Options", value: "SAMEORIGIN" },
+  { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+  { key: "Permissions-Policy", value: "camera=(self), microphone=(), geolocation=()" },
+];
+
 const nextConfig: NextConfig = {
+  poweredByHeader: false,
+
+  async headers() {
+    return [{ source: "/:path*", headers: SECURITY_HEADERS }];
+  },
+
   // No on-screen Next.js badge in development (owner, 2026-09-26). Compile
   // and runtime errors still show.
   devIndicators: false,

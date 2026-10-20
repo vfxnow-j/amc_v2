@@ -281,6 +281,14 @@ export const NAV_CLUSTERS: NavCluster[] = [
         from: ["/dashboard/invoices"],
       },
       {
+        // New in v2 (owner, 2026-10-01): twelve months of booked revenue, what
+        // is expected to sell (one version per deal, weighted by stage) and the
+        // cash it lands as by payment terms, on one page.
+        id: "forecast",
+        label: "Forecast",
+        href: "/dashboard/forecast",
+      },
+      {
         // From the Payment model + the QuickBooks sync in settings.
         id: "payments",
         label: "Payments",
@@ -305,6 +313,14 @@ export const NAV_CLUSTERS: NavCluster[] = [
         id: "fixed-assets",
         label: "Fixed assets",
         href: "/dashboard/fixed-assets",
+      },
+      {
+        // Ported from v1's Month-End Fixed Assets report (2026-10-19): the
+        // roll-forward for a month, by month for the year, and the workbook
+        // accounting closes the books from.
+        id: "month-end",
+        label: "Month-end",
+        href: "/dashboard/month-end",
       },
     ],
   },

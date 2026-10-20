@@ -31,6 +31,8 @@ model User {
   mfaSecret         String?
   mfaDefault        String?   @default("email")
   passwordChangedAt DateTime?
+  // Set = cannot sign in (and a live session ends). v2-only; see prisma/manual/2026-10-19-user-disabled.sql.
+  disabledAt        DateTime?
 
   // Appearance, per user rather than per browser. Two independent choices, and
   // null means "not chosen": colorMode falls back to the role default (dark for
@@ -184,6 +186,14 @@ enum UnitOffering {
   FLOW
   /// Staff-only in AMC: the portal never offers rent-to-own.
   RENT_TO_OWN
+}
+
+// How a unit was sold. EBAY sales carry marketplace fees (saleFees), so the
+// net we receive is soldPrice - saleFees. Same shape as v1, so the sync maps it.
+enum SaleChannel {
+  CUSTOMER
+  EBAY
+  OTHER
 }
 
 enum AssetStatus {
@@ -551,6 +561,9 @@ model AssetUnit {
   soldViaReservation String?
   soldPrice          Decimal?  @db.Decimal(12, 2)
   soldNotes          String?
+  saleChannel        SaleChannel?
+  // Marketplace/selling fees taken out of soldPrice (eBay final value fees etc.)
+  saleFees           Decimal?  @db.Decimal(12, 2)
 
   // Retirement tracking
   retirementReason RetirementReason?
@@ -1121,6 +1134,8 @@ model Reservation {
 
   // Sale order price verification
   priceVerified   Boolean   @default(false)
+  // Sales build groups: list each build's parts without prices (the build still shows its total).
+  hideBuildPartPrices Boolean @default(false)
   priceVerifiedAt DateTime?
 
   createdById String?
@@ -1146,6 +1161,7 @@ model Reservation {
 
   // Placed through the client portal (v2-only). See PortalOrder.
   portalOrder PortalOrder?
+  forecastChoice ForecastChoice?
 }
 
 model Package {
@@ -1215,6 +1231,10 @@ model ReservationItem {
   createdAt DateTime @default(now())
   addedAt   DateTime @default(now())
   sortOrder Int      @default(0)
+
+  // Build group (sales orders): a manual heading line with no price of its own that hosts
+  // parts via parentId. Parts store quantity already multiplied by the group's quantity.
+  isGroup Boolean @default(false)
 
   // Component nesting (one level deep): configurable parent items host component sub-items.
   /// Set on a component line whose cost is already in its parent's price. It is
@@ -1672,6 +1692,14 @@ model QuoteToken {
   expiresAt     DateTime
   usedAt        DateTime?
   createdAt     DateTime    @default(now())
+  // Set when the link is emailed to the client. Preview links never get these, so
+  // only a sent link's opens count as client views.
+  sentAt        DateTime?
+  sentTo        String? // the client address, then any CC'd addresses, comma-separated
+  // Client opens of a sent link, never counted for a logged-in staff user.
+  firstViewedAt DateTime?
+  lastViewedAt  DateTime?
+  viewCount     Int         @default(0)
 
   @@index([token])
   @@index([reservationId])
@@ -3281,4 +3309,38 @@ model PostalCentroid {
   @@id([countryCode, postalCode])
   @@index([countryCode, admin1Code, place])
   @@map("postal_centroids")
+}
+
+/// Accounting → Forecast: the owner's override on an open order (COUNT | SKIP | SEPARATE).
+/// v2-only (prisma/manual/2026-10-01-forecast-choices.sql); the v1 sync never writes it.
+model ForecastChoice {
+  reservationId String      @id
+  reservation   Reservation @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+  mode          String
+  updatedById   String?
+  updatedAt     DateTime    @default(now()) @updatedAt
+
+  @@map("forecast_choices")
+}
+
+/// Old values saved before scripts/current-rms/apply-high-confidence.ts writes a unit
+/// column (2026-10-19), so `--undo <runId>` can restore them. v2-only; additive SQL in
+/// prisma/manual/2026-10-19-current-rms-apply-log.sql. Not a relation: the log outlives units.
+model CurrentRmsApplyLog {
+  id        String    @id @default(cuid())
+  runId     String
+  pullRunId Int?
+  unitId    String
+  barcode   String
+  column    String
+  oldValue  String?
+  newValue  String?
+  matchPct  Int?
+  reason    String?
+  appliedAt DateTime  @default(now())
+  undoneAt  DateTime?
+
+  @@index([runId])
+  @@index([unitId])
+  @@map("current_rms_apply_log")
 }
