@@ -34,6 +34,12 @@ model User {
   // Set = cannot sign in (and a live session ends). v2-only; see prisma/manual/2026-10-19-user-disabled.sql.
   disabledAt        DateTime?
 
+  // Entities: whether this person may open other owners' gear workspaces, and
+  // which ones. SUPER_ADMIN always may. v2-only; see prisma/manual/2026-10-20-entities.sql.
+  entityAccess Boolean @default(false)
+  entityScope  String  @default("SELECTED") // "ALL" | "SELECTED"
+  entityGrants UserEntity[]
+
   // Appearance, per user rather than per browser. Two independent choices, and
   // null means "not chosen": colorMode falls back to the role default (dark for
   // STAFF, light for admin/finance) and themeName to the house palette.
@@ -3343,4 +3349,38 @@ model CurrentRmsApplyLog {
   @@index([runId])
   @@index([unitId])
   @@map("current_rms_apply_log")
+}
+
+// ============================================
+// ENTITIES — owners whose gear we store (see docs/superpowers/specs/2026-10-20-entities-design.md)
+// ============================================
+model Entity {
+  id            String   @id @default(cuid())
+  name          String
+  slug          String   @unique
+  dbName        String   @unique
+  modules       String[] @default(["INVENTORY"])
+  active        Boolean  @default(true)
+  schemaVersion Int      @default(0)
+  contactName   String?
+  email         String?
+  phone         String?
+  address       String?
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  grants UserEntity[]
+
+  @@map("entities")
+}
+
+model UserEntity {
+  userId   String
+  entityId String
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  entity   Entity @relation(fields: [entityId], references: [id], onDelete: Cascade)
+
+  @@id([userId, entityId])
+  @@map("user_entities")
 }

@@ -51,7 +51,7 @@ server and a modular workspace. Only the **Inventory** module is built now.
   tag, condition, notes, status (`IN_STORAGE`, `DEPLOYED`, `RETURNED_TO_OWNER`), and `currentLocationId`
   (a plain reference to a VFXnow location).
 - `Stock` — for `QUANTITY` items only: a quantity at a location. Moves and releases split and merge rows.
-- `Movement` — append-only; never edited or deleted. Fields: type (`RECEIVE`, `MOVE`, `RELEASE`, `RETURN`),
+- `Movement` — append-only; never edited or deleted. Fields: type (`RECEIVE`, `MOVE`, `RELEASE`, `RETURN`), `RELEASE` carries a `finalToOwner` flag; when true the unit becomes `RETURNED_TO_OWNER` and leaves custody.
   unit or item with quantity, from and to location IDs, recipient, destination text, reference, carrier,
   tracking, date and time, acting user ID (plain reference to a VFXnow user), notes. A correction is a new
   movement that references the one it fixes.
