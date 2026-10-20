@@ -23,7 +23,8 @@ const portalSans = Plus_Jakarta_Sans({
   display: "swap",
 });
 
-export const metadata = { title: "Documents" };
+// Static on purpose: shared by link, so nothing token-specific here.
+export const metadata = { title: { absolute: "Your documents · VFXnow" } };
 
 export default function RequirementsLayout({
   children,

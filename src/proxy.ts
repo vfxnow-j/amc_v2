@@ -26,6 +26,8 @@ const PUBLIC_PREFIXES = [
   "/api/quote",
   "/requirements",
   "/api/requirements",
+  // Crawlers read this without a session; it only says "keep out".
+  "/robots.txt",
 ];
 
 /** Authenticated by key or cron secret, not by session cookie. */
