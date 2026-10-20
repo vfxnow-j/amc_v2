@@ -1,7 +1,8 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { entityDb, type EntityDb } from "@/lib/entities/client";
-import { canWriteInEntity, entityIdsFor, type AccessUser, type EntityRole } from "@/lib/entities/access";
+import { entityIdsFor, type EntityRole } from "@/lib/entities/access";
+import { decideEntity, toAccessUser } from "@/lib/entities/gate";
 
 export class EntityAccessError extends Error {}
 
@@ -13,18 +14,11 @@ export type EntityContext = {
   canWrite: boolean;
 };
 
-async function accessUser(userId: string): Promise<AccessUser | null> {
-  const user = await prisma.user.findUnique({
+async function userRecord(userId: string) {
+  return prisma.user.findUnique({
     where: { id: userId },
     select: { role: true, entityAccess: true, entityScope: true, disabledAt: true, entityGrants: { select: { entityId: true } } },
   });
-  if (!user || user.disabledAt) return null;
-  return {
-    role: user.role,
-    entityAccess: user.entityAccess,
-    entityScope: user.entityScope === "ALL" ? "ALL" : "SELECTED",
-    grantedEntityIds: user.entityGrants.map((g) => g.entityId),
-  };
 }
 
 /**
@@ -36,28 +30,22 @@ export async function requireEntity(slug: string, opts: { write?: boolean } = {}
   const session = await auth();
   if (!session?.user?.id) throw new EntityAccessError("Unauthorized");
 
-  const [user, active] = await Promise.all([
-    accessUser(session.user.id),
+  const [record, active] = await Promise.all([
+    userRecord(session.user.id),
     prisma.entity.findMany({ where: { active: true }, select: { id: true, name: true, slug: true, dbName: true, modules: true } }),
   ]);
-  if (!user) throw new EntityAccessError("Unauthorized");
-
-  const allowed = new Set(entityIdsFor(user, active.map((e) => e.id)));
-  const entity = active.find((e) => e.slug === slug && allowed.has(e.id));
-  if (!entity) throw new EntityAccessError("You don't have access to that entity.");
-
-  const canWrite = canWriteInEntity(user.role);
-  if (opts.write && !canWrite) throw new EntityAccessError("Your role can look at this entity but not change it.");
-
-  return { entity, db: entityDb(entity.dbName), userId: session.user.id, role: user.role, canWrite };
+  const decision = decideEntity(record, active, slug, opts);
+  if (!decision.ok) throw new EntityAccessError(decision.reason);
+  return { entity: decision.entity, db: entityDb(decision.entity.dbName), userId: session.user.id, role: decision.role, canWrite: decision.canWrite };
 }
 
 /** The entities this user may switch into, for the menu. */
 export async function listEntitiesFor(userId: string) {
-  const [user, active] = await Promise.all([
-    accessUser(userId),
+  const [record, active] = await Promise.all([
+    userRecord(userId),
     prisma.entity.findMany({ where: { active: true }, select: { id: true, name: true, slug: true }, orderBy: { name: "asc" } }),
   ]);
+  const user = toAccessUser(record);
   if (!user) return [];
   const allowed = new Set(entityIdsFor(user, active.map((e) => e.id)));
   return active.filter((e) => allowed.has(e.id));

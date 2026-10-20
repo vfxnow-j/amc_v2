@@ -66,11 +66,33 @@ const refused = (r: { ok: boolean }, label: string, reason?: RegExp & { source: 
     ok("final hand-back leaves RETURNED_TO_OWNER with no location", fin.ok && u.status === "RETURNED_TO_OWNER" && u.currentLocationId === null);
     refused(await writeUnitMovement(db, { actorUserId: actor, unitId: unit.id, type: "MOVE", toLocationId: WH }), "a handed-back unit cannot be moved");
 
+    // Re-receiving a handed-back unit by its scan tag brings the same unit back.
+    const again = await receiveUnitsTx(db, { actorUserId: actor, itemId: cam.id, toLocationId: WH, units: [{ scanTag: "TAG1", condition: "serviced" }] });
+    u = await db.unit.findUniqueOrThrow({ where: { id: unit.id } });
+    ok("re-receive reuses the returned unit (same id, IN_STORAGE, no second unit)", again.ok && u.status === "IN_STORAGE" && u.currentLocationId === WH && u.condition === "serviced" && (await db.unit.count({ where: { itemId: cam.id } })) === 1);
+    const lastMv = await db.movement.findFirstOrThrow({ where: { unitId: unit.id }, orderBy: { createdAt: "desc" } });
+    ok("...with a RECEIVE movement on that unit", lastMv.type === "RECEIVE");
+    refused(await receiveUnitsTx(db, { actorUserId: actor, itemId: cam.id, toLocationId: WH, units: [{ serial: "A" }, { scanTag: "TAG1" }] }), "a scan tag on a unit in custody is refused", /scan tag/);
+    ok("...and the unit before it in the batch rolled back", (await db.unit.count({ where: { itemId: cam.id } })) === 1);
+    refused(await writeUnitMovement(db, { actorUserId: actor, unitId: unit.id, type: "RETURN", toLocationId: WH }), "returning a unit that is not deployed refused");
+    await writeUnitMovement(db, { actorUserId: actor, unitId: unit.id, type: "RELEASE", toLocationId: SITE, recipient: "Acme" });
+    refused(await writeUnitMovement(db, { actorUserId: actor, unitId: unit.id, type: "RETURN", toLocationId: SITE }), "returning a unit to the site it is deployed at refused", /where it already is/);
+    await writeUnitMovement(db, { actorUserId: actor, unitId: unit.id, type: "RETURN", toLocationId: WH });
+
+    // A 500-unit receipt in one transaction finishes inside the explicit timeout.
+    const bulk = await db.item.create({ data: { name: "Bulk", trackingMode: "SERIALIZED" } });
+    const t0 = Date.now();
+    const big = await receiveUnitsTx(db, { actorUserId: actor, itemId: bulk.id, toLocationId: WH, units: Array.from({ length: 500 }, (_, i) => ({ serial: `B${i}` })) });
+    console.log(`     500-unit receipt took ${Date.now() - t0} ms`);
+    ok("500 units received, with 500 RECEIVE movements", big.ok && (await db.unit.count({ where: { itemId: bulk.id } })) === 500 && (await db.movement.count({ where: { itemId: bulk.id } })) === 500);
+
     // Quantity item: receive 40, release 15, return 15.
     const cable = await db.item.create({ data: { name: "Cable", trackingMode: "QUANTITY" } });
     const q = (type: "RECEIVE" | "MOVE" | "RELEASE" | "RETURN", quantity: number, extra: object = {}) =>
       writeStockMovement(db, { actorUserId: actor, itemId: cable.id, type, quantity, ...extra });
-    ok("receive 40", (await q("RECEIVE", 40, { toLocationId: WH })).ok);
+    ok("receive 40 (a caller-supplied 'from' is ignored)", (await q("RECEIVE", 40, { toLocationId: WH, fromLocationId: "bogus" })).ok);
+    ok("the RECEIVE row has no 'from'", (await db.movement.findFirstOrThrow({ where: { itemId: cable.id } })).fromLocationId === null);
+    refused(await q("RELEASE", 5, { fromLocationId: WH, toLocationId: WH, recipient: "Acme" }), "stock release to the place it comes from refused", /where it already is/);
     ok("release 15 to a site", (await q("RELEASE", 15, { fromLocationId: WH, toLocationId: SITE, recipient: "Acme" })).ok);
     let rows = await db.stock.findMany({ where: { itemId: cable.id } });
     ok("stock is 25 stored and 15 deployed", rows.find((r) => !r.deployed)?.quantity === 25 && rows.find((r) => r.deployed)?.quantity === 15);
@@ -89,6 +111,13 @@ const refused = (r: { ok: boolean }, label: string, reason?: RegExp & { source: 
     rows = await db.stock.findMany({ where: { itemId: cable.id } });
     ok("correction row is MOVE qty 0 pointing at the original", corr.type === "MOVE" && corr.quantity === 0 && corr.correctsId === first.id);
     ok("stock unchanged by the correction", rows.length === 1 && rows[0].quantity === 40);
+
+    // Corrections: not of a correction; and the database refuses non-correction rows with quantity 0.
+    refused(await writeCorrection(db, { movementId: corr.id, note: "again", actorUserId: actor }), "correcting a correction refused", /itself a correction/);
+    const zero = await pool.query(`INSERT INTO "Movement" (id, type, "itemId", quantity, "actorUserId") VALUES ('z1','MOVE',$1,0,'u')`, [cable.id]).then(() => null, (e: Error) => e.message);
+    ok("the database refuses a non-correction movement of quantity 0", !!zero && /movement_quantity_check/.test(zero));
+    const neg = await pool.query(`INSERT INTO "Movement" (id, type, "itemId", quantity, "actorUserId") VALUES ('z2','MOVE',$1,-4,'u')`, [cable.id]).then(() => null, (e: Error) => e.message);
+    ok("...and a negative one", !!neg && /movement_quantity_check/.test(neg));
 
     // Append-only trigger still holds.
     const upd = await pool.query(`UPDATE "Movement" SET notes='x' WHERE id=$1`, [first.id]).then(() => null, (e: Error) => e.message);
