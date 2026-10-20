@@ -22,6 +22,14 @@
  */
 export const BUILD_EDITABLE_STATUSES = ['DRAFT', 'QUOTE_SENT', 'REVISION', 'APPROVED']
 
+/**
+ * Statuses in which lines may be reordered: only while the quote is still ours.
+ * Once it goes out, what was quoted and what the client approves must read the
+ * same, so the order is locked completely (owner, 2026-10-20). A revision
+ * reopens it. Deliberately narrower than BUILD_EDITABLE_STATUSES.
+ */
+export const REORDER_STATUSES = ['DRAFT', 'REVISION']
+
 const qtyOf = (i: { quantity?: number | null }) => i.quantity || 1
 
 const cents = (n: number) => Math.round(n * 100) / 100

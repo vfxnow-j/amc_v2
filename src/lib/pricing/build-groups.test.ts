@@ -90,3 +90,11 @@ test('movedWithin swaps a step, stops at the ends and ignores strangers', async 
   assert.equal(movedWithin(['a', 'b', 'c'], 'c', 'down'), null)
   assert.equal(movedWithin(['a', 'b'], 'z', 'up'), null)
 })
+
+test('reordering locks once the quote is out, though other build edits stay open', async () => {
+  const { REORDER_STATUSES, BUILD_EDITABLE_STATUSES } = await import('./build-groups')
+  assert.deepEqual(REORDER_STATUSES, ['DRAFT', 'REVISION'])
+  for (const s of ['QUOTE_SENT', 'APPROVED', 'PREPARING', 'ACTIVE', 'COMPLETED']) assert.ok(!REORDER_STATUSES.includes(s), s)
+  // Every reorderable status is also structurally editable, never the reverse.
+  assert.ok(REORDER_STATUSES.every((s) => BUILD_EDITABLE_STATUSES.includes(s)))
+})

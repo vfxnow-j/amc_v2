@@ -4,7 +4,7 @@ import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Check, Copy, ExternalLink, ScanLine } from "lucide-react";
-import type { MissingLine } from "@/lib/orders/handover";
+import { gateApplies, type HandoverMove, type MissingLine } from "@/lib/orders/handover";
 import type {
   BillingCycleType,
   ReservationStatus,
@@ -84,7 +84,7 @@ export function OrderActions(props: OrderActionsProps) {
   const router = useRouter();
   const [open, setOpen] = useState<Move | null>(null);
   const [outcome, setOutcome] = useState<StageOutcome | null>(null);
-  const [notReady, setNotReady] = useState<{ move: "activate" | "ship"; missing: MissingLine[] } | null>(null);
+  const [notReady, setNotReady] = useState<{ move: HandoverMove; missing: MissingLine[] } | null>(null);
   const [busy, startTransition] = useTransition();
 
   const moves = movesFor(props.status, props.type, props.flowQuotable);
@@ -138,7 +138,8 @@ export function OrderActions(props: OrderActionsProps) {
             // cloud order's hardware is allocated, not scanned, so it activates.
             const gated =
               blocked &&
-              (spec.move === "ship" || (spec.move === "activate" && props.type !== "CLOUD"));
+              (spec.move === "ship" || spec.move === "activate" || spec.move === "complete") &&
+              gateApplies(spec.move, props.type);
             return (
             <button
               key={spec.move}
@@ -152,7 +153,7 @@ export function OrderActions(props: OrderActionsProps) {
               onClick={() => {
                 setOutcome(null);
                 if (gated) {
-                  setNotReady({ move: spec.move as "activate" | "ship", missing: handover.missing });
+                  setNotReady({ move: spec.move as HandoverMove, missing: handover.missing });
                   return;
                 }
                 setOpen(spec.move);
@@ -189,7 +190,7 @@ export function OrderActions(props: OrderActionsProps) {
         <NotReadyDialog
           move={notReady.move}
           missing={notReady.missing}
-          orderId={props.id}
+          orderId={notReady.move === "complete" ? undefined : props.id}
           onOverridden={(result) => {
             setNotReady(null);
             setOutcome(result);
@@ -1294,7 +1295,7 @@ export function NotReadyDialog({
   onOverridden,
   onClose,
 }: {
-  move: "activate" | "ship";
+  move: HandoverMove;
   missing: MissingLine[];
   /** With `onOverridden`, offers the super-admin override. */
   orderId?: string;
@@ -1303,7 +1304,7 @@ export function NotReadyDialog({
 }) {
   const units = missing.reduce((sum, line) => sum + line.missing, 0);
   const [overriding, setOverriding] = useState(false);
-  if (overriding && orderId && onOverridden) {
+  if (overriding && orderId && onOverridden && move !== "complete") {
     return (
       <OverrideDialog
         id={orderId}
@@ -1319,13 +1320,13 @@ export function NotReadyDialog({
       open
       onOpenChange={(next) => !next && onClose()}
       wide
-      title={move === "ship" ? "Can't ship yet" : "Can't activate yet"}
-      blurb={`Every item on the order has to be checked out first. ${units} ${
+      title={move === "ship" ? "Can't ship yet" : move === "complete" ? "Can't complete yet" : "Can't activate yet"}
+      blurb={`Every item on the order has to be checked out${move === "complete" ? " before it can be completed" : " first"}. ${units} ${
         units === 1 ? "unit is" : "units are"
       } still to scan.`}
       footer={
         <>
-          {orderId && onOverridden ? (
+          {orderId && onOverridden && move !== "complete" ? (
             <button
               type="button"
               onClick={() => setOverriding(true)}

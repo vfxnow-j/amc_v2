@@ -14,7 +14,7 @@ import {
   MoveToBuild,
 } from "@/components/orders/build-groups";
 import { prisma } from "@/lib/prisma";
-import { BUILD_EDITABLE_STATUSES } from "@/lib/pricing/build-groups";
+import { BUILD_EDITABLE_STATUSES, REORDER_STATUSES } from "@/lib/pricing/build-groups";
 import { FlowLineEditor } from "@/components/orders/flow/flow-line-editor";
 import {
   getReservationActivity,
@@ -98,6 +98,8 @@ export async function LinesCard({
   const isCloud = order?.reservationType === "CLOUD";
   const structure = editable && isSale && !!order && BUILD_EDITABLE_STATUSES.includes(order.status);
   const builds = lines.filter((line) => line.isGroup);
+  // Reordering locks once the quote is sent (lib/pricing/build-groups).
+  const reorder = editable && isSale && !!order && REORDER_STATUSES.includes(order.status);
   const buildChoices = (packageId: string | null) =>
     builds
       .filter((build) => build.packageId === packageId)
@@ -172,7 +174,7 @@ export async function LinesCard({
                   </span>
                 ) : null}
                 {/* Order matters on a quote with builds: parts travel with their build. */}
-                {editable && isSale && lines.length > 1 ? (
+                {reorder && lines.length > 1 ? (
                   <span className="ml-2 inline-flex font-normal">
                     <MoveLineArrows
                       reservationId={id}
@@ -300,7 +302,7 @@ export async function LinesCard({
                   >
                     <span className="min-w-0 break-words text-ink-muted">
                       <span className="text-ink-faint">↳ </span>
-                      {line.isGroup && editable && line.components.length > 1 ? (
+                      {line.isGroup && reorder && line.components.length > 1 ? (
                         <span className="mr-1 inline-flex align-middle">
                           <MoveLineArrows
                             reservationId={id}

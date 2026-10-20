@@ -42,3 +42,19 @@ None. (The earlier isGroup / hideBuildPartPrices columns are already in prisma/m
 2. Reorder is allowed after Preparing (presentation only), unlike structural edits. Conservative alternative: restrict to BUILD_EDITABLE_STATUSES.
 3. Builds inside the New-order builder form are not offered; add if wanted.
 4. Reorder is restricted to SALE orders.
+
+## Round 2 (owner answers, 2026-10-20)
+1. Complete gate: completeOrder now runs the same scan-out gate as ship/activate for SALE orders (gateApplies in src/lib/orders/handover-rules.ts; handoverShortfall counts build parts, skips headings). Refusal is a `blocked` outcome with move "complete", named in words by shortfallMessage; the order screen's Close order button opens the NotReady dialog ("Can't complete yet", lists each line missing, "Back to scanning"), as does the scan desk. No super-admin override for completing a sale (kept crisp; ship/activate overrides unchanged). Rentals/RTO/Flow/Cloud complete as before (their check-in rule). Tests: src/lib/orders/handover.test.ts, added to the npm test glob.
+2. Reorder lock: REORDER_STATUSES = DRAFT, REVISION only, enforced in moveOrderLine and used to hide the arrows. Test added.
+3. No change to the New-order builder.
+
+### Who may edit what (BUILD_EDITABLE_STATUSES = DRAFT, QUOTE_SENT, REVISION, APPROVED) - OWNER DECISION
+| Action | Allowed statuses |
+|---|---|
+| moveOrderLine (reorder) | DRAFT, REVISION |
+| addBuildGroup, setBuildGroupQuantity, setBuildPartQuantity, moveLineToBuild, duplicateBuildGroup | DRAFT, QUOTE_SENT, REVISION, APPROVED (unchanged) |
+| setHideBuildPartPrices | any status (SALE only; no status check) |
+| Add part / remove part / set part price (addOrderLine, removeOrderLine, setLineRate) | the generic line editor's rules, not the build list |
+So after a quote is sent, builds, quantities and part moves can still change in QUOTE_SENT/APPROVED, and the hide-prices toggle at any time. Not changed; decide whether these should lock like reorder.
+
+Verification: tsc clean (apart from pre-existing RouteContext), eslint clean, npm test 509/509.
