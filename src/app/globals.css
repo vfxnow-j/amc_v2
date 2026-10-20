@@ -930,8 +930,10 @@
 
 @layer base {
   html {
-    /* figure columns must align everywhere */
-    font-variant-numeric: tabular-nums;
+    /* Not tabular-nums here: in Schibsted Grotesk the tabular feature also sets
+       the period and comma at digit width, which put a gap in front of every
+       full stop in running text ("v2 . 0"). Columns of figures opt in with the
+       tabular-nums utility instead. */
     color-scheme: light;
   }
 
