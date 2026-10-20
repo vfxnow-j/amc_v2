@@ -6,15 +6,6 @@ import {
   OrderTable,
   OrderTableSkeleton,
 } from "@/components/orders/order-table";
-import {
-  RevenueStrip,
-  RevenueStripSkeleton,
-} from "@/components/orders/revenue-strip";
-import {
-  BillingBook,
-  BillingBookSkeleton,
-} from "@/components/orders/billing-book";
-import { RangeControl } from "@/components/overview/range-control";
 import { PageHeader } from "@/components/shell/page-header";
 import { moneyCompact } from "@/lib/format";
 import {
@@ -23,7 +14,6 @@ import {
   isTypeFilter,
   type TypeFilter,
 } from "@/lib/orders/types";
-import { isRange, type Range } from "@/lib/queries/range";
 import {
   getReservationHeaderStats,
   getViewCounts,
@@ -84,8 +74,9 @@ async function ViewTabs({
  * a lease is money owed to a lender for hardware the business bought, with no
  * client and no lines, and it keeps its own screen.
  *
- * Four independent Suspense boundaries. The revenue strip runs an accrual
- * calculation over every recurring order and must never hold up the table.
+ * Just the orders: revenue by type and how it arrives live in Forecast and on
+ * the Dashboard tiles, not here. The header count and the table each sit in
+ * their own Suspense boundary so neither holds up the other.
  */
 export default async function OrdersPage({
   searchParams,
@@ -95,13 +86,11 @@ export default async function OrdersPage({
     type?: string;
     q?: string;
     page?: string;
-    range?: string;
   }>;
 }) {
   const params = await searchParams;
   const view: View = isView(params.view) ? params.view : "open";
   const type: TypeFilter = isTypeFilter(params.type) ? params.type : "all";
-  const range: Range = isRange(params.range) ? params.range : "month";
   const search = params.q?.trim() ?? "";
   const page = Math.max(1, Number(params.page) || 1);
 
@@ -117,7 +106,6 @@ export default async function OrdersPage({
         }
         actions={
           <>
-            <RangeControl range={range} />
             <Link
               href="/dashboard/orders/new"
               className="rounded-pill bg-accent-solid px-4 py-2 text-pill text-accent-on-solid"
@@ -127,17 +115,6 @@ export default async function OrdersPage({
           </>
         }
       />
-
-      <Suspense fallback={<RevenueStripSkeleton />}>
-        <RevenueStrip range={range} />
-      </Suspense>
-
-      {/* Where the money comes from, then how it arrives. The second is not the
-          first split differently: a recurring order and a one-time one of the
-          same type and value behave nothing alike once they are active. */}
-      <Suspense fallback={<BillingBookSkeleton />}>
-        <BillingBook />
-      </Suspense>
 
       <div className="flex flex-wrap items-center gap-2">
         <Suspense fallback={<FilterTabsSkeleton width={360} />}>
