@@ -229,7 +229,7 @@ const refused = (r: { ok: boolean }, label: string, reason?: RegExp & { source: 
     const otherI = await db.item.create({ data: { name: "Dup other", trackingMode: "SERIALIZED" } });
     const rx = (itemId: string, units: { serial?: string; ownerTag?: string; scanTag?: string; condition?: string }[]) => receiveUnitsTx(db, { actorUserId: actor, itemId, toLocationId: WH, units });
     ok("first receive of a serial", (await rx(dupI.id, [{ serial: "D-1", ownerTag: "OT-1" }])).ok);
-    refused(await rx(dupI.id, [{ serial: "D-1" }]), "a second receive of the same serial is refused", /serial D-1.*in storage at location loc-warehouse/);
+    refused(await rx(dupI.id, [{ serial: "D-1" }]), "a second receive of the same serial is refused", /serial D-1.*in custody \(in storage\)/);
     refused(await rx(dupI.id, [{ serial: "  d-1 " }]), "...also with case and spacing variants", /serial/);
     refused(await rx(dupI.id, [{ ownerTag: "ot-1" }]), "...and the same owner tag", /owner tag/);
     refused(await rx(dupI.id, [{ serial: "D-2" }, { serial: "d-2" }]), "...and a repeat inside one batch", /serial/);
@@ -243,6 +243,26 @@ const refused = (r: { ok: boolean }, label: string, reason?: RegExp & { source: 
     ok("re-receiving a handed-back unit by scan tag reuses it", (await rx(dupI.id, [{ scanTag: "SCAN-D3" }])).ok && (await db.unit.count({ where: { itemId: dupI.id, serial: "D-3" } })) === 1);
     await writeUnitMovement(db, { actorUserId: actor, unitId: d3.id, type: "RELEASE", recipient: "Owner", finalToOwner: true });
     ok("a handed-back unit's serial may be received again as a fresh unit (it is not in custody)", (await rx(dupI.id, [{ serial: "D-3" }])).ok && (await db.unit.count({ where: { itemId: dupI.id, serial: "D-3" } })) === 2);
+
+    // Reactivating a handed-back unit by scan tag must respect the same identity rules.
+    const reI = await db.item.create({ data: { name: "Reuse check", trackingMode: "SERIALIZED" } });
+    const handBack = async (serial: string) => {
+      const u = await db.unit.findFirstOrThrow({ where: { itemId: reI.id, serial } });
+      await writeUnitMovement(db, { actorUserId: actor, unitId: u.id, type: "RELEASE", recipient: "Owner", finalToOwner: true });
+      return u;
+    };
+    await rx(reI.id, [{ serial: "RS", scanTag: "RT-1" }]); await handBack("RS");
+    refused(await rx(reI.id, [{ scanTag: "RT-1" }, { serial: "rs" }]), "A: reactivating a unit then creating a second with its serial is refused", /serial rs/);
+    ok("...and the reactivation rolled back with it", (await db.unit.findUniqueOrThrow({ where: { scanTag: "RT-1" } })).status === "RETURNED_TO_OWNER");
+    await rx(reI.id, [{ serial: "RS" }]);
+    refused(await rx(reI.id, [{ scanTag: "RT-1" }]), "B: reactivating a unit whose serial an active unit now holds is refused", /serial RS/);
+    await rx(reI.id, [{ serial: "RO", ownerTag: "OWN-1", scanTag: "RT-2" }]); await handBack("RO");
+    await rx(reI.id, [{ serial: "RX", ownerTag: "OWN-2" }]);
+    refused(await rx(reI.id, [{ scanTag: "RT-2", ownerTag: "own-2" }]), "C: reactivating with an owner tag an active unit holds is refused", /owner tag/);
+    await rx(reI.id, [{ serial: "RH", ownerTag: "OWN-3", scanTag: "RT-3" }]); await handBack("RH");
+    ok("the happy reuse path still works (same unit, back in storage)", (await rx(reI.id, [{ scanTag: "RT-3" }])).ok && (await db.unit.findUniqueOrThrow({ where: { scanTag: "RT-3" } })).status === "IN_STORAGE");
+    refused(await rx(reI.id, [{ serial: "rh" }]), "...and its serial is now held, so a fresh unit with it is refused", /serial rh/);
+    ok("refusal messages carry no location id", !/loc-/.test(((await rx(reI.id, [{ serial: "RH" }])) as { reason?: string }).reason ?? ""));
 
     // Latest release per unit / stock row (getReleasesFor + latestReleases).
     const relI = await db.item.create({ data: { name: "Release order", trackingMode: "SERIALIZED" } });

@@ -91,27 +91,29 @@ async function destination(toLocationId: string | null | undefined, site: NewSit
 
 type UnitIn = { serial?: string | null; ownerTag?: string | null; scanTag?: string | null; condition?: string | null };
 
-type Held = { serial: string | null; ownerTag: string | null; status: string; locationId: string | null };
+type Held = { status: string };
 
 /**
  * Serials and owner tags of the units this item already holds in custody (anything not handed back),
- * compared on match.ts's normKey, kept current as units are added in the same transaction. Loaded
- * once per item per call, not once per unit.
+ * compared on match.ts's normKey, in two maps built once per call and kept current as units are added
+ * or reactivated in the same transaction. The message names the existing unit's status, never an id.
  */
 async function identityGuard(tx: Tx, itemId: string) {
-  const rows = await tx.unit.findMany({ where: { itemId, status: { not: "RETURNED_TO_OWNER" } }, select: { serial: true, ownerTag: true, status: true, currentLocationId: true } });
-  const held: Held[] = rows.map((r) => ({ serial: r.serial, ownerTag: r.ownerTag, status: r.status, locationId: r.currentLocationId }));
-  const where = (h: Held) => `${h.status === "DEPLOYED" ? "deployed" : "in storage"}${h.locationId ? ` at location ${h.locationId}` : ""}`;
+  const rows = await tx.unit.findMany({ where: { itemId, status: { not: "RETURNED_TO_OWNER" } }, select: { serial: true, ownerTag: true, status: true } });
+  const serials = new Map<string, Held>();
+  const tags = new Map<string, Held>();
+  const put = (map: Map<string, Held>, value: string | null | undefined, h: Held) => { const k = normKey(value); if (k && !map.has(k)) map.set(k, h); };
+  for (const r of rows) { put(serials, r.serial, r); put(tags, r.ownerTag, r); }
+  const state = (h: Held) => (h.status === "DEPLOYED" ? "deployed" : "in storage");
   return {
-    check(u: UnitIn) {
-      for (const [label, value, pick] of [["serial", u.serial, (h: Held) => h.serial], ["owner tag", u.ownerTag, (h: Held) => h.ownerTag]] as const) {
-        const key = normKey(value);
-        const clash = key ? held.find((h) => normKey(pick(h)) === key) : undefined;
-        if (clash) throw new Refusal(`This item already has a unit with ${label} ${blank(value)} (${where(clash)}). Nothing was received.`);
+    check(u: { serial?: string | null; ownerTag?: string | null }) {
+      for (const [label, value, map] of [["serial", u.serial, serials], ["owner tag", u.ownerTag, tags]] as const) {
+        const clash = map.get(normKey(value));
+        if (clash && normKey(value)) throw new Refusal(`This item already has a unit with ${label} ${blank(value)} in custody (${state(clash)}). Nothing was received.`);
       }
     },
-    add(u: UnitIn, status: string, locationId: string | null) {
-      held.push({ serial: blank(u.serial), ownerTag: blank(u.ownerTag), status, locationId });
+    add(u: { serial?: string | null; ownerTag?: string | null }, status: string) {
+      put(serials, u.serial, { status }); put(tags, u.ownerTag, { status });
     },
   };
 }
@@ -132,13 +134,15 @@ async function receiveOneUnit(
     if (held.itemId !== itemId || held.status !== "RETURNED_TO_OWNER") throw new Refusal("That scan tag is already on another unit.");
     const serial = blank(u.serial);
     if (serial && held.serial && serial !== held.serial) throw new Refusal("That scan tag belongs to a unit with a different serial.");
+    // The identity it will have once back in custody must not collide with another unit in custody
+    // (the reused unit itself is returned-to-owner, so it is not in the guard and cannot trip it).
+    const finalIdentity = { serial: serial ?? held.serial, ownerTag: blank(u.ownerTag) ?? held.ownerTag };
+    guard.check(finalIdentity);
     await tx.unit.update({
       where: { id: held.id },
-      data: {
-        status: next.status, currentLocationId: next.locationId,
-        serial: serial ?? held.serial, ownerTag: blank(u.ownerTag) ?? held.ownerTag, condition: blank(u.condition) ?? held.condition,
-      },
+      data: { status: next.status, currentLocationId: next.locationId, ...finalIdentity, condition: blank(u.condition) ?? held.condition },
     });
+    guard.add(finalIdentity, next.status);
     unitId = held.id;
   } else {
     guard.check(u);
@@ -149,7 +153,7 @@ async function receiveOneUnit(
       },
     });
     unitId = unit.id;
-    guard.add(u, next.status, next.locationId);
+    guard.add(u, next.status);
   }
   await tx.movement.create({
     data: {

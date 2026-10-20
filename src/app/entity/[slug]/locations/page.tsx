@@ -37,7 +37,7 @@ export default async function LocationsPage({ params }: { params: Promise<{ slug
   const stored = groupStored(placedUnits, placedStock, names);
   const deployed = groupDeployed(placedUnits, placedStock, names);
 
-  const hasRemoved = [...stored, ...deployed].some((g) => g.locationId && g.name === "Removed location");
+  const hasRemoved = [...stored, ...deployed].some((g) => g.removed);
 
   return (
     <>

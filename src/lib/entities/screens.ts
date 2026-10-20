@@ -94,7 +94,7 @@ export function duplicateIdentity(rows: DraftUnit[]): string | null {
 export type PlacedUnit = { id: string; itemId: string; itemName: string; serial: string | null; ownerTag: string | null; scanTag: string | null; status: string; currentLocationId: string | null }
 export type PlacedStock = { id: string; itemId: string; itemName: string; locationId: string; deployed: boolean; quantity: number }
 export type GroupEntry = { key: string; itemId: string; itemName: string; detail: string; quantity: number | null }
-export type Group = { locationId: string; name: string; entries: GroupEntry[] }
+export type Group = { locationId: string; name: string; /** The location id has no match in VFXnow (it was removed). */ removed: boolean; entries: GroupEntry[] }
 
 const unitDetail = (u: PlacedUnit) => [u.serial && `Serial ${u.serial}`, u.ownerTag && `Tag ${u.ownerTag}`, u.scanTag && `Scan ${u.scanTag}`].filter(Boolean).join(' · ') || 'Unit'
 
@@ -104,7 +104,7 @@ function group(entries: { locationId: string | null; entry: GroupEntry }[], name
     const id = locationId ?? ''
     let g = by.get(id)
     if (!g) {
-      g = { locationId: id, name: locationId ? (names.get(locationId) ?? 'Removed location') : 'No location recorded', entries: [] }
+      g = { locationId: id, name: locationId ? (names.get(locationId) ?? 'Removed location') : 'No location recorded', removed: !!locationId && !names.has(locationId), entries: [] }
       by.set(id, g)
     }
     g.entries.push(entry)

@@ -25,7 +25,7 @@ The app removes its own half-made database when a step fails, but not after a ha
 1. List databases named `vfxnow_ent_%` and the registered ones (`SELECT "dbName" FROM "Entity"`).
 2. For any database not in the registry, check it holds nothing: the `Item`, `Unit`, `Stock`, `Movement` tables
    should have zero rows. If it holds rows, stop: it is real data; register it or ask before touching it.
-3. Only if it is empty and unregistered: `DROP DATABASE "vfxnow_ent_<slug>";` from a connection to a different
+3. Confirm the database name starts with `vfxnow_ent_` and that no `Entity` row references it before dropping. Only if it is also empty: `DROP DATABASE "vfxnow_ent_<slug>";` from a connection to a different
    database (such as `postgres`). Double-check the name; never drop `vfxnow_amc_v2` or v1's database.
 4. Creating the entity again from Settings → Entities then works.
 
