@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Schibsted_Grotesk } from "next/font/google";
 import { ThemeProvider } from "@/components/theme/theme-provider";
 import { ThemeScript } from "@/components/theme/theme-script";
@@ -64,6 +64,14 @@ export const metadata: Metadata = {
   // Signed-in app and client portal: never in a search index. Link unfurlers
   // ignore this, so previews still render.
   robots: { index: false, follow: false },
+};
+
+// Zoom is deliberately left enabled. viewportFit "cover" lets the shell paint to
+// the screen edge on notched phones; the shell pads itself with safe-area insets.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
 };
 
 export default async function RootLayout({

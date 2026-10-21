@@ -102,7 +102,7 @@ async function UtilizationCard() {
         </CardEmpty>
       ) : (
         <>
-          <div className="grid grid-cols-[1fr_84px_84px_84px] gap-2 px-4 pb-[6px] text-colhead uppercase text-ink-muted">
+          <div className="grid grid-cols-[1fr_84px_84px_84px] max-md:min-w-[400px] gap-2 px-4 pb-[6px] text-colhead uppercase text-ink-muted">
             <span>Category</span>
             <span className="text-right">Movements</span>
             <span className="text-right">Days out</span>
@@ -112,7 +112,7 @@ async function UtilizationCard() {
             {rows.map((row, index) => (
               <li
                 key={row.category}
-                className={`grid grid-cols-[1fr_84px_84px_84px] items-center gap-2 rounded-row px-2 py-[6px] text-detail ${
+                className={`grid grid-cols-[1fr_84px_84px_84px] max-md:min-w-[400px] items-center gap-2 rounded-row px-2 py-[6px] text-detail ${
                   index % 2 === 1 ? "bg-row-alt" : ""
                 }`}
               >

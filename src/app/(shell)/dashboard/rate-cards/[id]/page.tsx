@@ -102,7 +102,7 @@ export default async function RateCardRecordPage({ params }: Params) {
               </CardEmpty>
             ) : (
               <>
-                <div className="grid grid-cols-[1fr_78px_78px_78px] gap-2 px-4 pb-[6px] text-colhead uppercase text-ink-muted">
+                <div className="grid grid-cols-[1fr_78px_78px_78px] max-md:min-w-[400px] gap-2 px-4 pb-[6px] text-colhead uppercase text-ink-muted">
                   <span>Category</span>
                   {PRICED_RATE_TIERS.map((tier) => (
                     <span key={tier} className="text-right">
@@ -114,7 +114,7 @@ export default async function RateCardRecordPage({ params }: Params) {
                   {[...byCategory].map(([key, entry]) => (
                     <li
                       key={key}
-                      className="grid grid-cols-[1fr_78px_78px_78px] items-baseline gap-2 rounded-row px-2 py-[6px] text-detail"
+                      className="grid grid-cols-[1fr_78px_78px_78px] max-md:min-w-[400px] items-baseline gap-2 rounded-row px-2 py-[6px] text-detail"
                     >
                       <span className="truncate">{entry.name}</span>
                       {PRICED_RATE_TIERS.map((tier) => {

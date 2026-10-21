@@ -225,7 +225,7 @@ export async function OrdersCard({ id }: { id: string }) {
             ) : null}
             <Link
               href={`/dashboard/orders/${order.id}`}
-              className={`grid grid-cols-[132px_1fr_110px_92px] items-center gap-2 rounded-row px-2 py-[6px] text-detail hover:bg-row-hover ${
+              className={`grid grid-cols-[132px_1fr_110px_92px] max-md:min-w-[480px] items-center gap-2 rounded-row px-2 py-[6px] text-detail hover:bg-row-hover ${
                 order.dealGroupId ? "border-l-2 border-accent-solid" : ""
               }`}
             >
@@ -274,7 +274,7 @@ export async function InvoicesCard({ id }: { id: string }) {
             <li key={invoice.id}>
               <Link
                 href={`/dashboard/invoices/${invoice.id}`}
-                className="grid grid-cols-[1fr_88px_86px_90px] items-center gap-2 rounded-row px-2 py-[6px] text-detail hover:bg-row-hover"
+                className="grid grid-cols-[1fr_88px_86px_90px] max-md:min-w-[420px] items-center gap-2 rounded-row px-2 py-[6px] text-detail hover:bg-row-hover"
               >
                 <span className="truncate font-bold">
                   {invoice.invoiceNumber}

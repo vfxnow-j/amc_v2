@@ -45,13 +45,13 @@ export async function StageStrip({ id }: { id: string }) {
 
   return (
     <section className="flex flex-col gap-3 rounded-card bg-panel px-4 py-3 shadow-sm">
-      <ol className="flex items-start gap-1">
+      <ol className="flex items-start gap-1 max-md:overflow-x-auto max-md:pb-1">
         {LIFECYCLE.map((stage, index) => {
           const done = !stopped && index < here;
           const current = !stopped && index === here;
           const at = stampFor[stage];
           return (
-            <li key={stage} className="flex min-w-0 flex-1 flex-col gap-[6px]">
+            <li key={stage} className="flex min-w-0 flex-1 flex-col gap-[6px] max-md:min-w-[88px]">
               <span
                 aria-hidden
                 className={`h-[3px] rounded-pill ${

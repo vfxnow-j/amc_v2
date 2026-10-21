@@ -330,7 +330,7 @@ export async function AssetUnitsCard({ id }: { id: string }) {
       }
       className="min-h-0"
     >
-      <div className="grid grid-cols-[92px_minmax(0,1fr)_84px_minmax(0,1fr)_74px] gap-2 px-4 pb-[6px] text-colhead uppercase text-ink-muted">
+      <div className="grid grid-cols-[92px_minmax(0,1fr)_84px_minmax(0,1fr)_74px] max-md:min-w-[520px] gap-2 px-4 pb-[6px] text-colhead uppercase text-ink-muted">
         <span>Unit</span>
         <span>Serial</span>
         <span>Status</span>
@@ -342,7 +342,7 @@ export async function AssetUnitsCard({ id }: { id: string }) {
           <li key={row.id}>
             <Link
               href={`/dashboard/units/${row.id}`}
-              className="grid grid-cols-[92px_minmax(0,1fr)_84px_minmax(0,1fr)_74px] items-center gap-2 rounded-row px-2 py-[6px] text-detail hover:bg-row-hover"
+              className="grid grid-cols-[92px_minmax(0,1fr)_84px_minmax(0,1fr)_74px] max-md:min-w-[520px] items-center gap-2 rounded-row px-2 py-[6px] text-detail hover:bg-row-hover"
             >
               <span className="truncate font-bold tabular-nums">
                 {row.barcode}

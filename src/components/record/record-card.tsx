@@ -28,7 +28,7 @@ export function Card({
 }) {
   return (
     <section
-      className={`flex min-h-0 flex-col overflow-hidden rounded-card bg-panel pt-[14px] shadow-sm ${className}`}
+      className={`flex min-h-0 flex-col overflow-hidden rounded-card bg-panel pt-[14px] shadow-sm max-md:overflow-x-auto ${className}`}
     >
       <header className="flex items-center gap-2 px-4 pb-3">
         <h2 className="text-card-title">{title}</h2>

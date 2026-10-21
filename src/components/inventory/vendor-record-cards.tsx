@@ -201,7 +201,7 @@ export async function VendorPurchaseOrdersCard({ id }: { id: string }) {
               // written before the record existed and left the reader one more
               // click from what they had already picked out by name.
               href={`/dashboard/purchase-orders/${row.id}`}
-              className="grid grid-cols-[minmax(0,1fr)_106px_80px_86px] items-center gap-2 rounded-row px-2 py-[6px] text-detail hover:bg-row-hover"
+              className="grid grid-cols-[minmax(0,1fr)_106px_80px_86px] max-md:min-w-[420px] items-center gap-2 rounded-row px-2 py-[6px] text-detail hover:bg-row-hover"
             >
               <span className="truncate font-bold tabular-nums">
                 {row.poNumber}
@@ -245,7 +245,7 @@ export async function VendorUnitsCard({ id }: { id: string }) {
           <li key={row.id}>
             <Link
               href={`/dashboard/units/${row.id}`}
-              className="grid grid-cols-[92px_minmax(0,1fr)_78px_80px_78px] items-center gap-2 rounded-row px-2 py-[6px] text-detail hover:bg-row-hover"
+              className="grid grid-cols-[92px_minmax(0,1fr)_78px_80px_78px] max-md:min-w-[500px] items-center gap-2 rounded-row px-2 py-[6px] text-detail hover:bg-row-hover"
             >
               <span className="truncate font-bold tabular-nums">
                 {row.barcode}

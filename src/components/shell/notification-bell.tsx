@@ -39,7 +39,7 @@ export function NotificationBell({ count }: { count: number | null }) {
             ? "Notifications — nothing unread"
             : `Notifications — ${formatCount(count)} unread`
       }
-      className={`relative flex-none rounded-tile p-1 transition-colors duration-200 hover:bg-row-hover hover:text-ink ${
+      className={`relative flex-none rounded-tile p-1 max-md:p-3 transition-colors duration-200 hover:bg-row-hover hover:text-ink ${
         active ? "bg-row-hover text-ink" : "text-ink-faint"
       }`}
     >

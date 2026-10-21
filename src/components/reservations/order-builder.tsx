@@ -546,7 +546,7 @@ export function OrderBuilder({
           setEnv={setCloudEnv}
         />
       ) : (
-      <section className="flex min-h-0 flex-col overflow-hidden rounded-card bg-panel pt-[14px] shadow-sm">
+      <section className="flex min-h-0 flex-col overflow-hidden rounded-card bg-panel pt-[14px] shadow-sm max-md:overflow-x-auto">
         <header className="flex items-center gap-2 px-4 pb-3">
           <h2 className="text-card-title">Equipment</h2>
           <span className="text-detail text-ink-muted">
@@ -629,7 +629,7 @@ export function OrderBuilder({
           ) : null}
         </div>
 
-        <ul className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-2 pb-3">
+        <ul className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-2 pb-3 max-md:overflow-x-auto">
           {lines.length === 0 ? (
             <li className="px-2 py-6 text-center text-body text-ink-muted">
               Nothing on this order yet — search above to add the first line.
@@ -640,7 +640,7 @@ export function OrderBuilder({
             const missing = short(line);
             const substitutes = subs[line.assetId] ?? [];
             return (
-              <li key={`${line.assetId}-${index}`} className="rounded-bubble bg-row-alt p-2">
+              <li key={`${line.assetId}-${index}`} className="rounded-bubble bg-row-alt p-2 max-md:min-w-[560px]">
                 <div
                   className={`grid items-center gap-2 px-1 ${
                     isFlow

@@ -472,7 +472,7 @@ function EquipmentCard({ record }: { record: FundingRecord }) {
         </CardEmpty>
       ) : (
         <>
-          <div className="grid grid-cols-[1fr_56px_104px_104px] gap-2 px-4 pb-[6px] text-colhead uppercase text-ink-muted">
+          <div className="grid grid-cols-[1fr_56px_104px_104px] max-md:min-w-[420px] gap-2 px-4 pb-[6px] text-colhead uppercase text-ink-muted">
             <span>Item</span>
             <span className="text-right">Qty</span>
             <span className="text-right">Unit</span>
@@ -482,7 +482,7 @@ function EquipmentCard({ record }: { record: FundingRecord }) {
             {record.items.map((item, index) => (
               <li
                 key={item.id}
-                className={`grid grid-cols-[1fr_56px_104px_104px] items-baseline gap-2 rounded-row p-2 text-detail ${index % 2 === 1 ? "bg-row-alt" : ""}`}
+                className={`grid grid-cols-[1fr_56px_104px_104px] max-md:min-w-[420px] items-baseline gap-2 rounded-row p-2 text-detail ${index % 2 === 1 ? "bg-row-alt" : ""}`}
               >
                 <span className="truncate">{item.description}</span>
                 <span className="text-right tabular-nums">{item.quantity}</span>

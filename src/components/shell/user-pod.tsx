@@ -66,7 +66,7 @@ export function UserPod({
         <DropdownMenu>
           <DropdownMenuTrigger
             aria-label="Account menu"
-            className="flex-none rounded-tile p-1 text-ink-faint transition-colors duration-200 hover:bg-row-hover hover:text-ink"
+            className="flex-none rounded-tile p-1 max-md:p-3 text-ink-faint transition-colors duration-200 hover:bg-row-hover hover:text-ink"
           >
             <Settings className="size-4" aria-hidden />
           </DropdownMenuTrigger>

@@ -973,6 +973,22 @@
   }
 }
 
+/* Phones: iOS zooms the page when a focused field is under 16px, and the app's
+   fields are mostly 11-13px. Unlayered on purpose so it beats the utilities.
+   Checkboxes, radios and buttons-as-inputs keep their own size. Touch height
+   floor of 40px on text-like fields. */
+@media (max-width: 767.98px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="color"]),
+  select,
+  textarea {
+    font-size: 16px;
+  }
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="color"]),
+  select {
+    min-height: 40px;
+  }
+}
+
 /* Printing the forecast report: drop the app chrome, let the page flow across
    sheets instead of scrolling inside the viewport, and print landscape. Only
    when a report is on screen — other screens print as they always did. */

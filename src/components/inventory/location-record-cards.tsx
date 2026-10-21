@@ -86,7 +86,7 @@ export async function LocationUnitsCard({
       }
       className="min-h-0"
     >
-      <div className="grid grid-cols-[92px_minmax(0,1.2fr)_84px_minmax(0,1fr)] gap-2 px-4 pb-[6px] text-colhead uppercase text-ink-muted">
+      <div className="grid grid-cols-[92px_minmax(0,1.2fr)_84px_minmax(0,1fr)] max-md:min-w-[440px] gap-2 px-4 pb-[6px] text-colhead uppercase text-ink-muted">
         <span>Unit</span>
         <span>Asset</span>
         <span>Status</span>
@@ -96,7 +96,7 @@ export async function LocationUnitsCard({
         {rows.map((row) => (
           <li
             key={row.id}
-            className="grid grid-cols-[92px_minmax(0,1.2fr)_84px_minmax(0,1fr)] items-center gap-2 rounded-row px-2 py-[6px] text-detail hover:bg-row-hover"
+            className="grid grid-cols-[92px_minmax(0,1.2fr)_84px_minmax(0,1fr)] max-md:min-w-[440px] items-center gap-2 rounded-row px-2 py-[6px] text-detail hover:bg-row-hover"
           >
             {/* Three links in one row rather than one link over the whole row:
                 the unit, what it is, and who has it are three different records
@@ -175,7 +175,7 @@ export async function LocationAssetsCard({ id }: { id: string }) {
       }
       className="min-h-0"
     >
-      <div className="grid grid-cols-[minmax(0,1fr)_56px_56px_56px] gap-2 px-4 pb-[6px] text-colhead uppercase text-ink-muted">
+      <div className="grid grid-cols-[minmax(0,1fr)_56px_56px_56px] max-md:min-w-[320px] gap-2 px-4 pb-[6px] text-colhead uppercase text-ink-muted">
         <span>Asset</span>
         <span className="text-right">Here</span>
         <span className="text-right">Free</span>
@@ -190,7 +190,7 @@ export async function LocationAssetsCard({ id }: { id: string }) {
                 same set the row counted. */}
             <Link
               href={`/dashboard/units?asset=${row.id}&location=${id}`}
-              className="grid grid-cols-[minmax(0,1fr)_56px_56px_56px] items-center gap-2 rounded-row px-2 py-[6px] text-detail hover:bg-row-hover"
+              className="grid grid-cols-[minmax(0,1fr)_56px_56px_56px] max-md:min-w-[320px] items-center gap-2 rounded-row px-2 py-[6px] text-detail hover:bg-row-hover"
             >
               <span className="truncate font-bold">{row.name}</span>
               <span className="text-right tabular-nums">{row.inFleet}</span>
@@ -261,7 +261,7 @@ export async function LocationTransfersCard({
         {rows.map((row) => (
           <li
             key={row.id}
-            className="grid grid-cols-[84px_86px_minmax(0,1fr)_minmax(0,1fr)] items-center gap-2 rounded-row px-2 py-[6px] text-detail hover:bg-row-hover"
+            className="grid grid-cols-[84px_86px_minmax(0,1fr)_minmax(0,1fr)] max-md:min-w-[420px] items-center gap-2 rounded-row px-2 py-[6px] text-detail hover:bg-row-hover"
           >
             <span className="tabular-nums text-ink-muted">
               {dayYear(row.date)}
@@ -332,7 +332,7 @@ export async function LocationInboundCard({ id }: { id: string }) {
           <li key={row.id}>
             <Link
               href={`/dashboard/purchase-orders/${row.id}`}
-              className="grid grid-cols-[minmax(0,1fr)_106px_78px_84px] items-center gap-2 rounded-row px-2 py-[6px] text-detail hover:bg-row-hover"
+              className="grid grid-cols-[minmax(0,1fr)_106px_78px_84px] max-md:min-w-[420px] items-center gap-2 rounded-row px-2 py-[6px] text-detail hover:bg-row-hover"
             >
               <span className="truncate font-bold tabular-nums">
                 {row.poNumber}

@@ -152,7 +152,7 @@ async function Body() {
           </CardEmpty>
         ) : (
           <>
-            <div className="grid grid-cols-[1fr_56px_92px_92px] gap-2 px-4 pb-[6px] text-colhead uppercase text-ink-muted">
+            <div className="grid grid-cols-[1fr_56px_92px_92px] max-md:min-w-[400px] gap-2 px-4 pb-[6px] text-colhead uppercase text-ink-muted">
               <span>Stage</span>
               <span className="text-right">Leads</span>
               <span className="text-right">Asked</span>
@@ -162,7 +162,7 @@ async function Body() {
               {report.leadsByStage.map((stage, index) => (
                 <li
                   key={stage.stage}
-                  className={`grid grid-cols-[1fr_56px_92px_92px] items-center gap-2 rounded-row px-2 py-[6px] text-detail ${
+                  className={`grid grid-cols-[1fr_56px_92px_92px] max-md:min-w-[400px] items-center gap-2 rounded-row px-2 py-[6px] text-detail ${
                     index % 2 === 1 ? "bg-row-alt" : ""
                   }`}
                 >

@@ -45,7 +45,7 @@ export default async function ShellLayout({
   if (waiting !== null && waiting > 0) counts.pages.approvals = waiting;
 
   return (
-    <div className="flex min-h-0 flex-1 gap-3 bg-ground p-3">
+    <div className="flex min-h-0 flex-1 flex-col gap-2 bg-ground pb-[max(0.5rem,env(safe-area-inset-bottom))] pl-[max(0.5rem,env(safe-area-inset-left))] pr-[max(0.5rem,env(safe-area-inset-right))] pt-[max(0.5rem,env(safe-area-inset-top))] md:flex-row md:gap-3 md:pb-[max(0.75rem,env(safe-area-inset-bottom))] md:pl-[max(0.75rem,env(safe-area-inset-left))] md:pr-[max(0.75rem,env(safe-area-inset-right))] md:pt-[max(0.75rem,env(safe-area-inset-top))]">
       <div data-print-hide className="contents">
         <NavPanel
           user={user}
@@ -65,7 +65,7 @@ export default async function ShellLayout({
       </div>
       {/* Scrolls itself, now that the page does not. `min-h-0` so a tall child
           cannot push the main column past the viewport instead of scrolling. */}
-      <main className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-y-auto">
+      <main className="flex min-h-0 min-w-0 flex-1 flex-col gap-2 overflow-y-auto md:gap-3">
         {children}
       </main>
     </div>

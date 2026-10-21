@@ -402,7 +402,7 @@ function BookedCard({ orders }: { orders: ForecastOrder[] }) {
         <CardEmpty>Nothing approved or live bills in the next twelve months.</CardEmpty>
       ) : (
         <>
-          <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,0.9fr)_84px_92px] gap-2 px-4 pb-[6px] text-colhead uppercase text-ink-muted">
+          <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,0.9fr)_84px_92px] max-md:min-w-[440px] gap-2 px-4 pb-[6px] text-colhead uppercase text-ink-muted">
             <span>Order</span>
             <span>Term</span>
             <span className="text-right">Monthly</span>
@@ -413,7 +413,7 @@ function BookedCard({ orders }: { orders: ForecastOrder[] }) {
               <li key={o.id}>
                 <Link
                   href={`/dashboard/orders/${o.id}`}
-                  className="grid grid-cols-[minmax(0,1fr)_minmax(0,0.9fr)_84px_92px] items-baseline gap-2 rounded-row px-2 py-[6px] text-detail hover:bg-row-hover"
+                  className="grid grid-cols-[minmax(0,1fr)_minmax(0,0.9fr)_84px_92px] max-md:min-w-[440px] items-baseline gap-2 rounded-row px-2 py-[6px] text-detail hover:bg-row-hover"
                 >
                   <span className="min-w-0">
                     <span className="block truncate font-bold">{o.client}</span>

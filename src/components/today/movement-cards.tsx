@@ -5,7 +5,7 @@ import { getIncoming, getOutgoing } from "@/lib/queries/today";
 const DAY = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" });
 
 /** Order · Client · Units · When */
-const COLUMNS = "grid-cols-[112px_1fr_44px_78px]";
+const COLUMNS = "grid-cols-[112px_1fr_44px_78px] max-md:min-w-[420px]";
 
 const STATUS_LABEL: Partial<Record<ReservationStatus, string>> = {
   APPROVED: "Approved",
@@ -30,7 +30,7 @@ function QueueCard({
   footer?: React.ReactNode;
 }) {
   return (
-    <section className="flex min-h-0 flex-col overflow-hidden rounded-card bg-panel pt-[14px] shadow-sm">
+    <section className="flex min-h-0 flex-col overflow-hidden rounded-card bg-panel pt-[14px] shadow-sm max-md:overflow-x-auto">
       <header className="flex items-center gap-2 px-4 pb-3">
         <h2 className="text-card-title">{title}</h2>
         {pill ? (

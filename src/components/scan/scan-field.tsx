@@ -7,6 +7,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+import { CameraScanner } from "@/components/scan/camera-scanner";
 import { audioReady, buzz, playTone, unlockAudio, type Tone } from "@/lib/scan/audio";
 import { audibleStore } from "@/lib/scan/audible-store";
 
@@ -68,6 +69,22 @@ export function ScanField({
 
   const [armed, setArmed] = useState(true);
   const [hint, setHint] = useState("");
+  const [camera, setCamera] = useState(false);
+  // What the server said about the last scan, for the camera overlay to show.
+  const [cameraResult, setCameraResult] = useState<{ id: number; tone: Tone; code: string } | null>(null);
+  const resultId = useRef(0);
+  const [canCamera, setCanCamera] = useState(false);
+  const [coarse, setCoarse] = useState(false);
+
+  // Decided after mount so the server and first client render agree.
+  useEffect(() => {
+    setCanCamera(!!navigator.mediaDevices?.getUserMedia);
+    const touch = window.matchMedia("(pointer: coarse)").matches;
+    setCoarse(touch);
+    // A gun wants the field focused at once; on a phone that would only raise
+    // the keyboard over the screen.
+    if (!touch) inputRef.current?.focus();
+  }, []);
 
   const audible = useSyncExternalStore(
     audibleStore.subscribe,
@@ -93,6 +110,7 @@ export function ScanField({
         const code = queue.current.shift()!;
         const tone = await onCommit(code);
         sound(tone);
+        setCameraResult({ id: ++resultId.current, tone, code });
       }
     } finally {
       draining.current = false;
@@ -106,6 +124,11 @@ export function ScanField({
     // Cleared before anything async, so the next scan has somewhere to land in
     // the same tick.
     input.value = "";
+    enqueue(code);
+  }
+
+  // The one way a code gets in, whether a gun typed it or the camera read it.
+  function enqueue(code: string) {
     if (!code) return;
 
     if (blocked) {
@@ -153,7 +176,6 @@ export function ScanField({
           <span className="sr-only">Barcode or serial</span>
           <input
             ref={inputRef}
-            autoFocus
             autoComplete="off"
             autoCapitalize="off"
             autoCorrect="off"
@@ -180,6 +202,19 @@ export function ScanField({
           />
         </label>
 
+        {canCamera ? (
+          <button
+            type="button"
+            onClick={() => {
+              unlockAudio();
+              setCamera(true);
+            }}
+            className="min-h-10 rounded-pill bg-accent-solid px-4 py-2 text-pill font-medium text-[var(--accent-on-solid)] shadow-sm"
+          >
+            Camera
+          </button>
+        ) : null}
+
         <label className="flex items-center gap-2 rounded-pill bg-panel px-3 py-2 shadow-sm">
           <input
             type="checkbox"
@@ -197,7 +232,18 @@ export function ScanField({
         </label>
       </div>
 
-      {!armed ? (
+      {camera ? (
+        <CameraScanner
+          onDetect={(code) => enqueue(code)}
+          result={cameraResult}
+          onClose={() => {
+            setCamera(false);
+            if (!coarse) inputRef.current?.focus();
+          }}
+        />
+      ) : null}
+
+      {!armed && !coarse ? (
         <p
           role="status"
           className="rounded-well bg-[var(--warning)] px-3 py-1 text-detail text-[var(--warning-on)]"

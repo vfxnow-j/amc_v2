@@ -43,7 +43,7 @@ export function ClusterBubble({
         onClick={onToggle}
         aria-expanded={open}
         aria-controls={panelId}
-        className="flex w-full cursor-pointer items-center gap-[9px] rounded-bubble px-[10px] py-2 text-left select-none"
+        className="flex w-full cursor-pointer items-center gap-[9px] rounded-bubble px-[10px] py-2 max-md:min-h-11 text-left select-none"
       >
         <span
           aria-hidden
@@ -105,7 +105,7 @@ export function ClusterBubble({
                 href={page.href}
                 data-nav-page
                 aria-current={active ? "page" : undefined}
-                className={`mt-[2px] flex items-center gap-[9px] rounded-row px-[10px] py-[6px] transition-colors duration-[160ms] ${
+                className={`mt-[2px] flex items-center gap-[9px] rounded-row px-[10px] py-[6px] max-md:min-h-11 transition-colors duration-[160ms] ${
                   active
                     ? "bg-accent-fill-solid font-bold text-accent-on-fill"
                     : "text-ink-muted hover:bg-row-hover hover:text-ink"

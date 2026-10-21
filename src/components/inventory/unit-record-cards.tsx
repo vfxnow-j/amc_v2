@@ -95,7 +95,7 @@ export async function MovementsCard({ id }: { id: string }) {
       }
       className="min-h-0"
     >
-      <div className="grid grid-cols-[minmax(0,1fr)_96px_78px_78px_84px] gap-2 px-4 pb-[6px] text-colhead uppercase text-ink-muted">
+      <div className="grid grid-cols-[minmax(0,1fr)_96px_78px_78px_84px] max-md:min-w-[500px] gap-2 px-4 pb-[6px] text-colhead uppercase text-ink-muted">
         <span>Client</span>
         <span>Order</span>
         <span>Out</span>
@@ -139,7 +139,7 @@ export async function MovementsCard({ id }: { id: string }) {
           );
 
           const className =
-            "grid grid-cols-[minmax(0,1fr)_96px_78px_78px_84px] items-center gap-2 rounded-row px-2 py-[6px] text-detail";
+            "grid grid-cols-[minmax(0,1fr)_96px_78px_78px_84px] max-md:min-w-[500px] items-center gap-2 rounded-row px-2 py-[6px] text-detail";
 
           return (
             <li key={row.id}>
@@ -190,7 +190,7 @@ export async function ServiceHistoryCard({ id }: { id: string }) {
           <li key={order.id}>
             <Link
               href={`/dashboard/service/work-orders/${order.id}`}
-              className="grid grid-cols-[92px_minmax(0,1fr)_96px_78px] items-center gap-2 rounded-row px-2 py-[6px] text-detail hover:bg-row-hover"
+              className="grid grid-cols-[92px_minmax(0,1fr)_96px_78px] max-md:min-w-[420px] items-center gap-2 rounded-row px-2 py-[6px] text-detail hover:bg-row-hover"
             >
               <span className="truncate font-bold tabular-nums">
                 {order.number}
@@ -208,7 +208,7 @@ export async function ServiceHistoryCard({ id }: { id: string }) {
         {maintenance.map((record) => (
           <li
             key={record.id}
-            className="grid grid-cols-[92px_minmax(0,1fr)_96px_78px] items-center gap-2 rounded-row px-2 py-[6px] text-detail"
+            className="grid grid-cols-[92px_minmax(0,1fr)_96px_78px] max-md:min-w-[420px] items-center gap-2 rounded-row px-2 py-[6px] text-detail"
           >
             <span className="truncate text-ink-muted">
               {MAINTENANCE_TYPE_LABEL[record.type] ?? record.type}

@@ -52,7 +52,7 @@ export async function POLinesCard({ id }: { id: string }) {
           : `${outstanding} of ${lines.length} still to come`
       }
     >
-      <div className="grid grid-cols-[1fr_92px_100px_104px] gap-2 px-4 pb-[6px] text-colhead uppercase text-ink-muted">
+      <div className="grid grid-cols-[1fr_92px_100px_104px] max-md:min-w-[460px] gap-2 px-4 pb-[6px] text-colhead uppercase text-ink-muted">
         <span>Description</span>
         <span className="text-right">Received</span>
         <span className="text-right">Unit</span>
@@ -65,7 +65,7 @@ export async function POLinesCard({ id }: { id: string }) {
             key={line.id}
             className={`rounded-row p-2 text-detail ${index % 2 === 1 ? "bg-row-alt" : ""}`}
           >
-            <div className="grid grid-cols-[1fr_92px_100px_104px] items-baseline gap-2">
+            <div className="grid grid-cols-[1fr_92px_100px_104px] max-md:min-w-[460px] items-baseline gap-2">
               <span className="truncate">{line.description}</span>
               <span
                 className={`text-right tabular-nums ${line.remaining > 0 ? "font-bold text-accent-text" : "text-ink-muted"}`}

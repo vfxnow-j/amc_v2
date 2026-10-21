@@ -54,7 +54,7 @@ export async function LinesCard({
       title="Lines"
       meta={`${lines.length} ${lines.length === 1 ? "line" : "lines"}`}
     >
-      <div className="grid grid-cols-[1fr_56px_104px_112px] gap-2 px-4 pb-[6px] text-colhead uppercase text-ink-muted">
+      <div className="grid grid-cols-[1fr_56px_104px_112px] max-md:min-w-[420px] gap-2 px-4 pb-[6px] text-colhead uppercase text-ink-muted">
         <span>Description</span>
         <span className="text-right">Qty</span>
         <span className="text-right">Unit</span>
@@ -65,7 +65,7 @@ export async function LinesCard({
         {lines.map((line, index) => (
           <li
             key={line.id}
-            className={`grid grid-cols-[1fr_56px_104px_112px] items-center gap-2 rounded-row p-2 text-detail ${
+            className={`grid grid-cols-[1fr_56px_104px_112px] max-md:min-w-[420px] items-center gap-2 rounded-row p-2 text-detail ${
               index % 2 === 1 ? "bg-row-alt" : ""
             }`}
           >

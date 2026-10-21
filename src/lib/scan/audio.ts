@@ -97,6 +97,34 @@ export function playTone(tone: Tone): void {
  * Guarded rather than assumed: `navigator.vibrate` is absent on iOS entirely,
  * and calling it there throws.
  */
+/**
+ * A short tap for a scan that was accepted. Android and desktop browsers have
+ * the Vibration API. iOS Safari and every browser on iPhone do not, but a
+ * checkbox with the `switch` attribute taps the Taptic Engine when toggled, so
+ * that is used as a best effort there — it can silently do nothing.
+ */
+export function confirmHaptic(): void {
+  if (typeof navigator === "undefined") return;
+  if (typeof navigator.vibrate === "function") {
+    navigator.vibrate(60);
+    return;
+  }
+  try {
+    const label = document.createElement("label");
+    label.setAttribute("aria-hidden", "true");
+    label.style.cssText = "position:fixed;left:-100px;top:0;opacity:0;pointer-events:none";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.setAttribute("switch", "");
+    label.appendChild(input);
+    document.body.appendChild(label);
+    label.click();
+    label.remove();
+  } catch {
+    // No haptics here.
+  }
+}
+
 export function buzz(): void {
   if (typeof navigator !== "undefined" && "vibrate" in navigator) {
     navigator.vibrate?.(40);

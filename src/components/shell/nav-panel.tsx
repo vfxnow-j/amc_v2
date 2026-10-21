@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard } from "lucide-react";
+import { LayoutDashboard, Menu, X } from "lucide-react";
 import { BrandLockup } from "@/components/shell/brand-lockup";
 import { ClusterBubble } from "@/components/shell/cluster-bubble";
 import { CommandPalette } from "@/components/shell/command-palette";
@@ -88,6 +88,16 @@ export function NavPanel({
   const dashboardActive = pathname === DASHBOARD_PAGE.href;
 
   const [paletteOpen, setPaletteOpen] = useState(false);
+
+  // Phone drawer. Open state is recorded against the route it was opened on, so
+  // navigating retires it without an effect (same trick as `override` above).
+  const [drawerPath, setDrawerPath] = useState<string | null>(null);
+  const drawerOpen = drawerPath === pathname;
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const closeDrawer = useCallback(() => {
+    setDrawerPath(null);
+    menuButtonRef.current?.focus();
+  }, []);
   const railRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLButtonElement>(null);
 
@@ -164,20 +174,101 @@ export function NavPanel({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [clusters, openCluster, pageLinks, paletteOpen, pathname]);
 
+  // Escape closes the drawer; Tab is kept inside it while it is open.
+  useEffect(() => {
+    if (!drawerOpen) return;
+    const rail = railRef.current;
+    const focusable = () =>
+      Array.from(
+        rail?.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ) ?? [],
+      ).filter((el) => el.offsetParent !== null);
+    focusable()[0]?.focus();
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape" && !paletteOpen) {
+        event.preventDefault();
+        closeDrawer();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const items = focusable();
+      if (items.length === 0) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      const activeEl = document.activeElement;
+      if (!rail?.contains(activeEl)) {
+        event.preventDefault();
+        first.focus();
+      } else if (event.shiftKey && activeEl === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && activeEl === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [drawerOpen, paletteOpen, closeDrawer]);
+
   return (
-    // bg-nav, not bg-panel: --nav-surface is --panel until the `data-nav` axis
-    // moves it. See "Appearance axes" in globals.css.
+    <>
+      {/* Phone top bar: below md the rail becomes a slide-over drawer. */}
+      <header className="flex h-12 flex-none items-center gap-1 rounded-card bg-nav px-1 shadow-sm md:hidden">
+        <button
+          ref={menuButtonRef}
+          type="button"
+          aria-label="Open menu"
+          aria-expanded={drawerOpen}
+          onClick={() => setDrawerPath(pathname)}
+          className="flex size-11 flex-none items-center justify-center rounded-tile text-ink hover:bg-row-hover"
+        >
+          <Menu className="size-5" aria-hidden />
+        </button>
+        <Link href={DASHBOARD_PAGE.href} className="min-w-0 flex-1 truncate text-[14px] font-extrabold text-ink">
+          VFXnow | AMC
+        </Link>
+        <span className="flex size-11 flex-none items-center justify-center [&_a]:flex [&_a]:size-11 [&_a]:items-center [&_a]:justify-center [&_svg]:size-5">
+          {bell}
+        </span>
+      </header>
+      {drawerOpen ? (
+        <button
+          type="button"
+          aria-label="Close menu"
+          tabIndex={-1}
+          onClick={closeDrawer}
+          className="fixed inset-0 z-40 bg-black/50 md:hidden"
+        />
+      ) : null}
+    {/* bg-nav, not bg-panel: --nav-surface is --panel until the `data-nav` axis
+        moves it. See "Appearance axes" in globals.css. Below md this is a fixed
+        drawer; md and up it is the in-flow rail exactly as before. */}
     <div
       ref={railRef}
-      className="flex w-64 flex-none flex-col rounded-card bg-nav px-[10px] py-[14px] shadow-sm"
+      role={drawerOpen ? "dialog" : undefined}
+      aria-modal={drawerOpen ? true : undefined}
+      aria-label={drawerOpen ? "Menu" : undefined}
+      className={`flex w-64 flex-none flex-col rounded-card bg-nav px-[10px] py-[14px] shadow-sm max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-50 max-md:w-[85vw] max-md:max-w-72 max-md:rounded-l-none max-md:pb-[max(14px,env(safe-area-inset-bottom))] max-md:pt-[max(14px,env(safe-area-inset-top))] max-md:transition-transform max-md:duration-200 ${
+        drawerOpen ? "max-md:translate-x-0" : "max-md:invisible max-md:-translate-x-full"
+      }`}
     >
+      <button
+        type="button"
+        aria-label="Close menu"
+        onClick={closeDrawer}
+        className="mb-1 flex size-11 flex-none items-center justify-center self-end rounded-tile text-ink-muted hover:bg-row-hover md:hidden"
+      >
+        <X className="size-5" aria-hidden />
+      </button>
       <BrandLockup />
       <NavSearch ref={searchRef} onOpen={() => setPaletteOpen(true)} />
 
       <Link
         href={DASHBOARD_PAGE.href}
         aria-current={dashboardActive ? "page" : undefined}
-        className={`mt-[10px] flex items-center gap-[9px] rounded-bubble px-[10px] py-2 transition-colors duration-200 ${
+        className={`mt-[10px] flex items-center gap-[9px] rounded-bubble px-[10px] py-2 max-md:min-h-11 transition-colors duration-200 ${
           dashboardActive
             ? "bg-nav-bubble-open text-accent-on-tint"
             : "bg-nav-bubble-quiet text-ink hover:bg-row-hover"
@@ -219,5 +310,6 @@ export function NavPanel({
         <CommandPalette role={user.role} approver={approver} onClose={closePalette} />
       ) : null}
     </div>
+    </>
   );
 }

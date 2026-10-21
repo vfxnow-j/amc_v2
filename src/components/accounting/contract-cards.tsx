@@ -55,7 +55,7 @@ export async function ContractLinesCard({ id }: { id: string }) {
           : `${money(margin)} margin on the ${costedCount} ${costedCount === 1 ? "line" : "lines"} that carry a cost`
       }
     >
-      <div className="grid grid-cols-[1fr_46px_98px_98px_84px] gap-2 px-4 pb-[6px] text-colhead uppercase text-ink-muted">
+      <div className="grid grid-cols-[1fr_46px_98px_98px_84px] max-md:min-w-[480px] gap-2 px-4 pb-[6px] text-colhead uppercase text-ink-muted">
         <span>Item</span>
         <span className="text-right">Qty</span>
         <span className="text-right">Cost</span>
@@ -67,7 +67,7 @@ export async function ContractLinesCard({ id }: { id: string }) {
         {lines.map((line, index) => (
           <li
             key={line.id}
-            className={`grid grid-cols-[1fr_46px_98px_98px_84px] items-baseline gap-2 rounded-row p-2 text-detail ${
+            className={`grid grid-cols-[1fr_46px_98px_98px_84px] max-md:min-w-[480px] items-baseline gap-2 rounded-row p-2 text-detail ${
               index % 2 === 1 ? "bg-row-alt" : ""
             }`}
           >
@@ -223,7 +223,7 @@ export async function LeaseUnitsCard({ id }: { id: string }) {
         </CardEmpty>
       ) : (
         <>
-        <div className="grid grid-cols-[80px_1fr_92px_92px_92px] gap-2 px-4 pb-[6px] text-colhead uppercase text-ink-muted">
+        <div className="grid grid-cols-[80px_1fr_92px_92px_92px] max-md:min-w-[520px] gap-2 px-4 pb-[6px] text-colhead uppercase text-ink-muted">
           <span>Unit</span>
           <span>Asset</span>
           <span>State</span>
@@ -238,7 +238,7 @@ export async function LeaseUnitsCard({ id }: { id: string }) {
             >
               <Link
                 href={`/dashboard/units/${unit.id}`}
-                className="grid grid-cols-[80px_1fr_92px_92px_92px] items-baseline gap-2 rounded-row p-2 text-detail hover:bg-row-hover"
+                className="grid grid-cols-[80px_1fr_92px_92px_92px] max-md:min-w-[520px] items-baseline gap-2 rounded-row p-2 text-detail hover:bg-row-hover"
               >
                 <span className="truncate font-bold tabular-nums">
                   {unit.barcode}

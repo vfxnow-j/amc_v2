@@ -9,7 +9,7 @@ const TIME = new Intl.DateTimeFormat("en-US", {
 const DAY = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" });
 
 /** Unit · Asset · Client · Due · State */
-const COLUMNS = "grid-cols-[84px_1fr_128px_62px_74px]";
+const COLUMNS = "grid-cols-[84px_1fr_128px_62px_74px] max-md:min-w-[520px]";
 
 function daysLate(due: Date, now: Date) {
   const days = Math.floor((now.getTime() - due.getTime()) / 86_400_000);

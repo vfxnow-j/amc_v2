@@ -19,7 +19,7 @@ export function PageHeader({
   actions?: React.ReactNode;
 }) {
   return (
-    <header className="flex items-center gap-[14px] rounded-card bg-panel px-4 py-3 shadow-sm">
+    <header className="flex items-center gap-[14px] rounded-card bg-panel px-4 py-3 shadow-sm max-md:flex-wrap max-md:gap-x-3 max-md:gap-y-2">
       <div className="min-w-0">
         {eyebrow ? (
           <p className="text-micro uppercase text-ink-muted">{eyebrow}</p>
@@ -28,7 +28,7 @@ export function PageHeader({
         {blurb ? <p className="text-body text-ink-muted">{blurb}</p> : null}
       </div>
       {actions ? (
-        <div className="ml-auto flex flex-none items-center gap-2">
+        <div className="ml-auto flex flex-none items-center gap-2 max-md:max-w-full max-md:flex-wrap">
           {actions}
         </div>
       ) : null}

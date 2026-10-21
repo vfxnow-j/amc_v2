@@ -43,7 +43,7 @@ export default async function ScanListRecordPage({ params }: Params) {
 
   const unresolved = list.items.filter((item) => item.unitId === null).length;
   const columns =
-    "grid grid-cols-[104px_minmax(0,1.4fr)_90px_minmax(0,1fr)_92px] items-center gap-2";
+    "grid grid-cols-[104px_minmax(0,1.4fr)_90px_minmax(0,1fr)_92px] max-md:min-w-[560px] items-center gap-2";
 
   return (
     <>

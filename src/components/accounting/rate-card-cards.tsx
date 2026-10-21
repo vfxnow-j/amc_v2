@@ -53,7 +53,7 @@ export async function RateGapCard({ id }: { id: string }) {
       title="Against the catalog"
       meta={`${rows.length} differ · ${matched} agree`}
     >
-      <div className="grid grid-cols-[1fr_84px_100px_100px] gap-2 px-4 pb-[6px] text-colhead uppercase text-ink-muted">
+      <div className="grid grid-cols-[1fr_84px_100px_100px] max-md:min-w-[440px] gap-2 px-4 pb-[6px] text-colhead uppercase text-ink-muted">
         <span>Asset</span>
         <span>Tier</span>
         <span className="text-right">Charged now</span>
@@ -68,7 +68,7 @@ export async function RateGapCard({ id }: { id: string }) {
           >
             <Link
               href={`/dashboard/assets/${row.assetId}`}
-              className="grid grid-cols-[1fr_84px_100px_100px] items-baseline gap-2 rounded-row p-2 text-detail hover:bg-row-hover"
+              className="grid grid-cols-[1fr_84px_100px_100px] max-md:min-w-[440px] items-baseline gap-2 rounded-row p-2 text-detail hover:bg-row-hover"
             >
               <span className="truncate">{row.assetName}</span>
               <span className="truncate text-ink-muted">

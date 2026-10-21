@@ -132,8 +132,8 @@ export async function LinesCard({
   // an editable rate is an input plus a basis select ("2700.00 /project"), and at
   // 96px both were clipped to "27C /projec".
   const tracks = editable
-    ? "grid-cols-[minmax(0,1fr)_58px_150px_96px_20px]"
-    : "grid-cols-[minmax(0,1fr)_58px_130px_96px]";
+    ? "grid-cols-[minmax(0,1fr)_58px_150px_96px_20px] max-md:min-w-[480px]"
+    : "grid-cols-[minmax(0,1fr)_58px_130px_96px] max-md:min-w-[440px]";
   const unitCount = lines.reduce((sum, line) => sum + line.units.length, 0);
 
   if (lines.length === 0) {
@@ -163,9 +163,9 @@ export async function LinesCard({
       title={title}
       meta={`${lines.length} ${lines.length === 1 ? "line" : "lines"} · ${unitCount} ${unitCount === 1 ? "unit" : "units"} attached`}
     >
-      <ul className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-2 pb-3">
+      <ul className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-2 pb-3 max-md:overflow-x-auto">
         {lines.map((line, lineIndex) => (
-          <li key={line.id} className="rounded-bubble bg-row-alt p-2">
+          <li key={line.id} className="rounded-bubble bg-row-alt p-2 max-md:min-w-[640px]">
             <div
               className={`grid items-baseline gap-2 px-1 ${tracks}`}
             >
@@ -462,7 +462,7 @@ export async function LinesCard({
                   return (
                     <li
                       key={unit.id}
-                      className="grid grid-cols-[104px_1fr_112px_84px] items-center gap-2 rounded-row px-2 py-[5px] text-detail hover:bg-row-hover"
+                      className="grid grid-cols-[104px_1fr_112px_84px] max-md:min-w-[460px] items-center gap-2 rounded-row px-2 py-[5px] text-detail hover:bg-row-hover"
                     >
                       <Link
                         href={`/dashboard/units/${unit.assetUnitId}`}

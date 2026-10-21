@@ -114,6 +114,11 @@ export function ListTable({
       className={`${frame} overflow-hidden rounded-card bg-panel pt-[14px] shadow-sm`}
     >
       {heading}
+      {/* Below md the columns keep a readable minimum width and the table
+          scrolls sideways inside its own card; md and up the two wrappers are
+          `display: contents`, so the layout is exactly the original. */}
+      <div className="flex min-h-0 flex-1 flex-col overflow-x-auto md:contents">
+      <div className="flex min-h-0 min-w-[720px] flex-1 flex-col md:contents">
       <div
         className="grid gap-2 px-4 pb-[6px] text-colhead uppercase text-ink-muted"
         style={{ gridTemplateColumns: tracks }}
@@ -177,6 +182,8 @@ export function ListTable({
           );
         })}
       </ul>
+      </div>
+      </div>
 
       <footer className="flex items-center gap-3 px-4 py-3 text-detail text-ink-muted">
         <span>
@@ -187,7 +194,7 @@ export function ListTable({
           {footerNote ? <> · {footerNote}</> : null}
         </span>
         {pagination && pagination.pages > 1 ? (
-          <span className="ml-auto flex items-center gap-2">
+          <span className="ml-auto flex items-center gap-2 max-md:gap-4 max-md:text-body">
             <PageLink
               href={pagination.hrefFor(pagination.page - 1)}
               disabled={pagination.page <= 1}
@@ -221,7 +228,7 @@ function PageLink({
 }) {
   if (disabled) return <span className="opacity-40">{children}</span>;
   return (
-    <Link href={href} className="text-accent-text hover:underline">
+    <Link href={href} className="text-accent-text hover:underline max-md:inline-block max-md:py-2">
       {children}
     </Link>
   );

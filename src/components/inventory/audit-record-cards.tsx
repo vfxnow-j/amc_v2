@@ -124,7 +124,7 @@ export async function AuditItemsCard({ id }: { id: string }) {
   }
 
   const columns =
-    "grid grid-cols-[96px_minmax(0,1.2fr)_96px_minmax(0,1fr)_84px] items-center gap-2";
+    "grid grid-cols-[96px_minmax(0,1.2fr)_96px_minmax(0,1fr)_84px] max-md:min-w-[540px] items-center gap-2";
 
   return (
     <Card
