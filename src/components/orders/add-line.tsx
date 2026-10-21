@@ -67,6 +67,8 @@ export function AddLine({
   const [quantity, setQuantity] = useState("1");
   const [price, setPrice] = useState("");
   const [custom, setCustom] = useState<{ name: string } | null>(null);
+  // An ad-hoc line outside a build: how its rate is read. "ONCE" is a flat charge.
+  const [basis, setBasis] = useState<"DAILY" | "WEEKLY" | "MONTHLY" | "ONCE">("DAILY");
   const [outcome, setOutcome] = useState<StageOutcome | null>(null);
   const [busy, startTransition] = useTransition();
   const latest = useRef(0);
@@ -131,15 +133,16 @@ export function AddLine({
   }
 
   function addCustom() {
-    if (!group || !custom) return;
+    if (!custom) return;
     startTransition(async () => {
+      const once = !!group || basis === "ONCE";
       const result = await addOrderLine(reservationId, {
         description: custom.name,
         rate: Number(price),
-        pricingType: "PROJECT",
+        pricingType: once ? "PROJECT" : (basis as PricingType),
         quantity: Number(quantity),
-        isOneTime: true,
-        groupId: group.id,
+        isOneTime: once,
+        ...(group ? { groupId: group.id } : {}),
       }, packageId);
       setOutcome(result);
       if (result.status === "ok") {
@@ -182,20 +185,58 @@ export function AddLine({
         </Notice>
       ) : null}
 
-      {custom && group ? (
+      {custom ? (
         <div className="flex flex-wrap items-end gap-2">
           <span className="min-w-0 flex-1">
-            <span className="mb-[6px] block text-micro uppercase text-ink-muted">Part in {group.name}</span>
+            <span className="mb-[6px] block text-micro uppercase text-ink-muted">
+              {group ? `Part in ${group.name}` : "Custom item — not in inventory"}
+            </span>
             <input
               autoFocus
               value={custom.name}
-              aria-label="Part description"
-              placeholder="What the part is"
+              aria-label="Item description"
+              placeholder={group ? "What the part is" : "What it is — e.g. 8× RTX 6000 node (to be sourced)"}
               onChange={(event) => setCustom({ name: event.target.value })}
               className="h-9 w-full rounded-well border-0 bg-sunken px-2 text-detail text-ink outline-none placeholder:text-ink-faint"
             />
           </span>
-          <PartFields quantity={quantity} setQuantity={setQuantity} price={price} setPrice={setPrice} />
+          {group ? (
+            <PartFields quantity={quantity} setQuantity={setQuantity} price={price} setPrice={setPrice} />
+          ) : (
+            <>
+              <span>
+                <span className="mb-[6px] block text-micro uppercase text-ink-muted">Qty</span>
+                <input
+                  value={quantity}
+                  inputMode="numeric"
+                  aria-label="Quantity"
+                  onChange={(event) => setQuantity(event.target.value)}
+                  className="h-9 w-16 rounded-well border-0 bg-sunken px-2 text-detail tabular-nums text-ink outline-none"
+                />
+              </span>
+              <span>
+                <span className="mb-[6px] block text-micro uppercase text-ink-muted">Rate</span>
+                <input
+                  value={price}
+                  inputMode="decimal"
+                  aria-label="Rate"
+                  onChange={(event) => setPrice(event.target.value)}
+                  className="h-9 w-24 rounded-well border-0 bg-sunken px-2 text-detail tabular-nums text-ink outline-none"
+                />
+              </span>
+              <select
+                value={basis}
+                aria-label="Rate basis"
+                onChange={(event) => setBasis(event.target.value as typeof basis)}
+                className="h-9 rounded-well border-0 bg-sunken px-2 text-detail text-ink outline-none"
+              >
+                <option value="DAILY">/day</option>
+                <option value="WEEKLY">/week</option>
+                <option value="MONTHLY">/month</option>
+                <option value="ONCE">once</option>
+              </select>
+            </>
+          )}
           <button
             type="button"
             disabled={busy || !custom.name.trim() || !(Number(price) >= 0) || price === ""}
@@ -353,15 +394,13 @@ export function AddLine({
             </ul>
           ) : null}
           <div className="mt-2 flex gap-3">
-            {group ? (
-              <button
-                type="button"
-                onClick={() => setCustom({ name: query.trim() })}
-                className="text-detail text-accent-text hover:underline"
-              >
-                Add a custom part instead
-              </button>
-            ) : null}
+            <button
+              type="button"
+              onClick={() => setCustom({ name: query.trim() })}
+              className="text-detail text-accent-text hover:underline"
+            >
+              {group ? "Add a custom part instead" : "Add a custom item (not in inventory)"}
+            </button>
             <button
               type="button"
               onClick={reset}

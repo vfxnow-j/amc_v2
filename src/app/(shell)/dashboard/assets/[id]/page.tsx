@@ -20,6 +20,7 @@ import {
   FleetStrip,
   PositionCard,
 } from "@/components/inventory/record-cards";
+import { EditAssetDetails } from "@/components/inventory/edit-asset-details";
 import { MarketPricePanel } from "@/components/inventory/market-price-panel";
 import { AssetTrailCard } from "@/components/procurement/po-trail-card";
 import { dayYear, money } from "@/lib/format";
@@ -55,9 +56,10 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
  */
 export default async function AssetRecordPage({ params }: Params) {
   const { id } = await params;
-  const [asset, family] = await Promise.all([
+  const [asset, family, user] = await Promise.all([
     getAssetHeader(id),
     getFamilyOfAsset(id),
+    getSessionUser(),
   ]);
   if (!asset) notFound();
 
@@ -103,6 +105,15 @@ export default async function AssetRecordPage({ params }: Params) {
               <span className="rounded-pill bg-sunken px-3 py-1 text-pill text-ink">
                 Retired {dayYear(asset.retiredAt)}
               </span>
+            ) : null}
+            {user && canEdit(user.role) ? (
+              <EditAssetDetails
+                id={asset.id}
+                name={asset.name}
+                manufacturer={asset.manufacturer}
+                model={asset.model}
+                description={asset.description}
+              />
             ) : null}
             <Link
               // The asset's id, not its name: this is "the units of this

@@ -1,5 +1,8 @@
 import { Card, CardEmpty, Field, Unset } from "@/components/record/record-card";
 import { dayYear, moneyExact } from "@/lib/format";
+import { MarginTools } from "@/components/orders/margin-tools";
+import { quoteEditable } from "@/lib/orders/quote-lock";
+import { prisma } from "@/lib/prisma";
 import { getContractOrder } from "@/lib/queries/contract-record";
 
 type ContractOrder = NonNullable<Awaited<ReturnType<typeof getContractOrder>>>;
@@ -22,6 +25,16 @@ type ContractOrder = NonNullable<Awaited<ReturnType<typeof getContractOrder>>>;
 export async function MarginStrip({ id }: { id: string }) {
   const order = await getContractOrder(id);
   if (!order) return null;
+
+  // Sale only: cost and margin are adjustable until the sale is closed.
+  const costs =
+    order.reservationType === "SALE"
+      ? await prisma.reservation.findUnique({
+          where: { id },
+          select: { status: true, internalShippingCost: true, subRentalCost: true, hardwareCost: true },
+        })
+      : null;
+  const adjustable = !!costs && ["DRAFT", "QUOTE_SENT", "REVISION", "APPROVED"].includes(costs.status);
 
   return (
     <section className="flex flex-wrap items-center gap-6 rounded-card bg-panel px-4 py-3 shadow-sm">
@@ -49,6 +62,15 @@ export async function MarginStrip({ id }: { id: string }) {
           ? "No cost was recorded on this order when it was priced, so its margin is only what the lines can prove."
           : "Cost and margin as stored when the order was priced — the lines recompute them from what is on it now."}
       </p>
+      {adjustable && costs ? (
+        <MarginTools
+          reservationId={id}
+          canPrice={quoteEditable(costs.status, "SALE")}
+          shipping={Number(costs.internalShippingCost ?? 0)}
+          subRental={Number(costs.subRentalCost ?? 0)}
+          hardware={Number(costs.hardwareCost ?? 0)}
+        />
+      ) : null}
     </section>
   );
 }

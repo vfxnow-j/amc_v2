@@ -150,6 +150,8 @@ export type RecordComponent = {
   isOneTime: boolean;
   /** Part of the base price: shown as spec, charged nothing. */
   includedInParent: boolean;
+  /** Sales: what one unit cost us. Null until it has been recorded. */
+  costBasis: number | null;
   /** In a build group: the quantity per machine (the stored one is that × machines). */
   perMachine: number;
   /** A cloud host's spec row: quantity is per host, and it carries no money. */
@@ -271,6 +273,7 @@ export async function getReservationLines(
           subtotal: true,
           isOneTime: true,
           includedInParent: true,
+          costBasis: true,
           description: true,
           cloudProductId: true,
           assetId: true,
@@ -331,6 +334,7 @@ export async function getReservationLines(
         subtotal: Number(part.subtotal),
         isOneTime: part.isOneTime,
         includedInParent: part.includedInParent,
+        costBasis: part.costBasis == null ? null : Number(part.costBasis),
         perMachine: item.isGroup ? perMachineQty(part, item) : part.quantity,
         isCloudPart: !!part.cloudProductId,
         unitBarcodes: part.units.filter((unit) => unit.checkedOutAt).map((unit) => unit.assetUnit.barcode),

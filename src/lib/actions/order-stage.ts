@@ -886,6 +886,87 @@ export async function setLineRate(
 }
 
 /**
+ * What one unit cost us, on a sale line. Not a quote change — the client never
+ * sees it — so it is allowed after the quote is sent; the line's price stays and
+ * its margin moves.
+ */
+export async function setLineCost(
+  reservationId: string,
+  itemId: string,
+  cost: number,
+): Promise<StageOutcome> {
+  if (!Number.isFinite(cost) || cost < 0) {
+    return { status: "error", message: "A cost is zero or more." };
+  }
+  try {
+    const { updateSaleItemCost } = await import("@/lib/actions/sales");
+    await updateSaleItemCost(reservationId, itemId, cost);
+    touch(reservationId);
+    return { status: "ok", message: "Cost updated; the margin was recalculated." };
+  } catch (error) {
+    return { status: "error", message: reasonFrom(error) };
+  }
+}
+
+/**
+ * The gross margin on a sale line, which prices it off its cost. This does
+ * change the quote, so the quote lock applies.
+ */
+export async function setLineMargin(
+  reservationId: string,
+  itemId: string,
+  marginPercent: number,
+): Promise<StageOutcome> {
+  if (!Number.isFinite(marginPercent) || marginPercent >= 100) {
+    return { status: "error", message: "A margin is under 100%." };
+  }
+  try {
+    const { updateSaleItemMargin } = await import("@/lib/actions/sales");
+    await updateSaleItemMargin(reservationId, itemId, marginPercent);
+    touch(reservationId);
+    return { status: "ok", message: "Margin updated; the line and the order were repriced." };
+  } catch (error) {
+    return { status: "error", message: reasonFrom(error) };
+  }
+}
+
+/** One margin across every line of the active option; the quote lock applies. */
+export async function setAllMargins(
+  reservationId: string,
+  marginPercent: number,
+): Promise<StageOutcome> {
+  if (!Number.isFinite(marginPercent) || marginPercent >= 100) {
+    return { status: "error", message: "A margin is under 100%." };
+  }
+  try {
+    const { applyMarginToAll } = await import("@/lib/actions/sales");
+    await applyMarginToAll(reservationId, marginPercent);
+    touch(reservationId);
+    return { status: "ok", message: "Margin applied; every line with a cost was repriced." };
+  } catch (error) {
+    return { status: "error", message: reasonFrom(error) };
+  }
+}
+
+/** Order-level costs that are not on a line: shipping, sub-rental, hardware. */
+export async function setInternalCosts(
+  reservationId: string,
+  costs: { internalShippingCost: number; subRentalCost: number; hardwareCost: number },
+): Promise<StageOutcome> {
+  if (Object.values(costs).some((v) => !Number.isFinite(v) || v < 0)) {
+    return { status: "error", message: "A cost is zero or more." };
+  }
+  try {
+    const { updateInternalCosts } = await import("@/lib/actions/sales");
+    await updateInternalCosts(reservationId, costs);
+    touch(reservationId);
+    return { status: "ok", message: "Costs updated; the margin was recalculated." };
+  } catch (error) {
+    return { status: "error", message: reasonFrom(error) };
+  }
+}
+
+/**
  * Put another line on the order.
  *
  * Takes an asset, or a description for an ad-hoc charge. The rate is passed

@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import Link from "next/link";
 import { Card, CardSkeleton } from "@/components/record/record-card";
 import { RemoveLine } from "@/components/orders/remove-line";
@@ -5,6 +6,7 @@ import { AddLine } from "@/components/orders/add-line";
 import { ConfigureLine } from "@/components/orders/configure-line";
 import { AddCloudHost, EditCloudHost } from "@/components/orders/cloud-controls";
 import { LineEditor } from "@/components/orders/line-editor";
+import { CostMarginEditor } from "@/components/orders/cost-margin-editor";
 import {
   AddBuildGroup,
   BuildGroupEditor,
@@ -94,6 +96,10 @@ export async function LinesCard({
     select: { reservationType: true, status: true, hideBuildPartPrices: true },
   });
   const isSale = order?.reservationType === "SALE";
+  // Cost is internal, so it stays editable until the sale is closed; margin
+  // prices the line and so follows the quote lock (`editable`).
+  const costEditable =
+    isSale && editableProp && !!order && ["DRAFT", "QUOTE_SENT", "REVISION", "APPROVED"].includes(order.status);
   // What was quoted is fixed once the quote is sent: line edits, adds, removals
   // and builds are offered on a draft or a revision only (lib/orders/quote-lock),
   // so the screen and the server agree. Scanning is unaffected.
@@ -294,6 +300,17 @@ export async function LinesCard({
               ) : null}
             </div>
 
+            {costEditable && !line.isGroup && !flow ? (
+              <CostMarginEditor
+                reservationId={id}
+                itemId={line.id}
+                rate={line.rate}
+                quantity={line.quantity}
+                cost={line.costBasis}
+                canPrice={editable}
+              />
+            ) : null}
+
             {/* What the SKU is configured with. An included part is the base
                 spec — shown so the machine reads as what it is, charged
                 nothing. Anything else carries its own rate on top, and the
@@ -301,8 +318,8 @@ export async function LinesCard({
             {line.components.length > 0 ? (
               <ul className="mt-1 flex flex-col gap-px">
                 {line.components.map((part, partIndex) => (
+                  <Fragment key={part.id}>
                   <li
-                    key={part.id}
                     className={`grid ${tracks} items-baseline gap-2 rounded-row px-2 py-[5px] text-detail hover:bg-row-hover`}
                   >
                     <span className="min-w-0 break-words text-ink-muted">
@@ -390,6 +407,19 @@ export async function LinesCard({
                       />
                     ) : null}
                   </li>
+                  {costEditable && line.isGroup && !part.includedInParent && !part.isCloudPart ? (
+                    <li>
+                      <CostMarginEditor
+                        reservationId={id}
+                        itemId={part.id}
+                        rate={part.rate}
+                        quantity={part.perMachine}
+                        cost={part.costBasis}
+                        canPrice={editable}
+                      />
+                    </li>
+                  ) : null}
+                  </Fragment>
                 ))}
                 {!line.isGroup && !line.isCloudHost && line.components.some((part) => !part.includedInParent) ? (
                   <li className={`grid ${tracks} items-baseline gap-2 px-2 pt-[3px] text-detail`}>
