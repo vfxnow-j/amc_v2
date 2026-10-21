@@ -1168,6 +1168,7 @@ model Reservation {
   // Placed through the client portal (v2-only). See PortalOrder.
   portalOrder PortalOrder?
   forecastChoice ForecastChoice?
+  dealMember     DealGroupMember?
 }
 
 model Package {
@@ -3327,6 +3328,30 @@ model ForecastChoice {
   updatedAt     DateTime    @default(now()) @updatedAt
 
   @@map("forecast_choices")
+}
+
+/// Orders the owner has linked as one job (2026-10-20); prisma/manual/2026-10-20-deal-groups.sql.
+/// v2-only. temperature: HOT / WARM / COLD, a manual weight for the group's quotes.
+model DealGroup {
+  id          String            @id @default(cuid())
+  name        String?
+  temperature String?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @default(now()) @updatedAt
+  members     DealGroupMember[]
+
+  @@map("deal_groups")
+}
+
+model DealGroupMember {
+  reservationId String      @id
+  reservation   Reservation @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+  dealGroupId   String
+  group         DealGroup   @relation(fields: [dealGroupId], references: [id], onDelete: Cascade)
+  createdAt     DateTime    @default(now())
+
+  @@index([dealGroupId])
+  @@map("deal_group_members")
 }
 
 /// Old values saved before scripts/current-rms/apply-high-confidence.ts writes a unit

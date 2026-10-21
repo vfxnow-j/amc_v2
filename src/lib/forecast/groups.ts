@@ -31,6 +31,8 @@ export type GroupableOrder = {
   updatedAt: Date
   stale: boolean
   choice: ChoiceMode | null
+  /** Orders the owner linked as one job: same id, same deal, whatever the client or name. */
+  dealGroupId?: string | null
 }
 
 export type DealGroup<T extends GroupableOrder> = {
@@ -56,6 +58,9 @@ export function normalizeDealName(name: string | null): string {
 }
 
 export function sameDeal(a: GroupableOrder, b: GroupableOrder): boolean {
+  // The owner's link is the whole answer: linked together is one deal, and a
+  // linked order is never folded into another by name or assets.
+  if (a.dealGroupId || b.dealGroupId) return !!a.dealGroupId && a.dealGroupId === b.dealGroupId && a.choice !== 'SEPARATE' && b.choice !== 'SEPARATE'
   if (a.clientId !== b.clientId) return false
   if (a.choice === 'SEPARATE' || b.choice === 'SEPARATE') return false
   const na = normalizeDealName(a.name)

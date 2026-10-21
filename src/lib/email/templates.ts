@@ -1321,6 +1321,60 @@ export function inventoryReportEmail(data: InventoryReportEmailData) {
 }
 
 // ============================================
+// BT REPORT — v2 only
+// ============================================
+
+export type BtrReportEmailData = {
+  generatedAtLabel: string
+  cadenceNote: string
+  /**
+   * The current month, ex-tax. Revenue is active and approved orders; projected
+   * is quoted orders weighted by stage. Drafts are left out.
+   */
+  month: { label: string; revenue: number; projected: number }
+  /** Fleet value by monthly rate: on rent now (out) and in stock (in). */
+  value: { out: number; in: number }
+  utilizationPercent: number
+  /** Percentage of units out, per category. */
+  categories: { name: string; percent: number }[]
+  attachments: string[]
+}
+
+export function btrReportEmail(data: BtrReportEmailData) {
+  const m = data.month
+
+  return email('BT Report', {
+    audience: 'staff',
+    wide: true,
+    preheader: `${m.label}: ${moneyExact(m.revenue)} revenue, ${moneyExact(m.projected)} projected from quotes; ${data.utilizationPercent}% of the fleet out.`,
+    eyebrow: 'BT Report',
+    title: `BT Report — ${m.label}`,
+    subtitle: data.generatedAtLabel,
+    body: [
+      stats([
+        { label: 'Revenue', value: moneyExact(m.revenue), tone: 'success', sub: 'active and approved orders' },
+        { label: 'Projected', value: moneyExact(m.projected), tone: 'accent', sub: 'quoted, weighted by stage' },
+        { label: 'Revenue + projected', value: moneyExact(m.revenue + m.projected), sub: m.label },
+      ]),
+      stats([
+        { label: 'Value out', value: moneyExact(data.value.out), sub: 'monthly rate of units on rent' },
+        { label: 'Value in', value: moneyExact(data.value.in), sub: 'monthly rate of units in stock' },
+        { label: 'Fleet out', value: `${data.utilizationPercent}%`, sub: 'units out, not weighted by payment' },
+      ]),
+      table(
+        [{ label: 'Utilization' }, { label: 'Out', align: 'right' }],
+        data.categories.map((c) => [cell(c.name), cell(`${c.percent}%`, { bold: true })]),
+        { dense: true },
+      ),
+      data.attachments.length
+        ? paragraph(`Detail is attached: ${data.attachments.map(escapeHtml).join('; ')}. ${escapeHtml(data.cadenceNote)}`, { muted: true, small: true })
+        : paragraph(escapeHtml(data.cadenceNote), { muted: true, small: true }),
+    ].join(''),
+    cta: { label: 'Open the forecast', url: '/dashboard/reports/forecast' },
+  })
+}
+
+// ============================================
 // DEPRECIATION REPORT — v2 only
 // ============================================
 

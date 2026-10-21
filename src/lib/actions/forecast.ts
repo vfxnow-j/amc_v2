@@ -27,4 +27,6 @@ export async function setForecastChoice(reservationId: string, mode: ChoiceMode 
     })
   }
   revalidatePath('/dashboard/forecast')
+  revalidatePath(`/dashboard/orders/${reservationId}`)
+  revalidatePath('/dashboard/reports/btr')
 }

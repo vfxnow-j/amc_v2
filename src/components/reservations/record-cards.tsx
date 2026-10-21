@@ -16,7 +16,7 @@ import {
   MoveToBuild,
 } from "@/components/orders/build-groups";
 import { prisma } from "@/lib/prisma";
-import { buildStructureEditable } from "@/lib/pricing/build-groups";
+import { buildStructureEditable, supportsBuilds } from "@/lib/pricing/build-groups";
 import { quoteEditable } from "@/lib/orders/quote-lock";
 import { FlowLineEditor } from "@/components/orders/flow/flow-line-editor";
 import {
@@ -96,6 +96,9 @@ export async function LinesCard({
     select: { reservationType: true, status: true, hideBuildPartPrices: true },
   });
   const isSale = order?.reservationType === "SALE";
+  // Rentals group lines too; their parts keep normal rental pricing.
+  const hasBuilds = supportsBuilds(order?.reservationType);
+  const isRental = order?.reservationType === "RENTAL";
   // Cost is internal, so it stays editable until the sale is closed; margin
   // prices the line and so follows the quote lock (`editable`).
   const costEditable =
@@ -107,16 +110,16 @@ export async function LinesCard({
   // A cloud order is drafted from a spec: hosts and environment lines instead
   // of (or as well as) units. The cloud controls sit with Add a line.
   const isCloud = order?.reservationType === "CLOUD";
-  const structure = editable && isSale && !!order && buildStructureEditable(order.status);
+  const structure = editable && hasBuilds && !!order && buildStructureEditable(order.status);
   const builds = lines.filter((line) => line.isGroup);
   // Reordering locks once the quote is sent (lib/pricing/build-groups).
-  const reorder = editable && isSale && !!order && buildStructureEditable(order.status);
+  const reorder = editable && hasBuilds && !!order && buildStructureEditable(order.status);
   const buildChoices = (packageId: string | null) =>
     builds
       .filter((build) => build.packageId === packageId)
       .map((build) => ({ id: build.id, name: build.label }));
   const buildControls =
-    structure || (isSale && builds.length > 0 && editable) ? (
+    structure || (hasBuilds && builds.length > 0 && editable) ? (
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 pb-3">
         {structure ? <AddBuildGroup reservationId={id} packageId={option?.id} /> : null}
         {builds.length > 0 && structure ? (
@@ -376,6 +379,7 @@ export async function LinesCard({
                         perMachine={part.perMachine}
                         stored={part.quantity}
                         rate={part.rate}
+                        unit={isRental && !part.isOneTime ? `/${part.pricingType.toLowerCase()}` : undefined}
                         structure={structure}
                       />
                     ) : (
@@ -391,7 +395,7 @@ export async function LinesCard({
                             ? "per host"
                             : part.includedInParent
                             ? "included"
-                            : `${MONEY.format(part.rate)}${line.isGroup ? " each" : part.isOneTime ? " once" : ` /${part.pricingType.toLowerCase()}`}`}
+                            : `${MONEY.format(part.rate)}${line.isGroup && !isRental ? " each" : part.isOneTime ? " once" : ` /${part.pricingType.toLowerCase()}`}`}
                         </span>
                       </>
                     )}
@@ -447,6 +451,7 @@ export async function LinesCard({
                 end={window.end}
                 packageId={line.packageId ?? option?.id}
                 group={{ id: line.id, name: line.label }}
+                rental={isRental}
               />
             ) : null}
 

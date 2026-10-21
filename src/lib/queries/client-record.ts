@@ -156,6 +156,7 @@ export async function getClientOrders(id: string, take = 12) {
         startDate: true,
         endDate: true,
         total: true,
+        dealMember: { select: { dealGroupId: true, group: { select: { _count: { select: { members: true } } } } } },
       },
     }),
     prisma.reservation.findMany({
@@ -170,6 +171,7 @@ export async function getClientOrders(id: string, take = 12) {
         startDate: true,
         endDate: true,
         total: true,
+        dealMember: { select: { dealGroupId: true, group: { select: { _count: { select: { members: true } } } } } },
       },
     }),
   ]);
@@ -182,6 +184,8 @@ export async function getClientOrders(id: string, take = 12) {
     start: order.startDate,
     end: order.endDate,
     total: Number(order.total),
+    dealGroupId: order.dealMember?.dealGroupId ?? null,
+    dealSize: order.dealMember?.group._count.members ?? 0,
   });
 
   return { open: open.map(shape), recent: recent.map(shape) };

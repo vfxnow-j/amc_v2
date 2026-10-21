@@ -29,6 +29,7 @@ export const REPORT_KEYS = [
   "coverage",
   "inventory",
   "depreciation",
+  "btr",
 ] as const;
 
 export type ReportKey = (typeof REPORT_KEYS)[number];
@@ -111,6 +112,15 @@ export const REPORTS: Record<ReportKey, ReportDefinition> = {
     category: "depreciation",
     settingKey: "report_schedule:depreciation",
     defaults: { enabled: true, frequency: "MONTHLY", dayOfWeek: 1, dayOfMonth: 1, hour: 8 },
+  },
+  btr: {
+    key: "btr",
+    label: "BT Report",
+    what: "A monthly snapshot: this month's revenue (active orders), projected (quotes) and the draft pool, a weekly average and fleet utilization %, with the month's forecast workbook (Excel) and the inventory PDF attached. Off until switched on.",
+    category: "btr",
+    settingKey: "report_schedule:btr",
+    // Off by default: it goes to nobody until someone is ticked and it is enabled.
+    defaults: { enabled: false, frequency: "MONTHLY", dayOfWeek: 1, dayOfMonth: 1, hour: 8 },
   },
 };
 

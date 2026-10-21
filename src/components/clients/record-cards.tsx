@@ -174,6 +174,21 @@ export async function ContactsCard({ id }: { id: string }) {
   );
 }
 
+/** Keep the list's order, but pull the orders of one deal next to each other. */
+function dealOrdered<T extends { dealGroupId: string | null }>(orders: T[]): T[] {
+  const placed = new Set<string>();
+  const out: T[] = [];
+  for (const order of orders) {
+    if (!order.dealGroupId) {
+      out.push(order);
+    } else if (!placed.has(order.dealGroupId)) {
+      placed.add(order.dealGroupId);
+      out.push(...orders.filter((o) => o.dealGroupId === order.dealGroupId));
+    }
+  }
+  return out;
+}
+
 /** Open orders first: what is live matters more than what is finished. */
 export async function OrdersCard({ id }: { id: string }) {
   const { open, recent } = await getClientOrders(id);
@@ -199,11 +214,20 @@ export async function OrdersCard({ id }: { id: string }) {
       }
     >
       <ul className="flex min-h-0 flex-1 flex-col gap-px overflow-y-auto px-2 pb-3">
-        {[...open, ...recent].map((order) => (
+        {dealOrdered([...open, ...recent]).map((order, index, all) => (
           <li key={order.id}>
+            {/* Orders linked as one deal sit together under one heading. */}
+            {order.dealGroupId && all[index - 1]?.dealGroupId !== order.dealGroupId ? (
+              <p className="px-2 pt-2 text-micro uppercase text-ink-muted">
+                Deal · {order.dealSize} orders linked
+                {order.dealSize > all.filter((o) => o.dealGroupId === order.dealGroupId).length ? " (some on other accounts)" : ""}
+              </p>
+            ) : null}
             <Link
               href={`/dashboard/orders/${order.id}`}
-              className="grid grid-cols-[132px_1fr_110px_92px] items-center gap-2 rounded-row px-2 py-[6px] text-detail hover:bg-row-hover"
+              className={`grid grid-cols-[132px_1fr_110px_92px] items-center gap-2 rounded-row px-2 py-[6px] text-detail hover:bg-row-hover ${
+                order.dealGroupId ? "border-l-2 border-accent-solid" : ""
+              }`}
             >
               <span className="truncate font-bold tabular-nums">
                 {order.reservationNumber}

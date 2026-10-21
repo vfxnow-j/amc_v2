@@ -82,6 +82,7 @@ is sent to that can't be ticked; no tick is unsent.
 | `traffic` (Traffic) | Daily traffic report | Traffic report | `notifyDailyTrafficReport` | Report schedule, default daily 17:00 |
 | `inventory` (Inventory) | Inventory report | Inventory report, PDF attached | `sendInventoryReport` | v1's stored schedule: weekly Monday 11:00 |
 | `depreciation` (Deprec.) *v2 key* | Depreciation report | Depreciation report, PDF + CSV | `sendDepreciationReport` | Report schedule, default monthly 1st 8:00 |
+| `btr` (BTR) *v2 key* | BT Report | BT Report: monthly snapshot (this month's revenue, projected quotes, value out/in, utilization % by category); this month's forecast .xlsx + inventory PDF attached | `sendBtrReport` (list), `sendBtrReportTo` (one address, Reports → BT Report) | Report schedule, default monthly, 1st 8:00, **disabled until switched on** |
 
 `coverage` absent on an entry (every entry from v1) inherits `reservations`, because v1 sends
 coverage to reservations recipients. `depreciation` absent means off.

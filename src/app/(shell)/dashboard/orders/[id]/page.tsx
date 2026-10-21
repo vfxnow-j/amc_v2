@@ -36,6 +36,7 @@ import { EditDates } from "@/components/orders/edit-dates";
 import { ConversionCard } from "@/components/tracker/conversion-card";
 import { getSessionUser } from "@/lib/roles";
 import { ApprovalCard } from "@/components/approvals/approval-card";
+import { ForecastTreatment } from "@/components/orders/forecast-treatment";
 import { OrderActionBar } from "@/components/orders/order-action-bar";
 import { StageStrip, StageStripSkeleton } from "@/components/orders/stage-strip";
 import { getReservationHeader } from "@/lib/queries/reservation-record";
@@ -291,6 +292,15 @@ export default async function OrderRecordPage({
           {handover(header, progress.ordered, outNow, outstanding)}
         </p>
       </section>
+
+      {/* The owner's call on whether an open quote counts in the forecast. */}
+      {user &&
+      (user.role === "ADMIN" || user.role === "SUPER_ADMIN") &&
+      ["DRAFT", "QUOTE_SENT", "REVISION"].includes(header.status) ? (
+        <Suspense fallback={null}>
+          <ForecastTreatment id={id} />
+        </Suspense>
+      ) : null}
 
       {/* Type-dependent: only a sale or a rent-to-own has a cost and a margin. */}
       {commercial ? (

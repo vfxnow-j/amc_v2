@@ -9,7 +9,9 @@ import {
   rescaledPartQuantity,
   specLabel,
   storedPartQuantity,
+  supportsBuilds,
 } from './build-groups'
+import { computeReservationFinancials } from './financials'
 
 test('parts are stored multiplied by the machine count and read back per machine', () => {
   assert.equal(storedPartQuantity(4, 2), 8)
@@ -106,4 +108,23 @@ test('a client change request or a staff revision lands in REVISION, which reope
   const { buildStructureEditable } = await import('./build-groups')
   // Sent quote locked -> revision (either path) unlocked -> re-sent locked again.
   assert.deepEqual(['QUOTE_SENT', 'REVISION', 'QUOTE_SENT'].map(buildStructureEditable), [false, true, false])
+})
+
+test('sales and rentals take builds; the other order types do not', () => {
+  assert.equal(supportsBuilds('SALE'), true)
+  assert.equal(supportsBuilds('RENTAL'), true)
+  for (const t of ['RENT_TO_OWN', 'CLOUD', 'FLOW', null, undefined]) assert.equal(supportsBuilds(t), false)
+})
+
+test('a rental build prices its parts over the term and the group adds nothing', () => {
+  const order = { startDate: '2026-11-01', endDate: '2026-11-08' } // 8 billable days, end date inclusive
+  const group = { id: 'g', isGroup: true, rate: 0, quantity: 4, pricingType: 'PROJECT', isOneTime: true }
+  const gpu = { id: 'a', parentId: 'g', rate: 10, quantity: 8, pricingType: 'DAILY', isOneTime: false } // 2 per node
+  const setup = { id: 'b', parentId: 'g', rate: 50, quantity: 4, pricingType: 'PROJECT', isOneTime: true }
+  const fin = computeReservationFinancials({ order, items: [group, gpu, setup] })
+  assert.deepEqual(fin.itemAmounts, [0, 640, 200])
+  assert.equal(fin.itemsSubtotal, 840)
+  const lines = arrangeBuildGroups([group, gpu, setup], fin.itemAmounts)
+  assert.equal(lines[0].amount, 840)
+  assert.equal(lines[0].rate, 210) // one node over the whole term
 })

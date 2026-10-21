@@ -30,6 +30,20 @@ import { QUOTE_EDITABLE_STATUSES, QUOTE_LOCKED_MESSAGE, quoteEditable } from '@/
  */
 export const BUILD_EDITABLE_STATUSES = QUOTE_EDITABLE_STATUSES
 
+/**
+ * Order types that can group lines into builds: sales, and rentals (owner,
+ * 2026-10-20). On a sale the parts are one-time lines priced by what we quote;
+ * on a rental the parts are ordinary rental lines (rate × quantity × periods
+ * for the order's term, honouring pricingType and isOneTime), the group only
+ * organising them and showing their sum. Nothing in the totals differs: the
+ * group row is 0 and the parts carry the money.
+ */
+export const BUILD_ORDER_TYPES = ['SALE', 'RENTAL']
+
+export function supportsBuilds(type: string | null | undefined): boolean {
+  return !!type && BUILD_ORDER_TYPES.includes(type)
+}
+
 /** Whether a build's structure can change on an order in this status. */
 export function buildStructureEditable(status: string): boolean {
   return quoteEditable(status, 'SALE')

@@ -31,6 +31,7 @@ export const RECIPIENT_CATEGORIES = [
   "traffic",
   "inventory",
   "depreciation",
+  "btr",
 ] as const;
 
 export type RecipientCategory = (typeof RECIPIENT_CATEGORIES)[number];
@@ -102,6 +103,13 @@ export const CATEGORY_META: Record<RecipientCategory, CategoryMeta> = {
     label: "Depreciation report",
     what: "Cost, accumulated depreciation and book value, this period's expense and what is fully depreciating — PDF and a CSV for accounting. On its schedule below.",
     senders: ["sendDepreciationReport"],
+    v2Only: true,
+  },
+  btr: {
+    short: "BTR",
+    label: "BT Report",
+    what: "A monthly snapshot: this month's revenue (active orders), projected (quotes) and the draft pool, a weekly average and fleet utilization %, with the forecast workbook (Excel) and inventory PDF attached. On its schedule below.",
+    senders: ["sendBtrReport", "sendBtrReportTo"],
     v2Only: true,
   },
 };

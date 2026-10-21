@@ -94,7 +94,19 @@ export async function OrderTable({
     href: `/dashboard/orders/${row.id}`,
     flagged: row.isLate,
     cells: {
-      number: <span className="truncate font-bold">{row.reservationNumber}</span>,
+      number: (
+        <span className="truncate font-bold">
+          {row.reservationNumber}
+          {row.inDeal ? (
+            <span
+              title="Linked with other orders as one deal"
+              className="ml-1 rounded-pill bg-accent-tint px-[6px] align-middle text-micro font-normal text-accent-on-tint"
+            >
+              deal
+            </span>
+          ) : null}
+        </span>
+      ),
       type: <span className="truncate text-ink-muted">{TYPE_LABEL[row.type]}</span>,
       client: (
         <span className="truncate">

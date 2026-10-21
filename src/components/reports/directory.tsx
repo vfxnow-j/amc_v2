@@ -21,6 +21,12 @@ export type ReportEntry = {
 
 export const REPORTS: ReportEntry[] = [
   {
+    href: "/dashboard/reports/btr",
+    title: "BT Report",
+    answers:
+      "This month's revenue and projected quotes, value out and in, and utilization % by category — the monthly snapshot.",
+  },
+  {
     href: "/dashboard/reports/forecast",
     title: "Forecast",
     answers:

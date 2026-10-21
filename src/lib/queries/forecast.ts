@@ -49,6 +49,8 @@ export const IN_PLAY = ["DRAFT", "QUOTE_SENT", "REVISION"] as const;
 
 /** v1's stage weights, as Reports → Forecast uses them, so the two screens agree. */
 export const ORDER_WEIGHT: Record<string, number> = { QUOTE_SENT: 0.6, REVISION: 0.4, DRAFT: 0.4 };
+/** A deal's Hot/Warm/Cold, set by hand on a linked deal. */
+export const TEMPERATURE_WEIGHT: Record<string, number> = { HOT: 0.9, WARM: 0.6, COLD: 0.2 };
 export const LEAD_WEIGHT: Record<string, number> = { NEW: 0.1, CONTACTED: 0.25, QUALIFIED: 0.5 };
 
 export type Stream =
@@ -216,6 +218,7 @@ export const getForecast = cache(async (now: Date = new Date()): Promise<Forecas
         },
         packages: { select: { id: true, isActive: true, deliveryCost: true, returnCost: true } },
         forecastChoice: { select: { mode: true } },
+        dealMember: { select: { dealGroupId: true, group: { select: { temperature: true } } } },
       },
       orderBy: { startDate: "asc" },
     }),
@@ -255,7 +258,7 @@ export const getForecast = cache(async (now: Date = new Date()): Promise<Forecas
   const bookedVersions: { number: string; clientId: string; name: string | null; assetIds: string[]; period: Period }[] = [];
   const assetIdsOf = (items: { assetId: string | null }[]) =>
     [...new Set(items.map((i) => i.assetId).filter((id): id is string => !!id))];
-  const playOrders: (ForecastOrder & { charges: Charge[]; assetIds: string[]; updatedAt: Date; period: Period })[] = [];
+  const playOrders: (ForecastOrder & { charges: Charge[]; assetIds: string[]; updatedAt: Date; period: Period; dealGroupId: string | null })[] = [];
 
   for (const o of orders) {
     const isBooked = (BOOKED as readonly string[]).includes(o.status);
@@ -452,7 +455,8 @@ export const getForecast = cache(async (now: Date = new Date()): Promise<Forecas
         r[monthKey(c.billed)] += c.amount;
         return r;
       }, emptyRow(keys)),
-      weight: isBooked ? 1 : ORDER_WEIGHT[o.status] ?? 0.4,
+      // A Hot/Warm/Cold set on the order's linked deal replaces the stage weight.
+      weight: isBooked ? 1 : TEMPERATURE_WEIGHT[o.dealMember?.group.temperature ?? ""] ?? ORDER_WEIGHT[o.status] ?? 0.4,
       term,
       endsOn,
       startShifted: shift,
@@ -505,6 +509,7 @@ export const getForecast = cache(async (now: Date = new Date()): Promise<Forecas
         // As quoted, before any shift to this month — a version shares its booked order's dates.
         period: { start: o.startDate, end: o.endDate },
         updatedAt: o.updatedAt,
+        dealGroupId: o.dealMember?.dealGroupId ?? null,
       });
     }
   }
@@ -535,8 +540,8 @@ export const getForecast = cache(async (now: Date = new Date()): Promise<Forecas
       }
     }
     const orders = g.orders.map((o) => {
-      const { charges, assetIds, updatedAt, period, ...rest } = o;
-      void charges; void assetIds; void updatedAt; void period;
+      const { charges, assetIds, updatedAt, period, dealGroupId, ...rest } = o;
+      void charges; void assetIds; void updatedAt; void period; void dealGroupId;
       return rest;
     });
     return { key: orders[0].id, client: orders[0].client, orders };

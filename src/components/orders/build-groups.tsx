@@ -227,6 +227,7 @@ export function BuildPartEditor({
   perMachine,
   stored,
   rate,
+  unit,
   structure,
 }: {
   reservationId: string;
@@ -235,6 +236,8 @@ export function BuildPartEditor({
   /** The quantity the order holds, machines included. */
   stored: number;
   rate: number;
+  /** Rental parts are priced per period ("/day"); a sale's are "each". */
+  unit?: string;
   structure: boolean;
 }) {
   const router = useRouter();
@@ -307,7 +310,7 @@ export function BuildPartEditor({
           onKeyDown={onKeys(() => setAmount(rate.toFixed(2)))}
           className={`${CELL} w-[68px]`}
         />
-        <span className="text-micro text-ink-faint">each</span>
+        <span className="text-micro text-ink-faint">{unit ?? "each"}</span>
       </span>
       {error ? (
         <Notice tone="error" className="col-span-full mt-1">

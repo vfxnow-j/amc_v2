@@ -34,6 +34,9 @@ import type { PricingType } from "@/generated/prisma/client";
  * per machine, the price is typed (a sale is priced by what we quote, not by the
  * rental rate the search shows), and a part may be a custom line with no asset
  * behind it. Packages are not offered — a build is assembled part by part.
+ * On a rental (`rental`) the parts are ordinary rental lines instead: the search
+ * rate and basis, the rate basis for a custom part, priced over the term; only
+ * the quantity (per machine) and the grouping differ.
  */
 
 type TemplateHit = Awaited<ReturnType<typeof findTemplates>>[number];
@@ -46,12 +49,15 @@ export function AddLine({
   packageId,
   optionName,
   group,
+  rental = false,
 }: {
   reservationId: string;
   start: string;
   end: string;
   /** Add parts to this sales build rather than lines to the order. */
   group?: { id: string; name: string };
+  /** The build is on a rental: its parts price as rental lines, not as typed one-time prices. */
+  rental?: boolean;
   /** The quote option lines are added to. Omitted, the active one. */
   packageId?: string;
   /** Named in the button when the order has more than one option. */
@@ -72,6 +78,8 @@ export function AddLine({
   const [outcome, setOutcome] = useState<StageOutcome | null>(null);
   const [busy, startTransition] = useTransition();
   const latest = useRef(0);
+  // A sale's build part is typed and one-time; a rental's keeps rental pricing.
+  const saleBuild = !!group && !rental;
 
   useEffect(() => {
     const needle = query.trim();
@@ -119,10 +127,11 @@ export function AddLine({
     startTransition(async () => {
       const result = await addOrderLine(reservationId, {
         assetId: chosen.assetId,
-        rate: group ? Number(price) : chosen.rate,
-        pricingType: group ? "PROJECT" : (chosen.pricingType as PricingType),
+        rate: saleBuild ? Number(price) : chosen.rate,
+        pricingType: saleBuild ? "PROJECT" : (chosen.pricingType as PricingType),
         quantity: Number(quantity),
-        ...(group ? { isOneTime: true, groupId: group.id } : {}),
+        ...(saleBuild ? { isOneTime: true } : {}),
+        ...(group ? { groupId: group.id } : {}),
       }, packageId);
       setOutcome(result);
       if (result.status === "ok") {
@@ -135,7 +144,7 @@ export function AddLine({
   function addCustom() {
     if (!custom) return;
     startTransition(async () => {
-      const once = !!group || basis === "ONCE";
+      const once = saleBuild || basis === "ONCE";
       const result = await addOrderLine(reservationId, {
         description: custom.name,
         rate: Number(price),
@@ -200,7 +209,7 @@ export function AddLine({
               className="h-9 w-full rounded-well border-0 bg-sunken px-2 text-detail text-ink outline-none placeholder:text-ink-faint"
             />
           </span>
-          {group ? (
+          {saleBuild ? (
             <PartFields quantity={quantity} setQuantity={setQuantity} price={price} setPrice={setPrice} />
           ) : (
             <>
@@ -289,7 +298,7 @@ export function AddLine({
               {chosen.rate.toFixed(2)}/{chosen.pricingType.toLowerCase()}
             </span>
           </span>
-          {group ? (
+          {saleBuild ? (
             <PartFields quantity={quantity} setQuantity={setQuantity} price={price} setPrice={setPrice} />
           ) : (
             <span>
@@ -307,7 +316,7 @@ export function AddLine({
           )}
           <button
             type="button"
-            disabled={busy || (!!group && (price === "" || !(Number(price) >= 0)))}
+            disabled={busy || (saleBuild && (price === "" || !(Number(price) >= 0)))}
             onClick={add}
             className="h-9 rounded-pill bg-accent-solid px-4 text-pill text-accent-on-solid disabled:opacity-50"
           >
@@ -375,7 +384,7 @@ export function AddLine({
                     type="button"
                     onClick={() => {
                       setChosen(hit);
-                      if (group) setPrice(hit.rate ? hit.rate.toFixed(2) : "");
+                      if (saleBuild) setPrice(hit.rate ? hit.rate.toFixed(2) : "");
                     }}
                     className="flex w-full items-baseline gap-2 rounded-row px-2 py-[6px] text-left text-detail hover:bg-row-hover"
                   >

@@ -121,3 +121,30 @@ test('periodMonths: month, quarter, next quarter, year and 12 months from mid-qu
   assert.equal(periodMonths('12m', today)[0], '2026-11')
   assert.equal(periodMonths('12m', today)[11], '2027-10')
 })
+
+const mk = (id: string, over: Partial<GroupableOrder> = {}): GroupableOrder => ({
+  id, clientId: 'c1', name: id, assetIds: [], status: 'QUOTE_SENT', updatedAt: new Date('2026-10-10'), stale: false, choice: null, ...over,
+})
+
+test('orders linked as one deal group across clients and names, and count once', () => {
+  const groups = groupDeals([
+    mk('A', { clientId: 'c1', dealGroupId: 'g1' }),
+    mk('B', { clientId: 'c2', dealGroupId: 'g1', status: 'DRAFT' }),
+    mk('C', { clientId: 'c3' }),
+  ])
+  assert.equal(groups.length, 2)
+  const linked = groups.find((g) => g.orders.some((o) => o.id === 'A'))!
+  assert.deepEqual([...linked.counted], ['A'])
+})
+
+test('in a linked deal the owner picks which orders count; Leave out drops one', () => {
+  const both = groupDeals([mk('A', { dealGroupId: 'g1', choice: 'COUNT' }), mk('B', { dealGroupId: 'g1', choice: 'COUNT' })])
+  assert.deepEqual([...both[0].counted].sort(), ['A', 'B'])
+  const skipped = groupDeals([mk('A', { dealGroupId: 'g1', choice: 'SKIP' }), mk('B', { dealGroupId: 'g1', status: 'DRAFT' })])
+  assert.deepEqual([...skipped[0].counted], ['B'])
+})
+
+test('a linked order is never folded into an unlinked one by name or assets', () => {
+  const groups = groupDeals([mk('X', { name: 'Same job', dealGroupId: 'g1' }), mk('Y', { name: 'Same job' })])
+  assert.equal(groups.length, 2)
+})

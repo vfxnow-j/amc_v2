@@ -21,6 +21,7 @@ import { isDue, normalizeSchedule, pacificParts, type Schedule } from "@/lib/not
 import { raiseNotifications, type RaiseResult } from "@/lib/notifications/raise";
 import { sendNotificationDigests, type DigestRun } from "@/lib/notifications/digest-email";
 import { sendDepreciationReport, sendInventoryReport } from "@/lib/notifications/reports/reports";
+import { sendBtrReport } from "@/lib/notifications/reports/btr";
 import { refreshUnitRevenue } from "@/lib/utils/revenue";
 
 /**
@@ -116,6 +117,7 @@ const RUNNERS: Partial<Record<ReportKey, Runner>> = {
     }),
   inventory: (def, schedule) => withRecipients(def, () => sendInventoryReport(schedule)),
   depreciation: (def, schedule) => withRecipients(def, () => sendDepreciationReport(schedule)),
+  btr: (def, schedule) => withRecipients(def, () => sendBtrReport(schedule)),
 };
 
 async function execute(key: ReportKey, schedule: ReportSchedule): Promise<RunResult> {

@@ -98,6 +98,8 @@ export type ReservationRow = {
   end: Date;
   status: ReservationStatus;
   isRecurring: boolean;
+  /** Linked with other orders as one deal (Forecast → deal associations). */
+  inDeal: boolean;
   /** Units ordered across asset-backed lines. */
   unitsOrdered: number;
   /** Units currently out. */
@@ -177,6 +179,7 @@ export async function getReservationList({
         projectName: true,
         total: true,
         client: { select: { name: true } },
+        dealMember: { select: { dealGroupId: true } },
         items: {
           where: { assetId: { not: null }, parentId: null },
           select: {
@@ -211,6 +214,7 @@ export async function getReservationList({
         end: record.endDate,
         status: record.status,
         isRecurring: record.isRecurring,
+        inDeal: !!record.dealMember,
         unitsOrdered: record.items.reduce((sum, item) => sum + item.quantity, 0),
         unitsOut,
         value: Number(record.total),

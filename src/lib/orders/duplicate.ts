@@ -17,6 +17,7 @@
 import type { Prisma } from '@/generated/prisma/client'
 import type { BillingCycleType, ReservationType } from '@/lib/types'
 import { calculatePeriods as calculatePeriodsSync, roundMoney } from '@/lib/pricing/periods'
+import { supportsBuilds } from '@/lib/pricing/build-groups'
 import { sanitizeMarginPercent } from '@/lib/pricing/reservation-totals'
 import { calculateNextBillingDate } from '@/lib/utils/billing'
 import type { BillingAnchor } from '@/lib/billing/calendar'
@@ -125,8 +126,8 @@ export async function duplicateOrderTx(
       return {
         sourceId: item.id,
         sourceParentId: item.parentId,
-        // Build groups exist only on sales; elsewhere the heading stays a plain parent line.
-        isGroup: isSaleTarget && item.isGroup,
+        // Build groups exist on sales and rentals; elsewhere the heading stays a plain parent line.
+        isGroup: supportsBuilds(targetType) && item.isGroup,
         assetId: item.assetId,
         serviceId: item.serviceId,
         cloudProductId: item.cloudProductId,
@@ -179,7 +180,7 @@ export async function duplicateOrderTx(
       status: 'DRAFT',
       priceVerified: false,
       priceVerifiedAt: null,
-      hideBuildPartPrices: isSaleTarget && source.hideBuildPartPrices,
+      hideBuildPartPrices: supportsBuilds(targetType) && source.hideBuildPartPrices,
       createdById: options.userId,
       isRecurring,
       billingCycleType,

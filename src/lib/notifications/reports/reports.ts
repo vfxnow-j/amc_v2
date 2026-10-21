@@ -48,7 +48,7 @@ const today = () => new Date().toLocaleDateString("en-CA", { timeZone: "America/
  * the deepest stock — within `maxRows`. Category totals stay category-wide, and
  * the PDF has every row. v1's rule, unchanged.
  */
-function trimForEmail(categories: InventorySnapshotCategory[], maxRows: number) {
+export function trimForEmail(categories: InventorySnapshotCategory[], maxRows: number) {
   const total = categories.reduce((sum, category) => sum + category.rows.length, 0);
   const keep = new Set(
     categories

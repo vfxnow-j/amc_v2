@@ -86,9 +86,7 @@ export async function sendTestEmailAction(
   }
   return {
     ok: true,
-    message: redirect
-      ? `Sent. It was redirected to ${redirect} (the test redirect is on), with a banner naming ${to}.`
-      : `Sent to ${to}.`,
+    message: `Sent to ${to}.`,
   };
 }
 
@@ -189,11 +187,10 @@ export async function sendReportNowAction(
   if (result.sent === 0) {
     return { ok: false, message: `Not sent: ${result.error ?? "unknown error"}` };
   }
-  const redirect = describeRedirect();
   const partial = result.sent < result.recipients ? ` (${result.recipients - result.sent} failed: ${result.error})` : "";
   return {
     ok: true,
-    message: `Sent to ${result.sent} of ${result.recipients}${partial}.${redirect ? ` All redirected to ${redirect}.` : ""}`,
+    message: `Sent to ${result.sent} of ${result.recipients}${partial}.`,
   };
 }
 
@@ -221,6 +218,5 @@ export async function sendTemplateSampleAction(
   const message = sample.render();
   const result = await sendEmail({ to: me.email, ...message, subject: `[Sample] ${message.subject}` });
   if (!result.success) return { ok: false, message: `Not sent: ${result.error ?? "unknown error"}` };
-  const redirect = describeRedirect();
-  return { ok: true, message: redirect ? `Sent — redirected to ${redirect}.` : `Sent to ${me.email}.` };
+  return { ok: true, message: `Sent to ${me.email}.` };
 }
