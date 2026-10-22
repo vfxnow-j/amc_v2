@@ -51,6 +51,16 @@ export function LineEditor({
   const [error, setError] = useState("");
   const [busy, startTransition] = useTransition();
 
+  // Follow the server after a refresh. A build's rate changes when its parts do,
+  // so the boxes must not keep what was seeded when the page first loaded.
+  const [seed, setSeed] = useState({ quantity, rate, pricingType });
+  if (seed.quantity !== quantity || seed.rate !== rate || seed.pricingType !== pricingType) {
+    setSeed({ quantity, rate, pricingType });
+    setQty(String(quantity));
+    setAmount(rate.toFixed(2));
+    setType(pricingType);
+  }
+
   function handle(result: StageOutcome, revert: () => void) {
     if (result.status === "error") {
       setError(result.message);
