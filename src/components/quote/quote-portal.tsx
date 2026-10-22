@@ -584,6 +584,21 @@ function termLength(start: string, end: string): string {
 }
 
 /**
+ * Parts that are included in their build's price, or listed without figures, are
+ * not rows of their own: they fold into one line of names under the build, so a
+ * ten-part machine is one row and one short line, not eleven rows.
+ */
+function foldIncluded(items: QuoteItem[]): { item: QuoteItem; parts: QuoteItem[] }[] {
+  const rows: { item: QuoteItem; parts: QuoteItem[] }[] = [];
+  for (const item of items) {
+    const quiet = item.isComponent && (item.includedInParent || item.priceHidden);
+    if (quiet && rows.length > 0) rows[rows.length - 1].parts.push(item);
+    else rows.push({ item, parts: [] });
+  }
+  return rows;
+}
+
+/**
  * The line items as a table with the totals under it, in one card: item, quantity,
  * rate, amount. A part of a build or a configured machine sits under its parent
  * as a small "↳" line; included parts and hidden build parts carry no figures.
@@ -636,7 +651,7 @@ function Lines({
                   {group.category}
                 </td>
               </tr>
-              {group.items.map((item) => {
+              {foldIncluded(group.items).map(({ item, parts }) => {
                 const figures = !item.priceHidden;
                 const amount = item.includedInParent ? "—" : money(item.configuredTotal ?? item.subtotal);
                 return (
@@ -649,6 +664,14 @@ function Lines({
                           {item.spec}
                         </span>
                       ) : null}
+                      {parts.length > 0 ? (
+                        <span className="mt-0.5 block text-[11px] leading-snug text-[#71717a]">
+                          {/* A hidden build part's name already carries its count ("4× 32GB DDR5"). */}
+                          {parts
+                            .map((part) => (!part.priceHidden && part.quantity > 1 ? `${part.quantity}× ${part.name}` : part.name))
+                            .join(" · ")}
+                        </span>
+                      ) : null}
                     </td>
                     <td className="px-2 py-1.5 text-center tabular-nums text-[#52525b]">
                       {item.isComponent && item.quantity === 1 ? "" : item.quantity}
@@ -656,11 +679,9 @@ function Lines({
                     <td className="hidden whitespace-nowrap px-2 py-1.5 text-right tabular-nums text-[#52525b] sm:table-cell">
                       {!figures
                         ? ""
-                        : item.includedInParent
-                          ? "included"
-                          : item.isGroup
-                            ? `${money(item.rate)} each`
-                            : `${money(item.rate)}${RATE_SUFFIX[item.pricingType] ?? ""}`}
+                        : item.isGroup
+                          ? `${money(item.rate)} each`
+                          : `${money(item.rate)}${RATE_SUFFIX[item.pricingType] ?? ""}`}
                     </td>
                     <td className="py-1.5 pr-4 text-right font-semibold tabular-nums">
                       {figures ? amount : ""}
