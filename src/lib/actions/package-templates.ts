@@ -374,10 +374,27 @@ export async function loadTemplateIntoOrder(
           });
           if (parent) {
             const machines = Math.max(1, item.quantity);
+            const partRates = item.parts.map((part) => {
+              const partCost = part.costBasis != null ? Number(part.costBasis) : null;
+              return partCost != null ? (monthlyFromCost(partCost, convert.months) ?? 0) : 0;
+            });
+            // Each part rounds up on its own, so together they can sit above the
+            // build's flat rate. The build's price is the one that was asked for:
+            // the largest part takes the difference, so a later edit to any part
+            // rolls up to the same number instead of snapping the build upward.
+            const partsTotal = item.parts.reduce((sum, part, index) => sum + partRates[index] * part.quantity, 0);
+            const gap = Math.round((partsTotal - monthly) * 100) / 100;
+            if (gap !== 0 && item.parts.every((part) => part.costBasis != null)) {
+              let big = 0;
+              item.parts.forEach((part, index) => {
+                if (partRates[index] * part.quantity > partRates[big] * item.parts[big].quantity) big = index;
+              });
+              const adjusted = Math.round((partRates[big] - gap / item.parts[big].quantity) * 100) / 100;
+              if (adjusted >= 0) partRates[big] = adjusted;
+            }
             await prisma.reservationItem.createMany({
               data: item.parts.map((part, index) => {
-                const partCost = part.costBasis != null ? Number(part.costBasis) : null;
-                const rate = partCost != null ? (monthlyFromCost(partCost, convert.months) ?? 0) : 0;
+                const rate = partRates[index];
                 return {
                   reservationId,
                   packageId: parent.packageId,
