@@ -6,7 +6,8 @@ import { prisma } from "@/lib/prisma";
 import { requireEditor } from "@/lib/auth-utils";
 import { addServiceItemToReservation } from "@/lib/actions/reservations";
 import { pickRate } from "@/lib/queries/order-builder";
-import type { PricingType } from "@/generated/prisma/client";
+import { monthlyFromCost } from "@/lib/orders/sale-to-rental";
+import { Prisma, type PricingType } from "@/generated/prisma/client";
 
 /**
  * Our packages: predefined sets of lines, built to spec once and dropped into
@@ -185,10 +186,58 @@ export async function removeTemplateLine(lineId: string): Promise<TemplateOutcom
  * a workstation in a package still arrives with its build expanded and the
  * order is repriced once at the end. Lines are added in the template's order.
  */
+export type SaleConversionLine = {
+  id: string;
+  label: string;
+  quantity: number;
+  /** What one unit cost us; null when the package never recorded it. */
+  cost: number | null;
+};
+
+/**
+ * Whether loading this package would put sale prices into a rental. If so, the
+ * lines that need a rate worked out, for the recovery-period dialog.
+ */
+export async function previewSaleConversion(
+  reservationId: string,
+  templateId: string,
+): Promise<{ needed: boolean; lines: SaleConversionLine[] }> {
+  const auth = await requireEditor();
+  if (!auth.authorized) return { needed: false, lines: [] };
+  const order = await prisma.reservation.findUnique({ where: { id: reservationId }, select: { reservationType: true } });
+  if (order?.reservationType !== "RENTAL") return { needed: false, lines: [] };
+  const items = await prisma.packageTemplateItem.findMany({
+    where: { templateId, salePriced: true },
+    orderBy: { sortOrder: "asc" },
+    select: {
+      id: true,
+      quantity: true,
+      costBasis: true,
+      description: true,
+      asset: { select: { name: true } },
+      service: { select: { name: true } },
+    },
+  });
+  return {
+    needed: items.length > 0,
+    lines: items.map((item) => ({
+      id: item.id,
+      label: item.asset?.name ?? item.service?.name ?? item.description ?? "Line",
+      quantity: item.quantity,
+      cost: item.costBasis != null ? Number(item.costBasis) : null,
+    })),
+  };
+}
+
 export async function loadTemplateIntoOrder(
   reservationId: string,
   templateId: string,
   packageId?: string,
+  /**
+   * Sale-priced lines going into a rental: months to recover cost over, and a
+   * monthly rate typed for any line with no recorded cost.
+   */
+  convert?: { months: number; manual?: Record<string, number> },
 ): Promise<TemplateOutcome> {
   const auth = await requireEditor();
   if (!auth.authorized) return { status: "error", message: auth.error ?? "Unauthorized" };
@@ -205,6 +254,7 @@ export async function loadTemplateIntoOrder(
       items: {
         orderBy: { sortOrder: "asc" },
         select: {
+          id: true,
           assetId: true,
           serviceId: true,
           description: true,
@@ -212,6 +262,9 @@ export async function loadTemplateIntoOrder(
           rate: true,
           pricingType: true,
           isOneTime: true,
+          category: true,
+          costBasis: true,
+          salePriced: true,
           asset: { select: { name: true, monthlyRate: true, weeklyRate: true, dailyRate: true } },
           service: { select: { name: true, defaultRate: true } },
         },
@@ -223,6 +276,12 @@ export async function loadTemplateIntoOrder(
     return { status: "error", message: `${template.name} has no lines yet. Add some on the package first.` };
   }
 
+  const order = await prisma.reservation.findUnique({ where: { id: reservationId }, select: { reservationType: true } });
+  const toRental = order?.reservationType === "RENTAL";
+  if (toRental && template.items.some((item) => item.salePriced) && !convert) {
+    return { status: "error", message: "This package has sale prices. Set a recovery period to turn them into rental rates." };
+  }
+
   const { addOrderLine } = await import("@/lib/actions/order-stage");
   let added = 0;
   const failed: string[] = [];
@@ -231,6 +290,32 @@ export async function loadTemplateIntoOrder(
     const rate = item.rate !== null ? Number(item.rate) : (current?.rate ?? Number(item.service?.defaultRate ?? 0));
     const pricingType = (item.pricingType ?? current?.pricingType ?? "MONTHLY") as PricingType;
     const label = item.asset?.name ?? item.service?.name ?? item.description ?? "Line";
+
+    // A sale price is not a rental rate: cost over the recovery period, monthly.
+    if (toRental && item.salePriced && convert) {
+      const cost = item.costBasis != null ? Number(item.costBasis) : null;
+      const monthly = cost != null ? monthlyFromCost(cost, convert.months) : (convert.manual?.[item.id] ?? null);
+      if (monthly == null || !(monthly >= 0)) {
+        failed.push(`${label} (no cost recorded; enter a monthly rate)`);
+        continue;
+      }
+      const result = await addOrderLine(
+        reservationId,
+        {
+          assetId: item.assetId,
+          description: item.assetId ? undefined : item.description ?? undefined,
+          rate: monthly,
+          pricingType: "MONTHLY",
+          quantity: item.quantity,
+          isOneTime: false,
+          category: item.category ?? undefined,
+        },
+        packageId,
+      );
+      if (result.status === "ok") added++;
+      else failed.push(`${label} (${result.message})`);
+      continue;
+    }
 
     if (item.serviceId && !item.assetId) {
       // Services go in through their own action, which keeps the line linked
@@ -253,6 +338,8 @@ export async function loadTemplateIntoOrder(
         pricingType,
         quantity: item.quantity,
         isOneTime: item.isOneTime,
+        category: item.category ?? undefined,
+        ...(order?.reservationType === "SALE" && item.costBasis != null ? { costBasis: Number(item.costBasis) } : {}),
       },
       packageId,
     );
@@ -289,10 +376,12 @@ export async function saveOptionAsTemplate(
     select: {
       name: true,
       description: true,
-      reservation: { select: { reservationNumber: true, client: { select: { name: true } } } },
+      reservation: { select: { reservationNumber: true, reservationType: true, client: { select: { name: true } } } },
       items: {
         // Top-level lines only: a SKU's build parts come back with it when the
-        // package is loaded, so copying them too would double them.
+        // package is loaded, so copying them too would double them. A custom
+        // build (a sale's heading over priced parts) is kept as one line at the
+        // parts' total, below.
         where: { parentId: null },
         orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
         select: {
@@ -303,6 +392,10 @@ export async function saveOptionAsTemplate(
           rate: true,
           pricingType: true,
           isOneTime: true,
+          isGroup: true,
+          category: true,
+          costBasis: true,
+          components: { select: { subtotal: true, quantity: true, costBasis: true, includedInParent: true } },
         },
       },
     },
@@ -320,16 +413,36 @@ export async function saveOptionAsTemplate(
       sortOrder: (last._max.sortOrder ?? 0) + 1,
       createdById: auth.userId,
       items: {
-        create: option.items.map((item, index) => ({
-          assetId: item.assetId,
-          serviceId: item.serviceId,
-          description: item.assetId || item.serviceId ? null : item.description,
-          quantity: item.quantity,
-          rate: item.rate,
-          pricingType: item.pricingType,
-          isOneTime: item.isOneTime,
-          sortOrder: index + 1,
-        })),
+        create: option.items.map((item, index) => {
+          // A build has no price of its own: it is what its parts add up to,
+          // per machine. Cost is kept only when every priced part has one, so
+          // a rate worked from it later is never understated.
+          let rate = item.rate;
+          let costBasis = item.costBasis;
+          if (item.isGroup) {
+            const machines = Math.max(1, item.quantity);
+            const parts = item.components.filter((part) => !part.includedInParent);
+            const price = parts.reduce((sum, part) => sum + Number(part.subtotal), 0);
+            rate = new Prisma.Decimal(Math.round((price / machines) * 100) / 100);
+            const costed = parts.every((part) => Number(part.subtotal) <= 0 || (part.costBasis != null && Number(part.costBasis) > 0));
+            const cost = parts.reduce((sum, part) => sum + Number(part.costBasis ?? 0) * part.quantity, 0);
+            costBasis = costed && cost > 0 ? new Prisma.Decimal(Math.round((cost / machines) * 100) / 100) : null;
+          }
+          const sale = option.reservation.reservationType === "SALE";
+          return {
+            assetId: item.assetId,
+            serviceId: item.serviceId,
+            description: item.assetId || item.serviceId ? null : item.description,
+            quantity: item.quantity,
+            rate,
+            pricingType: sale && item.isGroup ? ("PROJECT" as PricingType) : item.pricingType,
+            isOneTime: sale && item.isGroup ? true : item.isOneTime,
+            category: item.assetId ? null : item.category,
+            costBasis,
+            salePriced: sale,
+            sortOrder: index + 1,
+          };
+        }),
       },
     },
   });

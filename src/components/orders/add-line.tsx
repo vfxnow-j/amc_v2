@@ -6,7 +6,13 @@ import { Package, Plus } from "lucide-react";
 import { Notice } from "@/components/feedback/notice";
 import { lookupAssets } from "@/lib/actions/order-builder";
 import { addOrderLine, type StageOutcome } from "@/lib/actions/order-stage";
-import { findTemplates, loadTemplateIntoOrder } from "@/lib/actions/package-templates";
+import {
+  findTemplates,
+  loadTemplateIntoOrder,
+  previewSaleConversion,
+  type SaleConversionLine,
+} from "@/lib/actions/package-templates";
+import { monthlyFromCost } from "@/lib/orders/sale-to-rental";
 import type { AssetAvailability } from "@/lib/queries/order-builder";
 import type { PricingType } from "@/generated/prisma/client";
 
@@ -70,6 +76,10 @@ export function AddLine({
   const [chosen, setChosen] = useState<AssetAvailability | null>(null);
   const [packages, setPackages] = useState<TemplateHit[]>([]);
   const [chosenPackage, setChosenPackage] = useState<TemplateHit | null>(null);
+  // A package saved from a sale, going into a rental: its prices need converting.
+  const [conversion, setConversion] = useState<SaleConversionLine[] | null>(null);
+  const [months, setMonths] = useState("7");
+  const [manual, setManual] = useState<Record<string, string>>({});
   const [quantity, setQuantity] = useState("1");
   const [price, setPrice] = useState("");
   const [cost, setCost] = useState("");
@@ -99,6 +109,30 @@ export function AddLine({
     return () => clearTimeout(timer);
   }, [query, chosen, chosenPackage, start, end, group]);
 
+  useEffect(() => {
+    setConversion(null);
+    setManual({});
+    if (!chosenPackage) return;
+    let live = true;
+    previewSaleConversion(reservationId, chosenPackage.id).then((preview) => {
+      if (!live || !preview.needed) return;
+      setConversion(preview.lines);
+      try {
+        const saved = window.localStorage.getItem("amc.recoveryMonths");
+        if (saved && Number(saved) > 0) setMonths(saved);
+      } catch {}
+    });
+    return () => {
+      live = false;
+    };
+  }, [chosenPackage, reservationId]);
+
+  const monthsNumber = Number(months);
+  const conversionReady =
+    !conversion ||
+    (monthsNumber > 0 &&
+      conversion.every((line) => line.cost != null || Number(manual[line.id]) >= 0 && (manual[line.id] ?? "") !== ""));
+
   function reset() {
     setChosen(null);
     setChosenPackage(null);
@@ -115,7 +149,24 @@ export function AddLine({
   function addPackage() {
     if (!chosenPackage) return;
     startTransition(async () => {
-      const result = await loadTemplateIntoOrder(reservationId, chosenPackage.id, packageId);
+      if (conversion) {
+        try {
+          window.localStorage.setItem("amc.recoveryMonths", String(monthsNumber));
+        } catch {}
+      }
+      const result = await loadTemplateIntoOrder(
+        reservationId,
+        chosenPackage.id,
+        packageId,
+        conversion
+          ? {
+              months: monthsNumber,
+              manual: Object.fromEntries(
+                conversion.filter((line) => line.cost == null).map((line) => [line.id, Number(manual[line.id])]),
+              ),
+            }
+          : undefined,
+      );
       setOutcome(result);
       if (result.status === "ok") {
         reset();
@@ -277,9 +328,58 @@ export function AddLine({
               {chosenPackage.summary ? ` · ${chosenPackage.summary}` : ""}
             </span>
           </span>
+          {conversion ? (
+            <div className="w-full rounded-well bg-sunken p-3 text-detail">
+              <p className="mb-2 text-ink">
+                This package was saved from a sale, so its prices are sale prices. Rentals are priced monthly:
+                cost ÷ months to recover. You might want to adjust these before adding.
+              </p>
+              <label className="mb-2 flex items-center gap-2 text-ink-muted">
+                Recover cost in
+                <input
+                  value={months}
+                  inputMode="decimal"
+                  aria-label="Months to recover cost"
+                  onChange={(event) => setMonths(event.target.value)}
+                  className="h-8 w-16 rounded-well border-0 bg-row-alt px-2 tabular-nums text-ink outline-none"
+                />
+                months
+              </label>
+              <ul className="flex flex-col gap-1">
+                {conversion.map((line) => {
+                  const monthly = line.cost != null ? monthlyFromCost(line.cost, monthsNumber) : null;
+                  return (
+                    <li key={line.id} className="flex items-baseline gap-2">
+                      <span className="min-w-0 flex-1 truncate text-ink">
+                        {line.quantity > 1 ? `${line.quantity}× ` : ""}
+                        {line.label}
+                      </span>
+                      {line.cost != null ? (
+                        <span className="flex-none tabular-nums text-ink-muted">
+                          ${line.cost.toFixed(2)} cost → {monthly != null ? `$${monthly.toFixed(2)}/mo` : "—"}
+                        </span>
+                      ) : (
+                        <span className="flex flex-none items-baseline gap-1 text-ink-muted">
+                          no cost recorded: $
+                          <input
+                            value={manual[line.id] ?? ""}
+                            inputMode="decimal"
+                            aria-label={`Monthly rate for ${line.label}`}
+                            onChange={(event) => setManual({ ...manual, [line.id]: event.target.value })}
+                            className="h-7 w-20 rounded-well border-0 bg-row-alt px-2 tabular-nums text-ink outline-none"
+                          />
+                          /mo
+                        </span>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ) : null}
           <button
             type="button"
-            disabled={busy}
+            disabled={busy || !conversionReady}
             onClick={addPackage}
             className="h-9 rounded-pill bg-accent-solid px-4 text-pill text-accent-on-solid disabled:opacity-50"
           >

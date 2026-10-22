@@ -1052,6 +1052,8 @@ export async function addOrderLine(
     groupId?: string | null;
     /** Sales: what one unit cost us, so the line carries a margin from the start. */
     costBasis?: number;
+    /** Category of a free-text line. */
+    category?: string;
   },
   /** Which quote option the line joins. Omitted, it joins the active one. */
   packageId?: string,
@@ -1095,6 +1097,9 @@ export async function addOrderLine(
     const itemId = (created as { id?: string })?.id;
     // Cost is recorded the way an edit records it, so the margin and the
     // order's cost totals follow.
+    if (itemId && line.category?.trim() && !line.assetId) {
+      await prisma.reservationItem.update({ where: { id: itemId }, data: { category: line.category.trim() } });
+    }
     if (itemId && line.costBasis != null && line.costBasis > 0) {
       const { updateSaleItemCost } = await import("@/lib/actions/sales");
       await updateSaleItemCost(reservationId, itemId, line.costBasis);
