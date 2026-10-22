@@ -332,7 +332,7 @@ export function AddLine({
             <div className="w-full rounded-well bg-sunken p-3 text-detail">
               <p className="mb-2 text-ink">
                 This package was saved from a sale, so its prices are sale prices. Rentals are priced monthly:
-                cost ÷ months to recover. You might want to adjust these before adding.
+                cost ÷ months, rounded up to a flat rate (25s, then 50s and 100s). You might want to adjust these before adding.
               </p>
               <label className="mb-2 flex items-center gap-2 text-ink-muted">
                 Recover cost in
