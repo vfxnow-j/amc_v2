@@ -142,6 +142,8 @@ export type RecordUnit = {
 export type RecordComponent = {
   id: string;
   label: string;
+  /** A part of a sales build with nothing linked behind it: its wording can be edited. */
+  textEditable: boolean;
   assetId: string | null;
   quantity: number;
   rate: number;
@@ -329,6 +331,7 @@ export async function getReservationLines(
     const components = item.components.map((part) => ({
         id: part.id,
         label: part.asset?.name ?? part.description ?? "Part",
+        textEditable: item.isGroup && !part.assetId && !part.service && !part.cloudProductId,
         assetId: part.assetId,
         quantity: part.quantity,
         rate: Number(part.rate),

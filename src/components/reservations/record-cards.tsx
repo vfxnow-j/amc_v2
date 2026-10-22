@@ -381,6 +381,8 @@ export async function LinesCard({
                         >
                           {part.label}
                         </Link>
+                      ) : editable && part.textEditable ? (
+                        <LineText reservationId={id} itemId={part.id} text={part.label} />
                       ) : (
                         part.label
                       )}
