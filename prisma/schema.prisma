@@ -2969,6 +2969,13 @@ model PackageTemplateItem {
   costBasis   Decimal?        @db.Decimal(12, 2)
   /// Saved from a sale: `rate` is a one-time sale price, not a rental rate.
   salePriced  Boolean         @default(false)
+  /// A custom build saved from a sale: `rate` and `costBasis` are its parts' totals
+  /// per machine, so a reader that ignores `parts` still sees one priced line.
+  isGroup     Boolean         @default(false)
+  /// Set on a part of a build; `quantity` is then per machine.
+  parentId    String?
+  parent      PackageTemplateItem?  @relation("PackageTemplateParts", fields: [parentId], references: [id], onDelete: Cascade)
+  parts       PackageTemplateItem[] @relation("PackageTemplateParts")
   sortOrder   Int             @default(0)
   createdAt   DateTime        @default(now())
 

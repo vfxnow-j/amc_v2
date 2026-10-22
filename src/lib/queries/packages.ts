@@ -93,7 +93,7 @@ export async function listTemplates({ archived = false }: { archived?: boolean }
       description: true,
       isActive: true,
       updatedAt: true,
-      items: { orderBy: { sortOrder: "asc" }, select: TEMPLATE_ITEM_SELECT },
+      items: { where: { parentId: null }, orderBy: { sortOrder: "asc" }, select: TEMPLATE_ITEM_SELECT },
     },
   });
   const archivedCount = await prisma.packageTemplate.count({ where: { isActive: archived } });
@@ -124,7 +124,7 @@ export async function getTemplate(id: string) {
       isActive: true,
       createdAt: true,
       updatedAt: true,
-      items: { orderBy: { sortOrder: "asc" }, select: TEMPLATE_ITEM_SELECT },
+      items: { where: { parentId: null }, orderBy: { sortOrder: "asc" }, select: TEMPLATE_ITEM_SELECT },
     },
   });
   if (!template) return null;
@@ -151,7 +151,7 @@ export async function searchTemplates(query: string, take = 6) {
       id: true,
       name: true,
       description: true,
-      items: { orderBy: { sortOrder: "asc" }, select: TEMPLATE_ITEM_SELECT },
+      items: { where: { parentId: null }, orderBy: { sortOrder: "asc" }, select: TEMPLATE_ITEM_SELECT },
     },
   });
   return templates.map((template) => {

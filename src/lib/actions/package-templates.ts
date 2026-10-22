@@ -207,7 +207,7 @@ export async function previewSaleConversion(
   const order = await prisma.reservation.findUnique({ where: { id: reservationId }, select: { reservationType: true } });
   if (order?.reservationType !== "RENTAL") return { needed: false, lines: [] };
   const items = await prisma.packageTemplateItem.findMany({
-    where: { templateId, salePriced: true },
+    where: { templateId, salePriced: true, parentId: null },
     orderBy: { sortOrder: "asc" },
     select: {
       id: true,
@@ -227,6 +227,43 @@ export async function previewSaleConversion(
       cost: item.costBasis != null ? Number(item.costBasis) : null,
     })),
   };
+}
+
+/** A build heading on a sale, made the way Add build makes it, but returning its id. */
+async function createBuildGroupFor(
+  reservationId: string,
+  name: string,
+  quantity: number,
+  packageId?: string,
+): Promise<string> {
+  const { BUILD_CATEGORY } = await import("@/lib/pricing/build-groups");
+  return prisma.$transaction(async (tx) => {
+    const pkg = packageId
+      ? await tx.package.findFirst({ where: { id: packageId, reservationId } })
+      : ((await tx.package.findFirst({ where: { reservationId, isActive: true } })) ??
+        (await tx.package.create({ data: { reservationId, name: "Default", isActive: true, sortOrder: 0 } })));
+    if (!pkg) throw new Error("That quote option is not on this order.");
+    const last = await tx.reservationItem.aggregate({
+      where: { reservationId, packageId: pkg.id },
+      _max: { sortOrder: true },
+    });
+    const group = await tx.reservationItem.create({
+      data: {
+        reservationId,
+        packageId: pkg.id,
+        isGroup: true,
+        description: name,
+        category: BUILD_CATEGORY,
+        pricingType: "PROJECT",
+        rate: 0,
+        quantity,
+        subtotal: 0,
+        isOneTime: true,
+        sortOrder: (last._max.sortOrder ?? -1) + 1,
+      },
+    });
+    return group.id;
+  });
 }
 
 export async function loadTemplateIntoOrder(
@@ -252,7 +289,7 @@ export async function loadTemplateIntoOrder(
     select: {
       name: true,
       items: {
-        orderBy: { sortOrder: "asc" },
+        where: { parentId: null }, orderBy: { sortOrder: "asc" },
         select: {
           id: true,
           assetId: true,
@@ -265,6 +302,18 @@ export async function loadTemplateIntoOrder(
           category: true,
           costBasis: true,
           salePriced: true,
+          isGroup: true,
+          parts: {
+            orderBy: { sortOrder: "asc" },
+            select: {
+              assetId: true,
+              description: true,
+              quantity: true,
+              rate: true,
+              category: true,
+              costBasis: true,
+            },
+          },
           asset: { select: { name: true, monthlyRate: true, weeklyRate: true, dailyRate: true } },
           service: { select: { name: true, defaultRate: true } },
         },
@@ -314,6 +363,35 @@ export async function loadTemplateIntoOrder(
       );
       if (result.status === "ok") added++;
       else failed.push(`${label} (${result.message})`);
+      continue;
+    }
+
+    // A saved custom build comes back as a build with its parts, priced as saved.
+    if (item.isGroup && order?.reservationType === "SALE") {
+      try {
+        const groupId = await createBuildGroupFor(reservationId, label, item.quantity, packageId);
+        for (const part of item.parts) {
+          const result = await addOrderLine(
+            reservationId,
+            {
+              assetId: part.assetId,
+              description: part.assetId ? undefined : part.description ?? undefined,
+              rate: Number(part.rate ?? 0),
+              pricingType: "PROJECT",
+              quantity: part.quantity,
+              isOneTime: true,
+              category: part.category ?? undefined,
+              groupId,
+              ...(part.costBasis != null ? { costBasis: Number(part.costBasis) } : {}),
+            },
+            packageId,
+          );
+          if (result.status !== "ok") failed.push(`${part.description ?? "A part of " + label} (${result.message})`);
+        }
+        added++;
+      } catch (error) {
+        failed.push(`${label} (${reason(error)})`);
+      }
       continue;
     }
 
@@ -378,10 +456,10 @@ export async function saveOptionAsTemplate(
       description: true,
       reservation: { select: { reservationNumber: true, reservationType: true, client: { select: { name: true } } } },
       items: {
-        // Top-level lines only: a SKU's build parts come back with it when the
+        // Top-level lines only: a SKU's own parts come back with it when the
         // package is loaded, so copying them too would double them. A custom
-        // build (a sale's heading over priced parts) is kept as one line at the
-        // parts' total, below.
+        // build (a sale's heading over priced parts) is different: its parts are
+        // all there is to it, so they are kept under it, below.
         where: { parentId: null },
         orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
         select: {
@@ -395,7 +473,21 @@ export async function saveOptionAsTemplate(
           isGroup: true,
           category: true,
           costBasis: true,
-          components: { select: { subtotal: true, quantity: true, costBasis: true, includedInParent: true } },
+          components: {
+            orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+            select: {
+              assetId: true,
+              description: true,
+              quantity: true,
+              rate: true,
+              subtotal: true,
+              pricingType: true,
+              isOneTime: true,
+              category: true,
+              costBasis: true,
+              includedInParent: true,
+            },
+          },
         },
       },
     },
@@ -403,48 +495,73 @@ export async function saveOptionAsTemplate(
   if (!option) return { status: "error", message: "Option not found." };
   if (option.items.length === 0) return { status: "error", message: "That option has no lines to keep." };
 
+  const sale = option.reservation.reservationType === "SALE";
   const last = await prisma.packageTemplate.aggregate({ _max: { sortOrder: true } });
-  const created = await prisma.packageTemplate.create({
-    data: {
-      name:
-        name?.trim() ||
-        `${option.reservation.client.name} — ${option.name === "Default" ? option.reservation.reservationNumber : option.name}`,
-      description: option.description ?? `From ${option.reservation.reservationNumber}.`,
-      sortOrder: (last._max.sortOrder ?? 0) + 1,
-      createdById: auth.userId,
-      items: {
-        create: option.items.map((item, index) => {
-          // A build has no price of its own: it is what its parts add up to,
-          // per machine. Cost is kept only when every priced part has one, so
-          // a rate worked from it later is never understated.
-          let rate = item.rate;
-          let costBasis = item.costBasis;
-          if (item.isGroup) {
-            const machines = Math.max(1, item.quantity);
-            const parts = item.components.filter((part) => !part.includedInParent);
-            const price = parts.reduce((sum, part) => sum + Number(part.subtotal), 0);
-            rate = new Prisma.Decimal(Math.round((price / machines) * 100) / 100);
-            const costed = parts.every((part) => Number(part.subtotal) <= 0 || (part.costBasis != null && Number(part.costBasis) > 0));
-            const cost = parts.reduce((sum, part) => sum + Number(part.costBasis ?? 0) * part.quantity, 0);
-            costBasis = costed && cost > 0 ? new Prisma.Decimal(Math.round((cost / machines) * 100) / 100) : null;
-          }
-          const sale = option.reservation.reservationType === "SALE";
-          return {
-            assetId: item.assetId,
-            serviceId: item.serviceId,
-            description: item.assetId || item.serviceId ? null : item.description,
-            quantity: item.quantity,
-            rate,
-            pricingType: sale && item.isGroup ? ("PROJECT" as PricingType) : item.pricingType,
-            isOneTime: sale && item.isGroup ? true : item.isOneTime,
-            category: item.assetId ? null : item.category,
-            costBasis,
-            salePriced: sale,
-            sortOrder: index + 1,
-          };
-        }),
+  const created = await prisma.$transaction(async (tx) => {
+    const template = await tx.packageTemplate.create({
+      data: {
+        name:
+          name?.trim() ||
+          `${option.reservation.client.name} — ${option.name === "Default" ? option.reservation.reservationNumber : option.name}`,
+        description: option.description ?? `From ${option.reservation.reservationNumber}.`,
+        sortOrder: (last._max.sortOrder ?? 0) + 1,
+        createdById: auth.userId,
       },
-    },
+    });
+    for (const [index, item] of option.items.entries()) {
+      // A build has no price of its own: the line carries what its parts add up
+      // to, per machine, so anything reading only top-level lines still sees one
+      // priced line. Cost is kept only when every priced part has one, so a rate
+      // worked from it later is never understated.
+      let rate = item.rate;
+      let costBasis = item.costBasis;
+      const parts = item.isGroup ? item.components.filter((part) => !part.includedInParent) : [];
+      const machines = Math.max(1, item.quantity);
+      if (item.isGroup) {
+        const price = parts.reduce((sum, part) => sum + Number(part.subtotal), 0);
+        rate = new Prisma.Decimal(Math.round((price / machines) * 100) / 100);
+        const costed = parts.every((part) => Number(part.subtotal) <= 0 || (part.costBasis != null && Number(part.costBasis) > 0));
+        const cost = parts.reduce((sum, part) => sum + Number(part.costBasis ?? 0) * part.quantity, 0);
+        costBasis = costed && cost > 0 ? new Prisma.Decimal(Math.round((cost / machines) * 100) / 100) : null;
+      }
+      const line = await tx.packageTemplateItem.create({
+        data: {
+          templateId: template.id,
+          assetId: item.assetId,
+          serviceId: item.serviceId,
+          description: item.assetId || item.serviceId ? null : item.description,
+          quantity: item.quantity,
+          rate,
+          pricingType: sale && item.isGroup ? ("PROJECT" as PricingType) : item.pricingType,
+          isOneTime: sale && item.isGroup ? true : item.isOneTime,
+          category: item.assetId ? null : item.category,
+          costBasis,
+          salePriced: sale,
+          isGroup: item.isGroup,
+          sortOrder: index + 1,
+        },
+      });
+      for (const [partIndex, part] of parts.entries()) {
+        await tx.packageTemplateItem.create({
+          data: {
+            templateId: template.id,
+            parentId: line.id,
+            assetId: part.assetId,
+            description: part.assetId ? null : part.description,
+            // A part's stored quantity is already times the machines; the package keeps it per machine.
+            quantity: Math.max(1, Math.round(part.quantity / machines)),
+            rate: part.rate,
+            pricingType: part.pricingType,
+            isOneTime: part.isOneTime,
+            category: part.assetId ? null : part.category,
+            costBasis: part.costBasis,
+            salePriced: sale,
+            sortOrder: partIndex + 1,
+          },
+        });
+      }
+    }
+    return template;
   });
   touchTemplates();
   return {
@@ -504,7 +621,7 @@ export async function expandTemplateForWindow(
     select: {
       name: true,
       items: {
-        orderBy: { sortOrder: "asc" },
+        where: { parentId: null }, orderBy: { sortOrder: "asc" },
         select: {
           assetId: true,
           quantity: true,

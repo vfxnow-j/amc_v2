@@ -63,7 +63,7 @@ export const OFFER_SELECT = {
       description: true,
       isActive: true,
       items: {
-        orderBy: { sortOrder: 'asc' as const },
+        where: { parentId: null }, orderBy: { sortOrder: 'asc' as const },
         select: {
           assetId: true,
           serviceId: true,
