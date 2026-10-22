@@ -1285,10 +1285,13 @@ export async function applyMarginToAll(reservationId: string, marginPercent: num
 
   let newSubtotalSum = 0
   let totalCost = 0
+  let repriced = 0
+  let skipped = 0
 
   for (const item of targetItems) {
     const costBasis = item.costBasis != null ? Number(item.costBasis) : null
     if (costBasis != null && costBasis > 0) {
+      repriced++
       const newRate = Math.round(costBasis / (1 - marginPercent / 100) * 100) / 100
       const newSubtotal = newRate * item.quantity
       newSubtotalSum += newSubtotal
@@ -1304,6 +1307,7 @@ export async function applyMarginToAll(reservationId: string, marginPercent: num
       })
     } else {
       // No cost basis — keep existing rate, just set margin %
+      skipped++
       newSubtotalSum += Number(item.subtotal)
       await prisma.reservationItem.update({
         where: { id: item.id },
@@ -1346,7 +1350,7 @@ export async function applyMarginToAll(reservationId: string, marginPercent: num
   })
 
   revalidatePath(`/dashboard/orders/${reservationId}`)
-  return { success: true }
+  return { success: true, repriced, skipped }
 }
 
 // ===========================================================================

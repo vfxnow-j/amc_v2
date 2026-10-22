@@ -180,6 +180,8 @@ export type RecordLine = {
   components: RecordComponent[];
   /** Asset name, or the free-text description for an ad-hoc line. */
   label: string;
+  /** Free text with nothing linked behind it, so its wording can be edited. */
+  textEditable: boolean;
   assetId: string | null;
   /** The asset has options to configure it with. */
   configurable: boolean;
@@ -356,6 +358,7 @@ export async function getReservationLines(
         item.cloudProduct?.name ??
         item.description ??
         "Untitled line",
+      textEditable: !item.assetId && !item.service && !item.cloudProductId && !item.isGroup,
       assetId: item.assetId,
       configurable: (item.asset?._count.components ?? 0) > 0,
       category: item.asset?.category?.name ?? item.category,

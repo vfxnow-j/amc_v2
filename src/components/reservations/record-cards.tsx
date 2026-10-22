@@ -6,6 +6,7 @@ import { AddLine } from "@/components/orders/add-line";
 import { ConfigureLine } from "@/components/orders/configure-line";
 import { AddCloudHost, EditCloudHost } from "@/components/orders/cloud-controls";
 import { LineEditor } from "@/components/orders/line-editor";
+import { LineText, LineCategory } from "@/components/orders/line-text";
 import { CostMarginEditor } from "@/components/orders/cost-margin-editor";
 import {
   AddBuildGroup,
@@ -179,9 +180,21 @@ export async function LinesCard({
                   >
                     {line.label}
                   </Link>
+                ) : editable && line.textEditable ? (
+                  <LineText reservationId={id} itemId={line.id} text={line.label} />
                 ) : (
                   line.label
                 )}
+                {editable && line.textEditable ? (
+                  <LineCategory
+                    reservationId={id}
+                    itemId={line.id}
+                    category={line.category}
+                    choices={[...new Set(lines.map((l) => l.category).filter((c): c is string => !!c))]}
+                  />
+                ) : line.category ? (
+                  <span className="block text-micro font-normal text-ink-faint">{line.category}</span>
+                ) : null}
                 {line.isGroup ? (
                   <span className="ml-2 rounded-pill bg-accent-tint px-[6px] align-middle text-micro font-normal text-accent-on-tint">
                     build

@@ -72,6 +72,7 @@ export function AddLine({
   const [chosenPackage, setChosenPackage] = useState<TemplateHit | null>(null);
   const [quantity, setQuantity] = useState("1");
   const [price, setPrice] = useState("");
+  const [cost, setCost] = useState("");
   const [custom, setCustom] = useState<{ name: string } | null>(null);
   // An ad-hoc line outside a build: how its rate is read. "ONCE" is a flat charge.
   const [basis, setBasis] = useState<"DAILY" | "WEEKLY" | "MONTHLY" | "ONCE">("DAILY");
@@ -106,6 +107,7 @@ export function AddLine({
     setPackages([]);
     setQuantity("1");
     setPrice("");
+    setCost("");
     setCustom(null);
     setOpen(false);
   }
@@ -131,6 +133,7 @@ export function AddLine({
         pricingType: saleBuild ? "PROJECT" : (chosen.pricingType as PricingType),
         quantity: Number(quantity),
         ...(saleBuild ? { isOneTime: true } : {}),
+        ...(saleBuild && cost.trim() !== "" ? { costBasis: Number(cost) } : {}),
         ...(group ? { groupId: group.id } : {}),
       }, packageId);
       setOutcome(result);
@@ -151,6 +154,7 @@ export function AddLine({
         pricingType: once ? "PROJECT" : (basis as PricingType),
         quantity: Number(quantity),
         isOneTime: once,
+        ...(!rental && cost.trim() !== "" ? { costBasis: Number(cost) } : {}),
         ...(group ? { groupId: group.id } : {}),
       }, packageId);
       setOutcome(result);
@@ -210,7 +214,7 @@ export function AddLine({
             />
           </span>
           {saleBuild ? (
-            <PartFields quantity={quantity} setQuantity={setQuantity} price={price} setPrice={setPrice} />
+            <PartFields quantity={quantity} setQuantity={setQuantity} price={price} setPrice={setPrice} cost={cost} setCost={setCost} />
           ) : (
             <>
               <span>
@@ -233,6 +237,7 @@ export function AddLine({
                   className="h-9 w-24 rounded-well border-0 bg-sunken px-2 text-detail tabular-nums text-ink outline-none"
                 />
               </span>
+              {!rental ? <CostField cost={cost} setCost={setCost} /> : null}
               <select
                 value={basis}
                 aria-label="Rate basis"
@@ -299,7 +304,7 @@ export function AddLine({
             </span>
           </span>
           {saleBuild ? (
-            <PartFields quantity={quantity} setQuantity={setQuantity} price={price} setPrice={setPrice} />
+            <PartFields quantity={quantity} setQuantity={setQuantity} price={price} setPrice={setPrice} cost={cost} setCost={setCost} />
           ) : (
             <span>
               <span className="mb-[6px] block text-micro uppercase text-ink-muted">
@@ -430,11 +435,15 @@ function PartFields({
   setQuantity,
   price,
   setPrice,
+  cost,
+  setCost,
 }: {
   quantity: string;
   setQuantity: (value: string) => void;
   price: string;
   setPrice: (value: string) => void;
+  cost: string;
+  setCost: (value: string) => void;
 }) {
   return (
     <>
@@ -458,6 +467,24 @@ function PartFields({
           className="h-9 w-24 rounded-well border-0 bg-sunken px-2 text-detail tabular-nums text-ink outline-none"
         />
       </span>
+      <CostField cost={cost} setCost={setCost} />
     </>
+  );
+}
+
+/** What one unit cost us. Optional; with it the line carries a margin. */
+function CostField({ cost, setCost }: { cost: string; setCost: (value: string) => void }) {
+  return (
+    <span>
+      <span className="mb-[6px] block text-micro uppercase text-ink-muted">Cost each</span>
+      <input
+        value={cost}
+        inputMode="decimal"
+        aria-label="Cost each"
+        placeholder="optional"
+        onChange={(event) => setCost(event.target.value)}
+        className="h-9 w-24 rounded-well border-0 bg-sunken px-2 text-detail tabular-nums text-ink outline-none placeholder:text-ink-faint"
+      />
+    </span>
   );
 }

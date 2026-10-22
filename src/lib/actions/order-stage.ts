@@ -886,6 +886,58 @@ export async function setLineRate(
 }
 
 /**
+ * The wording of a free-text line (one with no asset, service or cloud product
+ * behind it). Linked lines take their name from what they point at, so there is
+ * nothing here to edit. Wording is part of the quote, so the quote lock applies.
+ */
+export async function setLineDescription(
+  reservationId: string,
+  itemId: string,
+  description: string,
+): Promise<StageOutcome> {
+  const text = description.trim();
+  if (!text) return { status: "error", message: "A line needs some text." };
+  try {
+    const auth = await requireEditor();
+    if (!auth.authorized) return { status: "error", message: auth.error || "Unauthorized" };
+    const { assertQuoteEditable } = await import("@/lib/orders/quote-lock-server");
+    await assertQuoteEditable(reservationId);
+    const item = await prisma.reservationItem.findUnique({
+      where: { id: itemId },
+      select: { reservationId: true, assetId: true, serviceId: true, cloudProductId: true },
+    });
+    if (!item || item.reservationId !== reservationId) return { status: "error", message: "Line not found." };
+    if (item.assetId || item.serviceId || item.cloudProductId) {
+      return { status: "error", message: "This line is named after what it links to." };
+    }
+    await prisma.reservationItem.update({ where: { id: itemId }, data: { description: text } });
+    touch(reservationId);
+    return { status: "ok", message: "Line text updated." };
+  } catch (error) {
+    return { status: "error", message: reasonFrom(error) };
+  }
+}
+
+/**
+ * The category of a free-text line. The order document groups lines under their
+ * category; asset-linked lines take theirs from the asset. Blank clears it.
+ */
+export async function setLineCategory(
+  reservationId: string,
+  itemId: string,
+  category: string,
+): Promise<StageOutcome> {
+  try {
+    const { updateReservationItemCategory } = await import("@/lib/actions/reservations");
+    await updateReservationItemCategory(reservationId, itemId, category.trim() || null);
+    touch(reservationId);
+    return { status: "ok", message: "Category updated." };
+  } catch (error) {
+    return { status: "error", message: reasonFrom(error) };
+  }
+}
+
+/**
  * What one unit cost us, on a sale line. Not a quote change — the client never
  * sees it — so it is allowed after the quote is sent; the line's price stays and
  * its margin moves.
@@ -940,9 +992,21 @@ export async function setAllMargins(
   }
   try {
     const { applyMarginToAll } = await import("@/lib/actions/sales");
-    await applyMarginToAll(reservationId, marginPercent);
+    const { repriced, skipped } = await applyMarginToAll(reservationId, marginPercent);
     touch(reservationId);
-    return { status: "ok", message: "Margin applied; every line with a cost was repriced." };
+    if (repriced === 0) {
+      return {
+        status: "error",
+        message: `No line has a cost, so there was nothing to price from; no prices changed. Enter each line's cost first.`,
+      };
+    }
+    return {
+      status: "ok",
+      message:
+        skipped > 0
+          ? `Margin applied; ${repriced} line${repriced === 1 ? "" : "s"} repriced. ${skipped} without a cost kept ${skipped === 1 ? "its" : "their"} price.`
+          : `Margin applied; ${repriced} line${repriced === 1 ? "" : "s"} repriced.`,
+    };
   } catch (error) {
     return { status: "error", message: reasonFrom(error) };
   }
@@ -986,6 +1050,8 @@ export async function addOrderLine(
     isOneTime?: boolean;
     /** A sales build group to add this line under; quantity is then per machine. */
     groupId?: string | null;
+    /** Sales: what one unit cost us, so the line carries a margin from the start. */
+    costBasis?: number;
   },
   /** Which quote option the line joins. Omitted, it joins the active one. */
   packageId?: string,
@@ -998,6 +1064,9 @@ export async function addOrderLine(
   }
   if (!Number.isFinite(line.rate) || line.rate < 0) {
     return { status: "error", message: "A rate is zero or more." };
+  }
+  if (line.costBasis != null && (!Number.isFinite(line.costBasis) || line.costBasis < 0)) {
+    return { status: "error", message: "A cost is zero or more." };
   }
 
   try {
@@ -1024,6 +1093,12 @@ export async function addOrderLine(
     // rows by hand for the ninth time.
     let added = 0;
     const itemId = (created as { id?: string })?.id;
+    // Cost is recorded the way an edit records it, so the margin and the
+    // order's cost totals follow.
+    if (itemId && line.costBasis != null && line.costBasis > 0) {
+      const { updateSaleItemCost } = await import("@/lib/actions/sales");
+      await updateSaleItemCost(reservationId, itemId, line.costBasis);
+    }
     // A part of a build group is itself the part: it takes no default parts of its own.
     if (itemId && line.assetId && !line.groupId) {
       const { expandBuildOntoLine } = await import("@/lib/actions/asset-build");
