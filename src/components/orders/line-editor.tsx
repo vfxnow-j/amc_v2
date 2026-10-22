@@ -217,3 +217,70 @@ export function PartQuantity({
     </span>
   );
 }
+
+/**
+ * The monthly rate of a part in a build that is priced by its parts. Changing it
+ * reprices the build above; the part itself still charges nothing on its own line.
+ */
+export function PartRate({
+  reservationId,
+  itemId,
+  rate,
+  unit,
+}: {
+  reservationId: string;
+  itemId: string;
+  rate: number;
+  unit: string;
+}) {
+  const router = useRouter();
+  const [amount, setAmount] = useState(rate.toFixed(2));
+  const [error, setError] = useState("");
+  const [busy, startTransition] = useTransition();
+
+  const [seed, setSeed] = useState(rate);
+  if (seed !== rate) {
+    setSeed(rate);
+    setAmount(rate.toFixed(2));
+  }
+
+  function commit() {
+    const next = Number(amount);
+    if (next === rate) return setAmount(rate.toFixed(2));
+    startTransition(async () => {
+      const result = await setLineRate(reservationId, itemId, next);
+      if (result.status === "error") {
+        setError(result.message);
+        setAmount(rate.toFixed(2));
+      } else {
+        setError("");
+        router.refresh();
+      }
+    });
+  }
+
+  return (
+    <span className="flex flex-col items-end">
+      <span className="flex items-baseline gap-1 text-ink-faint">
+        <input
+          value={amount}
+          inputMode="decimal"
+          disabled={busy}
+          aria-label="Part rate"
+          onChange={(event) => setAmount(event.target.value)}
+          onBlur={commit}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") event.currentTarget.blur();
+            if (event.key === "Escape") {
+              setAmount(rate.toFixed(2));
+              event.currentTarget.blur();
+            }
+          }}
+          className="w-[72px] rounded-row border-0 bg-transparent px-1 py-0 text-right tabular-nums outline-none hover:bg-row-hover focus:bg-sunken disabled:opacity-50"
+        />
+        {unit}
+      </span>
+      {error ? <span className="text-micro text-danger">{error}</span> : null}
+    </span>
+  );
+}

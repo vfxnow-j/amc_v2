@@ -5,7 +5,7 @@ import { RemoveLine } from "@/components/orders/remove-line";
 import { AddLine } from "@/components/orders/add-line";
 import { ConfigureLine } from "@/components/orders/configure-line";
 import { AddCloudHost, EditCloudHost } from "@/components/orders/cloud-controls";
-import { LineEditor, PartQuantity } from "@/components/orders/line-editor";
+import { LineEditor, PartQuantity, PartRate } from "@/components/orders/line-editor";
 import { LineText, LineCategory } from "@/components/orders/line-text";
 import { CostMarginEditor } from "@/components/orders/cost-margin-editor";
 import {
@@ -409,6 +409,14 @@ export async function LinesCard({
                           ) : null}
                         </span>
                         )}
+                        {editable && !line.isGroup && !line.assetId && part.includedInParent && !part.isCloudPart ? (
+                          <PartRate
+                            reservationId={id}
+                            itemId={part.id}
+                            rate={part.rate}
+                            unit={`/${part.pricingType.toLowerCase()}`}
+                          />
+                        ) : (
                         <span className="text-right tabular-nums text-ink-faint">
                           {part.isCloudPart
                             ? "per host"
@@ -416,6 +424,7 @@ export async function LinesCard({
                             ? "included"
                             : `${MONEY.format(part.rate)}${line.isGroup && !isRental ? " each" : part.isOneTime ? " once" : ` /${part.pricingType.toLowerCase()}`}`}
                         </span>
+                        )}
                       </>
                     )}
                     <span className="text-right tabular-nums text-ink-muted">

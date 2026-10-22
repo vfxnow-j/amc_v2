@@ -1233,12 +1233,14 @@ export async function updateReservationItemRate(
     const periods = item.isOneTime ? 1 : calculatePeriodsSync(reservation.startDate, reservation.endDate, effectivePricingType, reservation.isRecurring)
     const updateData: Record<string, unknown> = {
       rate: newRate,
-      subtotal: computeItemSubtotal(newRate, item.quantity, periods),
+      // An included part never charges on its own line; its build carries the price.
+      subtotal: item.includedInParent ? 0 : computeItemSubtotal(newRate, item.quantity, periods),
     }
     if (newPricingType) {
       updateData.pricingType = newPricingType
     }
     await tx.reservationItem.update({ where: { id: itemId }, data: updateData })
+    await rollUpBuildPrice(tx, itemId, reservation)
 
     // Recalculate reservation totals from the active package's items only
     const activePackage = await tx.package.findFirst({ where: { reservationId, isActive: true } })
@@ -1246,7 +1248,7 @@ export async function updateReservationItemRate(
       where: { reservationId, ...(activePackage ? { packageId: activePackage.id } : {}) },
     })
     const newSubtotal = allItems.reduce((sum, ri) => {
-      return sum + (ri.id === itemId ? computeItemSubtotal(newRate, ri.quantity, periods) : Number(ri.subtotal))
+      return sum + (ri.id === itemId && !ri.includedInParent ? computeItemSubtotal(newRate, ri.quantity, periods) : Number(ri.subtotal))
     }, 0)
     const { discountAmount, taxAmount: newTaxAmount, total: newTotal } = calculateReservationTotals({
       itemsSubtotal: newSubtotal,
@@ -1274,6 +1276,33 @@ export async function updateReservationItemRate(
 // ---------------------------------------------------------------------------
 // Update quantity on a reservation item (rental orders only, before checkout)
 // ---------------------------------------------------------------------------
+/**
+ * A build that came from a package in a rental is priced by its parts: its rate
+ * per machine is what the parts add up to (each part's rate times how many), so
+ * changing a part's quantity or rate changes the build's price. The parts
+ * themselves stay "included" and charge nothing on their own line.
+ *
+ * Only a free-text build (no asset behind it) rolls up. A configured machine's
+ * parts are options against an asset's own rate, not additions to it.
+ */
+async function rollUpBuildPrice(
+  tx: Prisma.TransactionClient,
+  partId: string,
+  reservation: { startDate: Date; endDate: Date; isRecurring: boolean },
+) {
+  const part = await tx.reservationItem.findUnique({ where: { id: partId }, include: { parent: true } })
+  const parent = part?.parent
+  if (!part?.includedInParent || !parent || parent.assetId || parent.isGroup || parent.isOneTime) return
+  const parts = await tx.reservationItem.findMany({ where: { parentId: parent.id, includedInParent: true } })
+  const perMachine = parts.reduce((sum, row) => sum + Number(row.rate) * row.quantity, 0) / Math.max(1, parent.quantity)
+  const rate = Math.round(perMachine * 100) / 100
+  const periods = calculatePeriodsSync(reservation.startDate, reservation.endDate, parent.pricingType, reservation.isRecurring)
+  await tx.reservationItem.update({
+    where: { id: parent.id },
+    data: { rate, subtotal: computeItemSubtotal(rate, parent.quantity, periods) },
+  })
+}
+
 export async function updateReservationItemQuantity(
   reservationId: string,
   itemId: string,
@@ -1328,6 +1357,9 @@ export async function updateReservationItemQuantity(
         await tx.reservationItem.update({ where: { id: part.id }, data: { quantity: scaled } })
       }
     }
+
+    // A part's quantity changes what its build is worth.
+    await rollUpBuildPrice(tx, itemId, reservation)
 
     // Recalculate reservation totals
     const activePackage = await tx.package.findFirst({ where: { reservationId, isActive: true } })
