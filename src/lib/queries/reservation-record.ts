@@ -358,7 +358,7 @@ export async function getReservationLines(
         item.cloudProduct?.name ??
         item.description ??
         "Untitled line",
-      textEditable: !item.assetId && !item.service && !item.cloudProductId && !item.isGroup,
+      textEditable: !item.assetId && !item.service && !item.cloudProductId,
       assetId: item.assetId,
       configurable: (item.asset?._count.components ?? 0) > 0,
       category: item.asset?.category?.name ?? item.category,
