@@ -1309,12 +1309,25 @@ export async function updateReservationItemQuantity(
 
     const rate = Number(item.rate)
     const periods = item.isOneTime ? 1 : calculatePeriodsSync(reservation.startDate, reservation.endDate, item.pricingType, reservation.isRecurring)
-    const newSubtotalForItem = computeItemSubtotal(rate, newQuantity, periods)
+    // A part included in its parent's rate is specification: it never charges, whatever its quantity.
+    const newSubtotalForItem = item.includedInParent ? 0 : computeItemSubtotal(rate, newQuantity, periods)
 
     await tx.reservationItem.update({
       where: { id: itemId },
       data: { quantity: newQuantity, subtotal: newSubtotalForItem },
     })
+
+    // More machines means more of each included part under them.
+    if (item.quantity > 0 && newQuantity !== item.quantity) {
+      const included = await tx.reservationItem.findMany({
+        where: { parentId: itemId, includedInParent: true },
+        select: { id: true, quantity: true },
+      })
+      for (const part of included) {
+        const scaled = Math.max(1, Math.round((part.quantity / item.quantity) * newQuantity))
+        await tx.reservationItem.update({ where: { id: part.id }, data: { quantity: scaled } })
+      }
+    }
 
     // Recalculate reservation totals
     const activePackage = await tx.package.findFirst({ where: { reservationId, isActive: true } })

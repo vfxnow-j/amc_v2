@@ -5,7 +5,7 @@ import { RemoveLine } from "@/components/orders/remove-line";
 import { AddLine } from "@/components/orders/add-line";
 import { ConfigureLine } from "@/components/orders/configure-line";
 import { AddCloudHost, EditCloudHost } from "@/components/orders/cloud-controls";
-import { LineEditor } from "@/components/orders/line-editor";
+import { LineEditor, PartQuantity } from "@/components/orders/line-editor";
 import { LineText, LineCategory } from "@/components/orders/line-text";
 import { CostMarginEditor } from "@/components/orders/cost-margin-editor";
 import {
@@ -399,12 +399,16 @@ export async function LinesCard({
                       />
                     ) : (
                       <>
+                        {editable && !line.isGroup && !part.isCloudPart ? (
+                          <PartQuantity reservationId={id} itemId={part.id} quantity={part.quantity} />
+                        ) : (
                         <span className="text-right tabular-nums text-ink-faint">
                           ×{line.isGroup ? part.perMachine : part.quantity}
                           {line.isGroup && part.perMachine !== part.quantity ? (
                             <span className="text-micro"> ({part.quantity} in all)</span>
                           ) : null}
                         </span>
+                        )}
                         <span className="text-right tabular-nums text-ink-faint">
                           {part.isCloudPart
                             ? "per host"

@@ -33,7 +33,7 @@ export default function QuoteLayout({ children }: { children: React.ReactNode })
       className={`${quoteSans.variable} flex min-h-screen flex-col bg-[#f4f4f5] font-[family-name:var(--font-quote-sans)] text-[#18181b] antialiased`}
     >
       <header className="bg-[#18181b] text-white">
-        <div className="mx-auto flex w-full max-w-3xl items-center gap-3 px-4 py-4">
+        <div className="mx-auto flex w-full max-w-3xl items-center gap-3 px-4 py-3">
           <Image
             src="/brand/VFXnow-Logo-AllWhite-Vector.png"
             alt="VFXNow"
@@ -48,10 +48,10 @@ export default function QuoteLayout({ children }: { children: React.ReactNode })
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-8">{children}</main>
+      <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-5">{children}</main>
 
       <footer className="border-t border-[#e4e4e7] bg-white">
-        <div className="mx-auto flex w-full max-w-3xl flex-col items-center justify-between gap-2 px-4 py-5 sm:flex-row">
+        <div className="mx-auto flex w-full max-w-3xl flex-col items-center justify-between gap-2 px-4 py-4 sm:flex-row">
           <span className="text-xs text-[#a1a1aa]">
             VFXNow Asset Management &amp; Control
           </span>

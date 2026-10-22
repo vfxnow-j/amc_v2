@@ -154,3 +154,66 @@ export function LineEditor({
 
 const CELL =
   "w-full rounded-row border-0 bg-transparent px-1 py-0 text-right tabular-nums text-ink outline-none hover:bg-row-hover focus:bg-sunken disabled:opacity-50";
+
+/**
+ * The quantity of a part under a line, edited in place — the same save as a
+ * line's own quantity, without the rate: a part included in its parent's rate
+ * has none to change.
+ */
+export function PartQuantity({
+  reservationId,
+  itemId,
+  quantity,
+}: {
+  reservationId: string;
+  itemId: string;
+  quantity: number;
+}) {
+  const router = useRouter();
+  const [qty, setQty] = useState(String(quantity));
+  const [error, setError] = useState("");
+  const [busy, startTransition] = useTransition();
+
+  const [seed, setSeed] = useState(quantity);
+  if (seed !== quantity) {
+    setSeed(quantity);
+    setQty(String(quantity));
+  }
+
+  function commit() {
+    const next = Number(qty);
+    if (next === quantity) return setQty(String(quantity));
+    startTransition(async () => {
+      const result = await setLineQuantity(reservationId, itemId, next);
+      if (result.status === "error") {
+        setError(result.message);
+        setQty(String(quantity));
+      } else {
+        setError("");
+        router.refresh();
+      }
+    });
+  }
+
+  return (
+    <span className="flex flex-col items-end">
+      <input
+        value={qty}
+        inputMode="numeric"
+        disabled={busy}
+        aria-label="Part quantity"
+        onChange={(event) => setQty(event.target.value)}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") event.currentTarget.blur();
+          if (event.key === "Escape") {
+            setQty(String(quantity));
+            event.currentTarget.blur();
+          }
+        }}
+        className="w-[48px] rounded-row border-0 bg-transparent px-1 py-0 text-right tabular-nums text-ink-faint outline-none hover:bg-row-hover focus:bg-sunken disabled:opacity-50"
+      />
+      {error ? <span className="text-micro text-danger">{error}</span> : null}
+    </span>
+  );
+}

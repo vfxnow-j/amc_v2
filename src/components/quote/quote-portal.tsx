@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState, useTransition } from "react";
+import { Fragment, useMemo, useRef, useState, useTransition } from "react";
 import dynamic from "next/dynamic";
 import {
   approveQuote,
@@ -241,20 +241,20 @@ export function QuotePortal({
   if (answer) return <Answered answer={answer} />;
 
   return (
-    <div className="flex flex-col gap-4">
-      <Header quote={quote} total={shown.total} />
+    <div className="flex flex-col gap-3">
+      <Header quote={quote} total={shown.total} expired={expired} />
 
       {flow ? (
         <FlowBody quote={quote} flow={flow} />
       ) : null}
 
       {!flow && hasPackages ? (
-        <section className="rounded-2xl bg-white p-5 shadow-sm">
+        <section className="rounded-xl border border-[#e4e4e7] bg-white p-4 shadow-sm">
           <h2 className="text-sm font-bold tracking-tight">Choose an option</h2>
           <p className="mt-1 text-xs text-[#71717a]">
             Approving confirms the option selected here.
           </p>
-          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+          <div className="mt-3 grid gap-2 sm:grid-cols-3">
             {quote.packages!.map((option) => {
               const active = option.id === selectedPackageId;
               return (
@@ -285,12 +285,16 @@ export function QuotePortal({
         </section>
       ) : null}
 
-      {flow ? null : <Lines categories={shown.categories} />}
-
-      {flow ? null : <Totals quote={quote} shown={shown} />}
+      {flow ? null : (
+        <Lines
+          categories={shown.categories}
+          title={selected ? `Included — ${selected.name}` : "Included"}
+          footer={<Totals quote={quote} shown={shown} />}
+        />
+      )}
 
       {!flow && shown.paymentLine ? (
-        <section className="rounded-2xl bg-white p-5 shadow-sm">
+        <section className="rounded-xl border border-[#e4e4e7] bg-white p-4 shadow-sm">
           <p className="text-sm font-semibold">{shown.paymentLine.headline}</p>
           {shown.paymentLine.notes.map((note) => (
             <p key={note} className="mt-1 text-xs text-[#71717a]">{note}</p>
@@ -299,7 +303,7 @@ export function QuotePortal({
       ) : null}
 
       {!flow && (quote.rtoTermMonths || quote.rtoMonthlyPayment) ? (
-        <section className="rounded-2xl bg-white p-5 shadow-sm">
+        <section className="rounded-xl border border-[#e4e4e7] bg-white p-4 shadow-sm">
           <h2 className="text-sm font-bold tracking-tight">Rent-to-own terms</h2>
           <dl className="mt-3 grid grid-cols-3 gap-3 text-sm">
             <Detail label="Term">
@@ -319,7 +323,7 @@ export function QuotePortal({
       ) : null}
 
       {quote.deliveryMethod || quote.returnMethod || quote.deliveryAddress ? (
-        <section className="rounded-2xl bg-white p-5 shadow-sm">
+        <section className="rounded-xl border border-[#e4e4e7] bg-white p-4 shadow-sm">
           <h2 className="text-sm font-bold tracking-tight">Getting it to you</h2>
           <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
             {quote.deliveryMethod ? (
@@ -347,7 +351,7 @@ export function QuotePortal({
       ) : null}
 
       {quote.notes ? (
-        <section className="rounded-2xl bg-white p-5 shadow-sm">
+        <section className="rounded-xl border border-[#e4e4e7] bg-white p-4 shadow-sm">
           <h2 className="text-sm font-bold tracking-tight">Notes</h2>
           <p className="mt-2 whitespace-pre-line text-sm text-[#3f3f46]">
             {quote.notes}
@@ -473,103 +477,202 @@ export function QuotePortal({
   );
 }
 
-function Header({ quote, total }: { quote: QuoteData; total: number }) {
+const TYPE_LABEL: Record<string, string> = {
+  RENT_TO_OWN: "Rent-to-Own Agreement",
+  FLOW: "Flow Subscription",
+};
+
+const BILLING_LABEL: Record<string, string> = {
+  ONE_TIME: "One-time",
+  DAILY: "Daily",
+  WEEKLY: "Weekly",
+  BI_WEEKLY: "Bi-weekly",
+  MONTHLY: "Monthly",
+  CUSTOM: "Custom",
+};
+
+const EYEBROW = "text-[10px] font-semibold uppercase tracking-[0.14em] text-[#a1a1aa]";
+const CARD = "overflow-hidden rounded-xl border border-[#e4e4e7] bg-white shadow-sm";
+
+/**
+ * The top of the quote, laid out as v1's was and tighter: the number and the
+ * total on one line, then a single strip for where the quote stands and the
+ * details a client checks first (who it is for, the dates, how it is billed).
+ */
+function Header({ quote, total, expired }: { quote: QuoteData; total: number; expired: boolean }) {
+  const sale = quote.reservationType === "SALE";
+  const flow = quote.reservationType === "FLOW";
+  const details: { label: string; value: string }[] = [
+    {
+      label: "Prepared for",
+      value: quote.companyName ? `${quote.clientName} · ${quote.companyName}` : quote.clientName,
+    },
+    ...(quote.projectName ? [{ label: "Project", value: quote.projectName }] : []),
+    { label: sale ? "Date" : "Start", value: day(quote.startDate) },
+    ...(sale || flow ? [] : [{ label: "End", value: day(quote.endDate) }]),
+    ...(sale || flow ? [] : [{ label: "Term", value: termLength(quote.startDate, quote.endDate) }]),
+    {
+      label: "Billing",
+      value: sale
+        ? "One-time purchase"
+        : flow && quote.flow
+          ? `Monthly · ${quote.flow.termMonths} months`
+          : quote.reservationType === "RENT_TO_OWN"
+            ? "Monthly (Rent-to-Own)"
+            : (BILLING_LABEL[quote.billingCycleType] ?? quote.billingCycleType),
+    },
+  ];
   return (
-    <section className="rounded-2xl bg-white p-6 shadow-sm">
-      <div className="flex flex-wrap items-start justify-between gap-4">
+    <section className={CARD}>
+      <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-1 px-4 py-3">
         <div className="min-w-0">
-          <p className="text-xs uppercase tracking-wide text-[#a1a1aa]">
-            Quote {quote.reservationNumber}
-          </p>
-          <h1 className="mt-1 text-2xl font-bold tracking-tight">
-            {quote.companyName || quote.clientName}
-          </h1>
-          {quote.reservationType === "FLOW" ? (
-            <p className="mt-1 text-base font-semibold">Flow Subscription</p>
-          ) : null}
-          <p className="mt-1 text-sm text-[#71717a]">
-            {quote.projectName ? `${quote.projectName} · ` : ""}
-            {/* A sale has no term — just the day it is ordered. */}
-            {quote.reservationType === "SALE"
-              ? `Ordered ${day(quote.startDate)}`
-              : `${day(quote.startDate)} – ${day(quote.endDate)}`}
-          </p>
+          <p className={EYEBROW}>{TYPE_LABEL[quote.reservationType] ?? "Quote / Estimate"}</p>
+          <h1 className="text-xl font-extrabold tracking-tight">{quote.reservationNumber}</h1>
         </div>
         <div className="text-right">
-          <p className="text-3xl font-bold tabular-nums">{money(total)}</p>
-          <p className="mt-1 text-xs text-[#71717a]">
-            {quote.reservationType === "SALE"
-              ? "A one-time purchase."
-              : quote.reservationType === "FLOW" && quote.flow
-                ? `Total over term · Monthly (Flow, ${quote.flow.termMonths} months)`
+          <p className="text-2xl font-extrabold tabular-nums leading-tight">{money(total)}</p>
+          <p className="text-[11px] text-[#71717a]">
+            {sale
+              ? "One-time purchase"
+              : flow && quote.flow
+                ? `Total over ${quote.flow.termMonths} months`
                 : (CYCLE_TERM[quote.billingCycleType] ?? "")}
           </p>
         </div>
       </div>
-      <p className="mt-4 border-t border-[#f4f4f5] pt-3 text-xs text-[#a1a1aa]">
-        {quote.issuedAt ? `Issued ${day(quote.issuedAt)}` : "Not issued yet"}
-        {quote.expiresAt ? ` · pricing held until ${day(quote.expiresAt)}` : ""}
-      </p>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-[#f4f4f5] bg-[#fafafa] px-4 py-2 text-xs text-[#71717a]">
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-[#18181b] px-2.5 py-0.5 text-[11px] font-semibold text-white">
+          <span className={`h-1.5 w-1.5 rounded-full ${expired ? "bg-red-400" : "bg-emerald-400"}`} />
+          {expired ? "Expired" : "Open for approval"}
+        </span>
+        {quote.issuedAt ? <span>Issued {day(quote.issuedAt)}</span> : <span>Not issued yet</span>}
+        {quote.expiresAt ? (
+          <span className="font-medium text-[#3f3f46]">Valid until {day(quote.expiresAt)}</span>
+        ) : null}
+      </div>
+      <dl className="grid grid-cols-2 gap-px border-t border-[#f4f4f5] bg-[#f4f4f5] sm:grid-cols-3">
+        {details.map((detail) => (
+          <div key={detail.label} className="bg-white px-4 py-2">
+            <dt className={EYEBROW}>{detail.label}</dt>
+            <dd className="text-[13px] font-medium">{detail.value}</dd>
+          </div>
+        ))}
+      </dl>
     </section>
   );
 }
 
-function Lines({ categories }: { categories: QuoteCategory[] }) {
+/** "3 months", "10 days", "1 month, 5 days" — the length of the term, for the details strip. */
+function termLength(start: string, end: string): string {
+  const from = new Date(start);
+  const to = new Date(end);
+  if (Number.isNaN(+from) || Number.isNaN(+to) || to < from) return "—";
+  let months = (to.getFullYear() - from.getFullYear()) * 12 + (to.getMonth() - from.getMonth());
+  const anchor = new Date(from);
+  anchor.setMonth(anchor.getMonth() + months);
+  if (anchor > to) {
+    months -= 1;
+    anchor.setTime(from.getTime());
+    anchor.setMonth(anchor.getMonth() + months);
+  }
+  const days = Math.round((+to - +anchor) / 86400000);
+  const parts = [
+    months > 0 ? `${months} ${months === 1 ? "month" : "months"}` : "",
+    days > 0 || months === 0 ? `${Math.max(days, 1)} ${days === 1 ? "day" : "days"}` : "",
+  ].filter(Boolean);
+  return parts.join(", ");
+}
+
+/**
+ * The line items as a table with the totals under it, in one card: item, quantity,
+ * rate, amount. A part of a build or a configured machine sits under its parent
+ * as a small "↳" line; included parts and hidden build parts carry no figures.
+ */
+function Lines({
+  categories,
+  title,
+  footer,
+}: {
+  categories: QuoteCategory[];
+  title: string;
+  footer: React.ReactNode;
+}) {
   if (categories.length === 0) {
     return (
-      <section className="rounded-2xl bg-white p-5 text-sm text-[#71717a] shadow-sm">
+      <section className={`${CARD} p-4 text-sm text-[#71717a]`}>
         There is nothing on this quote yet. Reply to the email it came in and we
         will send a complete one.
       </section>
     );
   }
+  const count = categories.reduce((sum, group) => sum + group.items.filter((item) => !item.isComponent).length, 0);
+  const HEAD = "py-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#71717a]";
 
   return (
-    <section className="overflow-hidden rounded-2xl bg-white shadow-sm">
-      {categories.map((group) => (
-        <div key={group.category} className="border-b border-[#f4f4f5] last:border-b-0">
-          <p className="bg-[#fafafa] px-5 py-2 text-xs font-semibold uppercase tracking-wide text-[#71717a]">
-            {group.category}
-          </p>
-          <ul>
-            {group.items.map((item) => (
-              <li
-                key={item.id}
-                className={`grid grid-cols-[1fr_auto] items-baseline gap-3 px-5 py-3 text-sm ${
-                  item.isComponent ? "bg-[#fcfcfd]" : ""
-                }`}
-              >
-                <span className={item.isComponent ? "pl-4 text-[#52525b]" : "font-medium"}>
-                  {item.isComponent ? "↳ " : ""}
-                  {item.name}
-                  {item.priceHidden ? null : (
-                  <span className="ml-2 text-xs text-[#a1a1aa]">
-                    ×{item.quantity}
-                    {/* The base specification of a configured machine is listed
-                        so the client can see what they are getting, and priced
-                        at nothing because it is already in the parent's rate.
-                        Showing its rate here would read as a charge. */}
-                    {item.includedInParent
-                      ? " · included"
-                      : item.isGroup
-                        ? ` · ${money(item.rate)} each`
-                        : ` · ${money(item.rate)}${RATE_SUFFIX[item.pricingType] ?? ""}`}
-                  </span>
-                  )}
-                  {item.spec && (
-                    <span className="mt-0.5 block text-xs font-normal text-[#71717a]">{item.spec}</span>
-                  )}
-                </span>
-                <span className="tabular-nums">
-                  {item.priceHidden ? "" : item.includedInParent
-                    ? "—"
-                    : money(item.configuredTotal ?? item.subtotal)}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ))}
+    <section className={CARD}>
+      <div className="flex items-baseline justify-between px-4 pb-1 pt-3">
+        <h2 className={EYEBROW}>{title}</h2>
+        <span className="text-[11px] text-[#a1a1aa]">
+          {count} {count === 1 ? "line" : "lines"}
+        </span>
+      </div>
+      <table className="w-full text-[13px]">
+        <thead>
+          <tr className="border-y border-[#e4e4e7] bg-[#fafafa]">
+            <th className={`${HEAD} pl-4 text-left`}>Item</th>
+            <th className={`${HEAD} w-10 px-2 text-center`}>Qty</th>
+            <th className={`${HEAD} hidden px-2 text-right sm:table-cell`}>Rate</th>
+            <th className={`${HEAD} pr-4 text-right`}>Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          {categories.map((group) => (
+            <Fragment key={group.category}>
+              <tr>
+                <td
+                  colSpan={4}
+                  className="bg-[#fafafa]/60 px-4 pb-0.5 pt-2 text-[10px] font-bold uppercase tracking-[0.12em] text-[#71717a]"
+                >
+                  {group.category}
+                </td>
+              </tr>
+              {group.items.map((item) => {
+                const figures = !item.priceHidden;
+                const amount = item.includedInParent ? "—" : money(item.configuredTotal ?? item.subtotal);
+                return (
+                  <tr key={item.id} className="border-b border-[#f4f4f5] align-baseline last:border-b-0">
+                    <td className={`py-1.5 pl-4 ${item.isComponent ? "pl-8 text-xs text-[#52525b]" : ""}`}>
+                      {item.isComponent ? <span className="mr-1 text-[#a1a1aa]">↳</span> : null}
+                      <span className={item.isComponent ? "" : "font-medium"}>{item.name}</span>
+                      {item.spec ? (
+                        <span className="block whitespace-pre-wrap text-[11px] leading-snug text-[#71717a]">
+                          {item.spec}
+                        </span>
+                      ) : null}
+                    </td>
+                    <td className="px-2 py-1.5 text-center tabular-nums text-[#52525b]">
+                      {item.isComponent && item.quantity === 1 ? "" : item.quantity}
+                    </td>
+                    <td className="hidden whitespace-nowrap px-2 py-1.5 text-right tabular-nums text-[#52525b] sm:table-cell">
+                      {!figures
+                        ? ""
+                        : item.includedInParent
+                          ? "included"
+                          : item.isGroup
+                            ? `${money(item.rate)} each`
+                            : `${money(item.rate)}${RATE_SUFFIX[item.pricingType] ?? ""}`}
+                    </td>
+                    <td className="py-1.5 pr-4 text-right font-semibold tabular-nums">
+                      {figures ? amount : ""}
+                    </td>
+                  </tr>
+                );
+              })}
+            </Fragment>
+          ))}
+        </tbody>
+      </table>
+      <div className="border-t border-[#e4e4e7] bg-[#fafafa]/60 px-4 py-3">{footer}</div>
     </section>
   );
 }
@@ -589,27 +692,21 @@ function Totals({
   };
 }) {
   return (
-    <section className="rounded-2xl bg-white p-5 shadow-sm">
-      <dl className="ml-auto flex max-w-sm flex-col gap-2 text-sm">
-        <Row label="Subtotal" value={money(shown.subtotal)} />
-        {shown.discountAmount > 0 ? (
-          <Row label="Discount" value={`−${money(shown.discountAmount)}`} />
-        ) : null}
-        {shown.deliveryCost > 0 ? (
-          <Row label="Delivery" value={money(shown.deliveryCost)} />
-        ) : null}
-        {shown.returnCost > 0 ? (
-          <Row label="Return" value={money(shown.returnCost)} />
-        ) : null}
-        {shown.taxAmount > 0 ? (
-          <Row label={`Tax (${quote.taxRate}%)`} value={money(shown.taxAmount)} />
-        ) : null}
-        <div className="mt-1 flex items-baseline justify-between border-t border-[#e4e4e7] pt-2">
-          <dt className="text-base font-bold">Total</dt>
-          <dd className="text-base font-bold tabular-nums">{money(shown.total)}</dd>
-        </div>
-      </dl>
-    </section>
+    <dl className="ml-auto flex max-w-xs flex-col gap-1 text-[13px]">
+      <Row label="Subtotal" value={money(shown.subtotal)} />
+      {shown.discountAmount > 0 ? (
+        <Row label="Discount" value={`−${money(shown.discountAmount)}`} />
+      ) : null}
+      {shown.deliveryCost > 0 ? <Row label="Delivery" value={money(shown.deliveryCost)} /> : null}
+      {shown.returnCost > 0 ? <Row label="Return" value={money(shown.returnCost)} /> : null}
+      {shown.taxAmount > 0 ? (
+        <Row label={`Tax (${quote.taxRate}%)`} value={money(shown.taxAmount)} />
+      ) : null}
+      <div className="mt-1 flex items-baseline justify-between border-t border-[#d4d4d8] pt-2">
+        <dt className={EYEBROW}>Total</dt>
+        <dd className="text-xl font-extrabold tabular-nums">{money(shown.total)}</dd>
+      </div>
+    </dl>
   );
 }
 
@@ -640,7 +737,7 @@ function FlowBody({ quote, flow }: { quote: QuoteData; flow: FlowClientQuote }) 
   const gear = (quote.flowGear ?? []).flatMap((group) => group.items);
   return (
     <>
-      <section className="rounded-2xl bg-white p-5 shadow-sm">
+      <section className="rounded-xl border border-[#e4e4e7] bg-white p-4 shadow-sm">
         <h2 className="text-sm font-bold tracking-tight">Your monthly payment</h2>
         <div className="mt-3 grid gap-2 sm:grid-cols-2">
           {flow.tiers.map((tier) => (
@@ -691,7 +788,7 @@ function FlowBody({ quote, flow }: { quote: QuoteData; flow: FlowClientQuote }) 
         )}
       </section>
 
-      <section className="rounded-2xl bg-white p-5 shadow-sm">
+      <section className="rounded-xl border border-[#e4e4e7] bg-white p-4 shadow-sm">
         <dl className="ml-auto flex max-w-sm flex-col gap-2 text-sm">
           <Row label={`Subscription (${flow.termMonths} mo)`} value={money(flow.totals.contract)} />
           {flow.totals.discount > 0 ? (
@@ -766,7 +863,7 @@ function FlowBody({ quote, flow }: { quote: QuoteData; flow: FlowClientQuote }) 
 /** The Flow Subscription Terms the client is agreeing to — read before signing. */
 function FlowTermsBlock({ terms }: { terms: RenderedFlowTerms }) {
   return (
-    <section className="flex flex-col gap-3 rounded-2xl bg-white p-5 shadow-sm">
+    <section className="flex flex-col gap-3 rounded-xl border border-[#e4e4e7] bg-white p-4 shadow-sm">
       <div>
         <h2 className="text-sm font-bold tracking-tight">Flow Subscription Terms</h2>
         <p className="mt-1 text-xs text-[#71717a]">
@@ -847,7 +944,7 @@ function ApprovePanel({
   }
 
   return (
-    <section className="flex flex-col gap-4 rounded-2xl bg-white p-5 shadow-sm">
+    <section className="flex flex-col gap-4 rounded-xl border border-[#e4e4e7] bg-white p-4 shadow-sm">
       <h2 className="text-lg font-bold tracking-tight">Approve and sign</h2>
 
       <label className="block">
@@ -982,7 +1079,7 @@ function ReasonPanel({
   const changes = kind === "changes";
 
   return (
-    <section className="flex flex-col gap-4 rounded-2xl bg-white p-5 shadow-sm">
+    <section className="flex flex-col gap-4 rounded-xl border border-[#e4e4e7] bg-white p-4 shadow-sm">
       <h2 className="text-lg font-bold tracking-tight">
         {changes ? "Request changes" : "Decline quote"}
       </h2>
