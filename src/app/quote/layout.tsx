@@ -34,17 +34,11 @@ export default function QuoteLayout({ children }: { children: React.ReactNode })
     >
       <header className="bg-[#18181b] text-white">
         <div className="mx-auto flex w-full max-w-3xl items-center gap-3 px-4 py-3">
-          <Image
-            src="/brand/VFXnow-Logo-AllWhite-Vector.png"
-            alt="VFXNow"
-            width={112}
-            height={28}
-            className="h-7 w-auto"
-            priority
-          />
-          <span className="text-[11px] leading-tight text-[#a1a1aa]">
-            Asset Management &amp; Control
-          </span>
+          <Image src="/brand/vfxnow-cloud-mark.png" alt="VFXNow" width={32} height={32} priority />
+          <div>
+            <p className="text-sm font-semibold leading-tight tracking-tight">VFXNow AMC</p>
+            <p className="text-[11px] leading-tight text-[#a1a1aa]">Asset Management &amp; Control</p>
+          </div>
         </div>
       </header>
 

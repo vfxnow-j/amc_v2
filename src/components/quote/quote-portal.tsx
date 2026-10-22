@@ -242,7 +242,7 @@ export function QuotePortal({
 
   return (
     <div className="flex flex-col gap-3">
-      <Header quote={quote} total={shown.total} expired={expired} />
+      <Header quote={quote} expired={expired} />
 
       {flow ? (
         <FlowBody quote={quote} flow={flow} />
@@ -370,16 +370,16 @@ export function QuotePortal({
       {preview && !expired ? (
         <div className="flex flex-col gap-2">
           {preview === "draft" || preview === "sent" ? (
-            <div className="flex flex-col gap-2 sm:flex-row" aria-hidden>
-              <span className="flex-1 cursor-not-allowed rounded-xl bg-[#16a34a] px-6 py-3 text-center text-sm font-semibold text-white opacity-60">
-                Approve quote
-              </span>
-              <span className="cursor-not-allowed rounded-xl border border-[#d4d4d8] bg-white px-6 py-3 text-center text-sm font-semibold opacity-60">
-                Request changes
-              </span>
-              <span className="cursor-not-allowed rounded-xl border border-[#d4d4d8] bg-white px-6 py-3 text-center text-sm font-semibold text-[#b91c1c] opacity-60">
-                Decline
-              </span>
+            <div className="flex flex-col gap-2" aria-hidden>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <span className="flex-1 cursor-not-allowed rounded-xl bg-[#18181b] px-6 py-2.5 text-center text-sm font-semibold text-white opacity-50">
+                  Approve Quote
+                </span>
+                <span className="flex-1 cursor-not-allowed rounded-xl border border-[#e4e4e7] bg-white px-6 py-2.5 text-center text-sm font-semibold opacity-50">
+                  Request Changes
+                </span>
+              </div>
+              <span className="text-center text-sm text-[#a1a1aa]">Decline Quote</span>
             </div>
           ) : null}
           <p className="rounded-2xl bg-white p-4 text-sm text-[#52525b] shadow-sm">
@@ -393,27 +393,29 @@ export function QuotePortal({
           reissue it.
         </p>
       ) : panel === null ? (
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <button
-            type="button"
-            onClick={() => setPanel("approve")}
-            className="flex-1 rounded-xl bg-[#16a34a] px-6 py-3 text-sm font-semibold text-white hover:bg-[#15803d]"
-          >
-            Approve quote
-          </button>
-          <button
-            type="button"
-            onClick={() => setPanel("changes")}
-            className="rounded-xl border border-[#d4d4d8] bg-white px-6 py-3 text-sm font-semibold hover:bg-[#fafafa]"
-          >
-            Request changes
-          </button>
+        <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <button
+              type="button"
+              onClick={() => setPanel("approve")}
+              className="flex-1 rounded-xl bg-[#18181b] px-6 py-2.5 text-sm font-semibold text-white hover:bg-[#27272a]"
+            >
+              Approve Quote
+            </button>
+            <button
+              type="button"
+              onClick={() => setPanel("changes")}
+              className="flex-1 rounded-xl border border-[#e4e4e7] bg-white px-6 py-2.5 text-sm font-semibold shadow-sm hover:bg-[#fafafa]"
+            >
+              Request Changes
+            </button>
+          </div>
           <button
             type="button"
             onClick={() => setPanel("decline")}
-            className="rounded-xl border border-[#d4d4d8] bg-white px-6 py-3 text-sm font-semibold text-[#b91c1c] hover:bg-[#fef2f2]"
+            className="py-1 text-sm text-[#71717a] hover:text-[#b91c1c]"
           >
-            Decline
+            Decline Quote
           </button>
         </div>
       ) : panel === "approve" ? (
@@ -473,6 +475,13 @@ export function QuotePortal({
           }
         />
       )}
+      <p className="border-t border-[#e4e4e7] pt-3 text-[11px] leading-snug text-[#a1a1aa]">
+        {quote.reservationType === "SALE" ? "This sale" : "All rentals"} is subject to VFXNow{" "}
+        {quote.reservationType === "SALE" ? "Terms of Sale" : "Rental Terms & Conditions"} available at{" "}
+        <a href={GENERAL_TERMS_URL} className="underline">vfxnow.com/terms</a>.
+        {quote.expiresAt ? ` This quote is valid until ${day(quote.expiresAt)} and` : " This quote"} is subject to
+        equipment availability at the time of approval.
+      </p>
     </div>
   );
 }
@@ -499,7 +508,7 @@ const CARD = "overflow-hidden rounded-xl border border-[#e4e4e7] bg-white shadow
  * total on one line, then a single strip for where the quote stands and the
  * details a client checks first (who it is for, the dates, how it is billed).
  */
-function Header({ quote, total, expired }: { quote: QuoteData; total: number; expired: boolean }) {
+function Header({ quote, expired }: { quote: QuoteData; expired: boolean }) {
   const sale = quote.reservationType === "SALE";
   const flow = quote.reservationType === "FLOW";
   const details: { label: string; value: string }[] = [
@@ -523,42 +532,36 @@ function Header({ quote, total, expired }: { quote: QuoteData; total: number; ex
     },
   ];
   return (
-    <section className={CARD}>
-      <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-1 px-4 py-3">
-        <div className="min-w-0">
-          <p className={EYEBROW}>{TYPE_LABEL[quote.reservationType] ?? "Quote / Estimate"}</p>
-          <h1 className="text-xl font-extrabold tracking-tight">{quote.reservationNumber}</h1>
-        </div>
-        <div className="text-right">
-          <p className="text-2xl font-extrabold tabular-nums leading-tight">{money(total)}</p>
-          <p className="text-[11px] text-[#71717a]">
-            {sale
-              ? "One-time purchase"
-              : flow && quote.flow
-                ? `Total over ${quote.flow.termMonths} months`
-                : (CYCLE_TERM[quote.billingCycleType] ?? "")}
-          </p>
-        </div>
+    <>
+      <div>
+        <p className={EYEBROW}>{TYPE_LABEL[quote.reservationType] ?? "Quote / Estimate"}</p>
+        <h1 className="text-2xl font-extrabold tracking-tight">{quote.reservationNumber}</h1>
       </div>
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-[#f4f4f5] bg-[#fafafa] px-4 py-2 text-xs text-[#71717a]">
+
+      <section className={`${CARD} flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 text-[13px] text-[#71717a]`}>
         <span className="inline-flex items-center gap-1.5 rounded-full bg-[#18181b] px-2.5 py-0.5 text-[11px] font-semibold text-white">
           <span className={`h-1.5 w-1.5 rounded-full ${expired ? "bg-red-400" : "bg-emerald-400"}`} />
-          {expired ? "Expired" : "Open for approval"}
+          {expired ? "Expired" : "Ready for your review"}
         </span>
         {quote.issuedAt ? <span>Issued {day(quote.issuedAt)}</span> : <span>Not issued yet</span>}
         {quote.expiresAt ? (
-          <span className="font-medium text-[#3f3f46]">Valid until {day(quote.expiresAt)}</span>
+          <span className="font-medium text-[#3f3f46]">· Valid until {day(quote.expiresAt)}</span>
         ) : null}
-      </div>
-      <dl className="grid grid-cols-2 gap-px border-t border-[#f4f4f5] bg-[#f4f4f5] sm:grid-cols-3">
-        {details.map((detail) => (
-          <div key={detail.label} className="bg-white px-4 py-2">
-            <dt className={EYEBROW}>{detail.label}</dt>
-            <dd className="text-[13px] font-medium">{detail.value}</dd>
-          </div>
-        ))}
-      </dl>
-    </section>
+      </section>
+
+      <section className={CARD}>
+        <h2 className={`${EYEBROW} border-b border-[#f4f4f5] px-4 py-2`}>Details</h2>
+        <dl className="grid grid-cols-1 gap-px bg-[#f4f4f5] sm:grid-cols-2">
+          {details.map((detail) => (
+            <div key={detail.label} className="bg-white px-4 py-2">
+              <dt className={EYEBROW}>{detail.label}</dt>
+              <dd className="text-[13px] font-semibold">{detail.value}</dd>
+            </div>
+          ))}
+          {details.length % 2 === 1 ? <div className="hidden bg-white sm:block" /> : null}
+        </dl>
+      </section>
+    </>
   );
 }
 
