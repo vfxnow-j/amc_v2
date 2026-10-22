@@ -331,7 +331,7 @@ export async function getReservationLines(
     const components = item.components.map((part) => ({
         id: part.id,
         label: part.asset?.name ?? part.description ?? "Part",
-        textEditable: item.isGroup && !part.assetId && !part.service && !part.cloudProductId,
+        textEditable: item.isGroup && !part.assetId && !part.cloudProductId,
         assetId: part.assetId,
         quantity: part.quantity,
         rate: Number(part.rate),
