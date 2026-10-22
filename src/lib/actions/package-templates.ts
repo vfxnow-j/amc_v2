@@ -361,8 +361,45 @@ export async function loadTemplateIntoOrder(
         },
         packageId,
       );
-      if (result.status === "ok") added++;
-      else failed.push(`${label} (${result.message})`);
+      if (result.status === "ok") {
+        added++;
+        // A build keeps its parts: under the line, each at its own monthly rate,
+        // shown as included — the build charges once, as rentals already do for
+        // a configured machine.
+        if (item.isGroup && item.parts.length > 0) {
+          const parent = await prisma.reservationItem.findFirst({
+            where: { reservationId, parentId: null, description: item.description, assetId: null },
+            orderBy: { createdAt: "desc" },
+            select: { id: true, packageId: true, sortOrder: true },
+          });
+          if (parent) {
+            const machines = Math.max(1, item.quantity);
+            await prisma.reservationItem.createMany({
+              data: item.parts.map((part, index) => {
+                const partCost = part.costBasis != null ? Number(part.costBasis) : null;
+                const rate = partCost != null ? (monthlyFromCost(partCost, convert.months) ?? 0) : 0;
+                return {
+                  reservationId,
+                  packageId: parent.packageId,
+                  parentId: parent.id,
+                  assetId: part.assetId,
+                  description: part.assetId ? null : part.description,
+                  category: part.assetId ? null : part.category,
+                  pricingType: "MONTHLY" as PricingType,
+                  isOneTime: false,
+                  quantity: part.quantity * machines,
+                  rate,
+                  subtotal: 0,
+                  includedInParent: true,
+                  sortOrder: parent.sortOrder + index + 1,
+                };
+              }),
+            });
+          } else {
+            failed.push(`${label} (the build was added, but its parts could not be placed under it)`);
+          }
+        }
+      } else failed.push(`${label} (${result.message})`);
       continue;
     }
 
