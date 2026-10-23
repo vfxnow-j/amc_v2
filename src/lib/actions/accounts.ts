@@ -34,6 +34,9 @@ export type AccountInput = {
   notes?: string;
   /** Set when the caller has already been warned the name is taken. */
   allowDuplicateName?: boolean;
+  /** Edit only. Undefined leaves it; null/"" clears it. Both must be this account's contacts. */
+  primaryContactId?: string | null;
+  billingContactId?: string | null;
 };
 
 export type AccountOutcome =
@@ -173,10 +176,13 @@ export async function updateAccount(
     }
   }
 
+  // The people at the account are contacts, so the account is one thing: its
+  // name is the company (or the individual). Both columns carry it so every
+  // screen that reads either shows the same words.
   const blank = (value?: string) => value?.trim() || null;
   const data = {
     name,
-    companyName: blank(input.companyName),
+    companyName: name,
     email,
     phone: blank(input.phone),
     address: blank(input.address),
@@ -188,13 +194,44 @@ export async function updateAccount(
   };
 
   try {
-    await prisma.client.update({ where: { id }, data });
+    await prisma.$transaction(async (tx) => {
+      await tx.client.update({ where: { id }, data });
+
+      const own = await tx.clientContact.findMany({ where: { clientId: id }, select: { id: true } });
+      const ids = new Set(own.map((contact) => contact.id));
+      const check = (contactId?: string | null) => {
+        if (contactId && !ids.has(contactId)) throw new Error("That contact is not at this account.");
+      };
+      check(input.primaryContactId);
+      check(input.billingContactId);
+
+      if (input.primaryContactId !== undefined) {
+        await tx.clientContact.updateMany({ where: { clientId: id, isPrimary: true }, data: { isPrimary: false } });
+        if (input.primaryContactId) {
+          await tx.clientContact.update({ where: { id: input.primaryContactId }, data: { isPrimary: true } });
+        }
+      }
+      if (input.billingContactId !== undefined) {
+        // One billing contact: whoever held the role before goes back to Associated.
+        await tx.clientContact.updateMany({
+          where: { clientId: id, role: "Billing", NOT: { id: input.billingContactId || undefined } },
+          data: { role: "Associated" },
+        });
+        if (input.billingContactId) {
+          await tx.clientContact.update({ where: { id: input.billingContactId }, data: { role: "Billing" } });
+        }
+      }
+    });
     await logAudit({
       action: "UPDATE",
       entityType: "Client",
       entityId: id,
       oldValues: before,
-      newValues: data,
+      newValues: {
+        ...data,
+        ...(input.primaryContactId !== undefined && { primaryContactId: input.primaryContactId }),
+        ...(input.billingContactId !== undefined && { billingContactId: input.billingContactId }),
+      },
     });
     revalidatePath(`/dashboard/clients/${id}`);
     revalidatePath("/dashboard/clients");

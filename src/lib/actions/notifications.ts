@@ -38,7 +38,9 @@ export async function sendOverdueReminders(): Promise<{ sent: number }> {
   let sent = 0
 
   for (const invoice of overdueInvoices) {
-    if (!invoice.client.email) {
+    const { billingEmailFor } = await import('@/lib/clients/billing-email')
+    const billingTo = await billingEmailFor(invoice.client)
+    if (!billingTo) {
       continue
     }
 
@@ -56,7 +58,7 @@ export async function sendOverdueReminders(): Promise<{ sent: number }> {
 
     try {
       await sendEmail({
-        to: invoice.client.email,
+        to: billingTo,
         subject: template.subject,
         html: template.html,
         audience: 'client',

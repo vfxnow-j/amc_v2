@@ -351,7 +351,9 @@ export async function sendInvoice(id: string) {
   })
 
   // Send email notification to client (outside transaction - side effect)
-  if (client.email) {
+  const { billingEmailFor } = await import('@/lib/clients/billing-email')
+  const billingTo = await billingEmailFor(client)
+  if (billingTo) {
     const { invoiceCreatedEmail } = await import('@/lib/email/templates')
     const { sendEmail } = await import('@/lib/email')
     const template = invoiceCreatedEmail(
@@ -360,7 +362,7 @@ export async function sendInvoice(id: string) {
       `$${Number(invoice.total).toFixed(2)}`,
       new Date(invoice.dueDate).toLocaleDateString(),
     )
-    await sendEmail({ to: client.email, subject: template.subject, html: template.html, audience: 'client', clientId: invoice.clientId })
+    await sendEmail({ to: billingTo, subject: template.subject, html: template.html, audience: 'client', clientId: invoice.clientId })
   }
 
   revalidatePath('/dashboard/invoices')

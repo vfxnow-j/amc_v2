@@ -25,7 +25,7 @@ import { ConversationsCard } from "@/components/tracker/conversations-card";
 import { EnvironmentCard } from "@/components/tracker/environment-card";
 import { RelationshipCard } from "@/components/tracker/relationship-card";
 import { dayYear } from "@/lib/format";
-import { getClientHeader } from "@/lib/queries/client-record";
+import { getClientContacts, getClientHeader } from "@/lib/queries/client-record";
 import { readTemplateMeta } from "@/lib/requirements/store";
 import { getSessionUser } from "@/lib/roles";
 import { isAdminRole } from "@/lib/settings/pages";
@@ -52,13 +52,14 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
  */
 export default async function ClientRecordPage({ params }: Params) {
   const { id } = await params;
-  const [client, viewer, template] = await Promise.all([
+  const [client, viewer, template, contacts] = await Promise.all([
     getClientHeader(id),
     getSessionUser(),
     // Read here rather than inside the card: the card is a client component and
     // cannot reach the document store, and whether a template exists changes
     // what the "ask for documents" dialog is allowed to promise.
     readTemplateMeta(),
+    getClientContacts(id),
   ]);
   if (!client) notFound();
 
@@ -97,6 +98,7 @@ export default async function ClientRecordPage({ params }: Params) {
                   paymentTerms: client.paymentTerms,
                   taxExempt: client.taxExempt,
                   notes: client.notes,
+                  contacts,
                 }}
               />
             ) : null}

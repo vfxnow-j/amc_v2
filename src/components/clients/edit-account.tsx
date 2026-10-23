@@ -18,6 +18,8 @@ export type AccountValues = {
   paymentTerms: number;
   taxExempt: boolean;
   notes: string | null;
+  /** People at the account, for the primary and billing pickers. */
+  contacts: { id: string; name: string; email: string | null; role: string | null; isPrimary: boolean }[];
 };
 
 const FIELD =
@@ -36,8 +38,9 @@ export function EditAccountButton({ account }: { account: AccountValues }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({
-    name: account.name,
-    companyName: account.companyName ?? "",
+    company: account.companyName?.trim() || account.name,
+    primaryContactId: account.contacts.find((c) => c.isPrimary)?.id ?? "",
+    billingContactId: account.contacts.find((c) => c.role === "Billing")?.id ?? "",
     email: account.email ?? "",
     phone: account.phone ?? "",
     address: account.address ?? "",
@@ -52,8 +55,13 @@ export function EditAccountButton({ account }: { account: AccountValues }) {
 
   function save(allowDuplicateName = false) {
     start(async () => {
+      const { company, primaryContactId, billingContactId, ...rest } = form;
       const result = await updateAccount(account.id, {
-        ...form,
+        ...rest,
+        name: company,
+        companyName: company,
+        primaryContactId: primaryContactId || null,
+        billingContactId: billingContactId || null,
         paymentTerms: form.paymentTerms === "" ? undefined : Number(form.paymentTerms),
         allowDuplicateName,
       });
@@ -72,8 +80,9 @@ export function EditAccountButton({ account }: { account: AccountValues }) {
         onClick={() => {
           // Always from what is saved now, never from an earlier open.
           setForm({
-            name: account.name,
-            companyName: account.companyName ?? "",
+            company: account.companyName?.trim() || account.name,
+            primaryContactId: account.contacts.find((c) => c.isPrimary)?.id ?? "",
+            billingContactId: account.contacts.find((c) => c.role === "Billing")?.id ?? "",
             email: account.email ?? "",
             phone: account.phone ?? "",
             address: account.address ?? "",
@@ -120,14 +129,39 @@ export function EditAccountButton({ account }: { account: AccountValues }) {
                 .
               </Notice>
             ) : null}
+            <div>
+              <Label>Company</Label>
+              <input
+                value={form.company}
+                onChange={(e) => set({ company: e.target.value })}
+                aria-label="Company"
+                placeholder="The business — or the individual's own name"
+                className={FIELD}
+              />
+            </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
-                <Label>Name</Label>
-                <input value={form.name} onChange={(e) => set({ name: e.target.value })} aria-label="Name" className={FIELD} />
+                <Label>Primary contact</Label>
+                <select value={form.primaryContactId} onChange={(e) => set({ primaryContactId: e.target.value })} aria-label="Primary contact" className={FIELD}>
+                  <option value="">None</option>
+                  {account.contacts.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
               </div>
               <div>
-                <Label>Company</Label>
-                <input value={form.companyName} onChange={(e) => set({ companyName: e.target.value })} aria-label="Company" className={FIELD} />
+                <Label>Billing contact</Label>
+                <select value={form.billingContactId} onChange={(e) => set({ billingContactId: e.target.value })} aria-label="Billing contact" className={FIELD}>
+                  <option value="">Account email</option>
+                  {account.contacts.filter((c) => c.email).map((c) => (
+                    <option key={c.id} value={c.id}>{c.name} · {c.email}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="sm:col-span-2">
+                <p className="-mt-1 text-micro text-ink-faint">
+                  People are contacts, added on the Contacts card. Invoices and reminders go to the billing contact, or the account email when none is chosen.
+                </p>
               </div>
               <div>
                 <Label>Account email</Label>
