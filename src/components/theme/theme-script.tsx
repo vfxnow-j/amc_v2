@@ -1,3 +1,4 @@
+import { headers } from "next/headers";
 import { AXES, isAxisValue, type AppearanceValues } from "@/lib/theme";
 
 /**
@@ -24,7 +25,9 @@ import { AXES, isAxisValue, type AppearanceValues } from "@/lib/theme";
  * and doesn't trip React's dev warning about rendered <script> tags — see
  * next/docs "How to prevent flash before hydration".
  */
-export function ThemeScript({ appearance }: { appearance: AppearanceValues }) {
+export async function ThemeScript({ appearance }: { appearance: AppearanceValues }) {
+  // The per-request nonce the proxy minted: without it the CSP blocks this inline script.
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
   // One line per axis. `a` is the attribute, `k` the localStorage key, `f` the
   // server-side fallback, `ok` the values this axis offers, and `d` whether the
   // stored value still has to ask the device (the mode's 'system').
@@ -52,6 +55,7 @@ ${calls}
 
   return (
     <script
+      nonce={nonce}
       type={typeof window === "undefined" ? "text/javascript" : "text/plain"}
       suppressHydrationWarning
       dangerouslySetInnerHTML={{ __html: script }}

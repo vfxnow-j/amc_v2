@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import type { Role } from "@/lib/roles";
+import { buildCsp, cspHeaderName } from "@/lib/csp";
 
 /**
  * The optimiztic auth check in front of every route.
@@ -28,6 +29,8 @@ const PUBLIC_PREFIXES = [
   "/api/requirements",
   // Crawlers read this without a session; it only says "keep out".
   "/robots.txt",
+  // Browsers post CSP violation reports here without cookies.
+  "/api/csp-report",
 ];
 
 /** Authenticated by key or cron secret, not by session cookie. */
@@ -41,6 +44,23 @@ function startsWithAny(pathname: string, prefixes: string[]) {
   return prefixes.some(
     (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
   );
+}
+
+/**
+ * Pass the request on with a fresh nonce. Next reads the nonce out of the
+ * request's CSP header while rendering and stamps it on its own scripts; the
+ * same policy goes back on the response for the browser to enforce.
+ */
+function pass(req: { headers: Headers }) {
+  const nonce = Buffer.from(crypto.randomUUID()).toString("base64");
+  const csp = buildCsp(nonce, { dev: process.env.NODE_ENV === "development" });
+  const name = cspHeaderName();
+  const headers = new Headers(req.headers);
+  headers.set("x-nonce", nonce);
+  headers.set(name, csp);
+  const response = NextResponse.next({ request: { headers } });
+  response.headers.set(name, csp);
+  return response;
 }
 
 export default auth((req) => {
@@ -66,7 +86,7 @@ export default auth((req) => {
     if (signedIn && pathname === "/login") {
       return NextResponse.redirect(new URL("/dashboard", req.nextUrl));
     }
-    return NextResponse.next();
+    return pass(req);
   }
 
   if (!signedIn) {
@@ -76,7 +96,7 @@ export default auth((req) => {
     return NextResponse.redirect(login);
   }
 
-  return NextResponse.next();
+  return pass(req);
 });
 
 /**
