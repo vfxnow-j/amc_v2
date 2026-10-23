@@ -16,6 +16,7 @@ import {
   type DailyDigestData,
   type DailyOrderRow,
   type DailyTrafficReportData,
+  type TrafficQuoteMove,
   type TrafficReportClientGroup,
   type TrafficReportUnit,
   type CoverageExpiryEmailData,
@@ -412,6 +413,70 @@ function formatPacificTime(d: Date): string {
 }
 
 /**
+ * Quotes sent, approved and declined inside the window. Sends come from the
+ * quote links themselves (one link per recipient, so a quote sent to two people
+ * is one line naming both); approvals and declines from the order's status
+ * history, so a change made by hand counts the same as one the client made.
+ */
+async function trafficQuoteMoves(start: Date, end: Date): Promise<NonNullable<DailyTrafficReportData['quotes']>> {
+  const orderSelect = {
+    id: true,
+    reservationNumber: true,
+    total: true,
+    projectName: true,
+    client: { select: { name: true, companyName: true } },
+  } as const
+
+  const [links, changes] = await Promise.all([
+    prisma.quoteToken.findMany({
+      where: { sentAt: { gte: start, lt: end } },
+      orderBy: { sentAt: 'asc' },
+      select: { sentAt: true, sentTo: true, reservation: { select: orderSelect } },
+    }),
+    prisma.statusHistory.findMany({
+      where: { entityType: 'RESERVATION', createdAt: { gte: start, lt: end }, toStatus: { in: ['APPROVED', 'LOST'] } },
+      orderBy: { createdAt: 'asc' },
+      select: { entityId: true, toStatus: true, createdAt: true },
+    }),
+  ])
+
+  type Order = (typeof links)[number]['reservation']
+  const move = (order: Order, at: Date, detail: string): TrafficQuoteMove => ({
+    time: formatPacificTime(at),
+    reservationNumber: order.reservationNumber,
+    reservationId: order.id,
+    clientName: order.client.companyName || order.client.name,
+    detail,
+    total: Number(order.total),
+  })
+
+  const sentByOrder = new Map<string, { order: Order; at: Date; to: string[] }>()
+  for (const link of links) {
+    if (!link.sentAt) continue
+    const entry = sentByOrder.get(link.reservation.id)
+    if (entry) {
+      if (link.sentTo && !entry.to.includes(link.sentTo)) entry.to.push(link.sentTo)
+    } else {
+      sentByOrder.set(link.reservation.id, { order: link.reservation, at: link.sentAt, to: link.sentTo ? [link.sentTo] : [] })
+    }
+  }
+  const sent = [...sentByOrder.values()].map((entry) =>
+    move(entry.order, entry.at, entry.to.length > 0 ? entry.to.join(', ') : 'Link copied'),
+  )
+
+  const answeredOrders = changes.length
+    ? await prisma.reservation.findMany({ where: { id: { in: [...new Set(changes.map((c) => c.entityId))] } }, select: orderSelect })
+    : []
+  const byId = new Map(answeredOrders.map((order) => [order.id, order]))
+  const answered = (status: string) =>
+    changes
+      .filter((change) => change.toStatus === status && byId.has(change.entityId))
+      .map((change) => move(byId.get(change.entityId)!, change.createdAt, byId.get(change.entityId)!.projectName || '—'))
+
+  return { sent, approved: answered('APPROVED'), declined: answered('LOST') }
+}
+
+/**
  * Send the daily traffic report — what was checked out and checked in today
  * (Pacific time), grouped by client. Sends to recipients with the 'traffic'
  * notification category enabled. Triggered by cron at 5:00 PM PT.
@@ -498,11 +563,14 @@ export async function notifyDailyTrafficReport(): Promise<SendOutcome & { outCou
     for (const c of checkedOutToday) clientsTouched.add(c.client.id)
     for (const c of returnedToday) clientsTouched.add(c.client.id)
 
+    const quotes = await trafficQuoteMoves(start, end)
+
     const data: DailyTrafficReportData = {
       dateLabel,
       windowLabel,
       out,
       back,
+      quotes,
       totals: {
         clientsTouched: clientsTouched.size,
         unitsOut: checkedOutToday.length,

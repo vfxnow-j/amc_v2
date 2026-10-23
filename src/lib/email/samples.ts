@@ -222,6 +222,11 @@ export const TEMPLATE_SAMPLES: TemplateSample[] = [
         windowLabel: "12:00 AM – 5:00 PM PT",
         out: [{ clientName: CLIENT, units: [{ barcode: "000001", assetName: "Sample workstation", time: "10:00 AM", reservationNumber: ORDER, reservationId: "sample" }] }],
         back: [],
+        quotes: {
+          sent: [{ time: "9:15 AM", reservationNumber: ORDER, reservationId: "sample", clientName: CLIENT, detail: "sample@example.com", total: 12500 }],
+          approved: [{ time: "11:40 AM", reservationNumber: ORDER, reservationId: "sample", clientName: CLIENT, detail: "Sample project", total: 8200 }],
+          declined: [],
+        },
         totals: { clientsTouched: 1, unitsOut: 1, unitsIn: 0 },
       }),
   },

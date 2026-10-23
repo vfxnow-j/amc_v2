@@ -835,11 +835,24 @@ export type TrafficReportClientGroup = {
   units: TrafficReportUnit[]
 }
 
+/** One order that moved on the quote side today: a quote sent, approved or declined. */
+export type TrafficQuoteMove = {
+  time: string // e.g. "10:32 AM"
+  reservationNumber: string
+  reservationId: string
+  clientName: string
+  /** Who it went to (sent) or the order's project (answered). */
+  detail: string
+  total: number
+}
+
 export type DailyTrafficReportData = {
   dateLabel: string // e.g. "Monday, Apr 8"
   windowLabel: string // e.g. "12:00 AM – 5:00 PM PT"
   out: TrafficReportClientGroup[] // checked out today
   back: TrafficReportClientGroup[] // checked in today
+  /** Quotes sent, approved and declined today. */
+  quotes?: { sent: TrafficQuoteMove[]; approved: TrafficQuoteMove[]; declined: TrafficQuoteMove[] }
   totals: {
     clientsTouched: number
     unitsOut: number
@@ -864,20 +877,58 @@ function trafficTable(groups: TrafficReportClientGroup[], empty: string): string
   return table([{ label: 'Time', width: '70px' }, { label: 'Unit' }, { label: 'Item' }, { label: 'Order', align: 'right' }], rows, { dense: true })
 }
 
+function quoteTable(moves: TrafficQuoteMove[], detailLabel: string, empty: string): string {
+  if (moves.length === 0) return paragraph(empty, { muted: true, small: true })
+  return table(
+    [
+      { label: 'Time', width: '70px' },
+      { label: 'Order' },
+      { label: 'Client' },
+      { label: detailLabel },
+      { label: 'Total', align: 'right' },
+    ],
+    moves.map((move) => [
+      cell(move.time),
+      cell(move.reservationNumber, { href: `/dashboard/orders/${move.reservationId}` }),
+      cell(move.clientName, { bold: true }),
+      cell(move.detail),
+      cell(`$${move.total.toLocaleString('en-US', { maximumFractionDigits: 0 })}`),
+    ]),
+    { dense: true },
+  )
+}
+
 export function dailyTrafficReportEmail(data: DailyTrafficReportData) {
+  const quotes = data.quotes
   return email(`Daily traffic report — ${data.dateLabel}`, {
     audience: 'staff',
     wide: true,
-    preheader: `${data.totals.unitsOut} out, ${data.totals.unitsIn} back, across ${data.totals.clientsTouched} clients today.`,
+    preheader: `${quotes ? `${quotes.sent.length} quotes sent, ${quotes.approved.length} approved. ` : ''}${data.totals.unitsOut} out, ${data.totals.unitsIn} back, across ${data.totals.clientsTouched} clients today.`,
     eyebrow: 'Traffic report',
     title: 'What moved today',
     subtitle: `${data.dateLabel} · ${data.windowLabel}`,
     body: [
       stats([
-        { label: 'Clients', value: String(data.totals.clientsTouched) },
+        ...(quotes
+          ? [
+              { label: 'Quotes sent', value: String(quotes.sent.length) },
+              { label: 'Approved', value: String(quotes.approved.length), tone: 'success' as const },
+            ]
+          : [{ label: 'Clients', value: String(data.totals.clientsTouched) }]),
         { label: 'Checked out', value: String(data.totals.unitsOut), tone: 'success' },
         { label: 'Checked in', value: String(data.totals.unitsIn), tone: 'accent' },
       ]),
+      ...(quotes
+        ? [
+            section('Quotes sent'),
+            quoteTable(quotes.sent, 'Sent to', 'No quotes went out in this window.'),
+            section('Approved'),
+            quoteTable(quotes.approved, 'Project', 'No quotes were approved in this window.'),
+            ...(quotes.declined.length > 0
+              ? [section('Declined'), quoteTable(quotes.declined, 'Project', '')]
+              : []),
+          ]
+        : []),
       section('Checked out'),
       trafficTable(data.out, 'Nothing went out in this window.'),
       section('Returned'),
