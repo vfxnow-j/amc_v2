@@ -25,6 +25,7 @@ export type AuditEntityType =
   | 'Checkout'
   | 'Reservation'
   | 'Client'
+  | 'ClientContact'
   | 'Invoice'
   | 'Payment'
   | 'Category'

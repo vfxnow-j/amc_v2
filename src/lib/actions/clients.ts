@@ -180,8 +180,8 @@ export async function addClientContact(clientId: string, data: {
     data: {
       clientId,
       name: data.name,
-      email: data.email,
-      phone: data.phone,
+      email: data.email?.trim() || null,
+      phone: data.phone?.trim() || null,
       role: data.role || 'Primary',
       isPrimary: data.isPrimary ?? false,
       notes: data.notes,
@@ -189,6 +189,7 @@ export async function addClientContact(clientId: string, data: {
   })
 
   revalidatePath(`/dashboard/clients/${clientId}`)
+  revalidatePath('/dashboard/clients/contacts')
   return serialize(contact)
 }
 
@@ -217,15 +218,26 @@ export async function updateClientContact(id: string, data: {
     where: { id },
     data: {
       ...(data.name !== undefined && { name: data.name }),
-      ...(data.email !== undefined && { email: data.email, ...approvalAfterEmailChange(existing.email, data.email) }),
-      ...(data.phone !== undefined && { phone: data.phone }),
+      ...(data.email !== undefined && { email: data.email.trim() || null, ...approvalAfterEmailChange(existing.email, data.email.trim() || null) }),
+      ...(data.phone !== undefined && { phone: data.phone.trim() || null }),
       ...(data.role !== undefined && { role: data.role }),
       ...(data.isPrimary !== undefined && { isPrimary: data.isPrimary }),
       ...(data.notes !== undefined && { notes: data.notes }),
     },
   })
 
+  const { logAudit } = await import('@/lib/actions/audit')
+  await logAudit({
+    action: 'UPDATE',
+    entityType: 'ClientContact',
+    entityId: id,
+    oldValues: { name: existing.name, email: existing.email, phone: existing.phone, role: existing.role, isPrimary: existing.isPrimary },
+    newValues: { name: contact.name, email: contact.email, phone: contact.phone, role: contact.role, isPrimary: contact.isPrimary },
+  })
+
   revalidatePath(`/dashboard/clients/${existing.clientId}`)
+  revalidatePath(`/dashboard/clients/contacts/${id}`)
+  revalidatePath('/dashboard/clients/contacts')
   return serialize(contact)
 }
 
@@ -237,8 +249,16 @@ export async function deleteClientContact(id: string) {
   if (!existing) throw new Error('Contact not found')
 
   await prisma.clientContact.delete({ where: { id } })
+  const { logAudit } = await import('@/lib/actions/audit')
+  await logAudit({
+    action: 'DELETE',
+    entityType: 'ClientContact',
+    entityId: id,
+    oldValues: { name: existing.name, email: existing.email, phone: existing.phone, role: existing.role, clientId: existing.clientId },
+  })
 
   revalidatePath(`/dashboard/clients/${existing.clientId}`)
+  revalidatePath('/dashboard/clients/contacts')
   return { success: true }
 }
 

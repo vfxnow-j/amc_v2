@@ -1,4 +1,5 @@
 import { randomUUID } from "crypto";
+import { ensureLeadContact } from "@/lib/leads/contact";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { logAudit } from "@/lib/actions/audit";
@@ -151,6 +152,8 @@ export async function applyOnboardingToLead(
   // Whoever was assigned the enquiry owns the account it just earned, unless
   // the account already has somebody. See `adoptLeadOwner`.
   await adoptLeadOwner(clientId, lead.id);
+  // The person who filled the form is a contact on the account.
+  await ensureLeadContact(clientId, lead);
 
   const client = await prisma.client.findUnique({
     where: { id: clientId },

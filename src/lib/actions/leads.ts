@@ -1,5 +1,6 @@
 'use server'
 
+import { ensureLeadContact } from '@/lib/leads/contact'
 import { revalidatePath } from 'next/cache'
 import { prisma } from '@/lib/prisma'
 import { requireAdmin, requireAuth, requireEditor } from '@/lib/auth-utils'
@@ -470,6 +471,8 @@ export async function convertLeadToReservation(
   // The rep who was working the enquiry keeps it. Only fills a blank — an
   // account already owned by somebody is not reassigned by a conversion.
   await adoptLeadOwner(clientId, leadId)
+  // The person is a contact on the account, kept apart from the business.
+  await ensureLeadContact(clientId, lead)
 
   // Generate reservation number with correct prefix (SALE/CLD/RTO/RES)
   const reservationNumber = await generateReservationNumber(resType)
@@ -570,16 +573,7 @@ export async function bindLeadToOrder(
   if (!reservation) throw new Error('Reservation not found')
 
   // Create associated contact on the client
-  await prisma.clientContact.create({
-    data: {
-      clientId: reservation.clientId,
-      name: lead.name,
-      email: lead.email,
-      phone: lead.phone,
-      role: 'Associated',
-      leadId: leadId,
-    },
-  })
+  await ensureLeadContact(reservation.clientId, lead, 'Associated')
 
   await adoptLeadOwner(reservation.clientId, leadId)
 

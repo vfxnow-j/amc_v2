@@ -8,6 +8,7 @@ import {
   getClientInvoices,
   getClientOrders,
 } from "@/lib/queries/client-record";
+import { AddContactButton, ContactRowActions } from "@/components/clients/contact-editor";
 import { EmailApprovalToggle } from "@/components/clients/email-approval-toggle";
 import { getSessionUser } from "@/lib/roles";
 import { STATUS_LABEL } from "@/lib/reservations/status";
@@ -133,11 +134,22 @@ function Figure({
 export async function ContactsCard({ id }: { id: string }) {
   const [contacts, user] = await Promise.all([getClientContacts(id), getSessionUser()]);
   const canEdit = user?.role === "ADMIN" || user?.role === "SUPER_ADMIN";
+  const canManage = canEdit || user?.role === "STAFF";
 
   return (
     <Card
       title="Contacts"
       meta={contacts.length > 0 ? `${contacts.length}` : undefined}
+      action={
+        canManage ? (
+          <span className="flex items-center gap-2">
+            <Link href="/dashboard/clients/contacts" className="text-detail text-ink-muted hover:underline">
+              All contacts
+            </Link>
+            <AddContactButton clientId={id} />
+          </span>
+        ) : undefined
+      }
     >
       {contacts.length === 0 ? (
         <CardEmpty>
@@ -152,7 +164,12 @@ export async function ContactsCard({ id }: { id: string }) {
               className="rounded-row px-2 py-[6px] text-detail"
             >
               <span className="flex items-baseline gap-2">
-                <span className="truncate font-bold">{contact.name}</span>
+                <Link
+                  href={`/dashboard/clients/contacts/${contact.id}`}
+                  className="truncate font-bold hover:underline"
+                >
+                  {contact.name}
+                </Link>
                 {contact.isPrimary ? (
                   <span className="flex-none text-micro uppercase text-accent-text">
                     Primary
@@ -176,6 +193,20 @@ export async function ContactsCard({ id }: { id: string }) {
                 canEdit={canEdit}
                 hasEmail={!!contact.email}
               />
+              {canManage ? (
+                <span className="mt-1 block">
+                  <ContactRowActions
+                    contact={{
+                      id: contact.id,
+                      name: contact.name,
+                      email: contact.email,
+                      phone: contact.phone,
+                      role: contact.role,
+                      isPrimary: contact.isPrimary,
+                    }}
+                  />
+                </span>
+              ) : null}
             </li>
           ))}
         </ul>

@@ -337,6 +337,13 @@ export const NAV_CLUSTERS: NavCluster[] = [
         from: ["/dashboard/clients"],
       },
       {
+        // Every person and address under its business, with the admin-only
+        // "approved for email" switch (lib/email/approval).
+        id: "contacts",
+        label: "Contacts",
+        href: "/dashboard/clients/contacts",
+      },
+      {
         // New in v2, asked for by the owner 2026-09-14 (docs/client-tracker.md).
         // Who to talk to today and why: every account's band, tier and next
         // step, and the follow-up queue. Nothing on it is stored — it is
