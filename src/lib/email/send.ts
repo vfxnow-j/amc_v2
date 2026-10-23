@@ -1,5 +1,6 @@
 import { getResend, isEmailConfigured, EMAIL_FROM } from './client'
 import { htmlToText, LOGO_CID } from './layout'
+import { approvalProblem, isStaffAddress } from './approval'
 
 /**
  * Where every outbound email goes instead of its real recipient.
@@ -56,24 +57,9 @@ function subjectTag(): string | null {
  * and the whole message is redirected. An entry like `@vfxnow.com` lists a whole
  * domain.
  */
-function directAllow(): Set<string> {
-  return new Set(
-    (process.env.EMAIL_DIRECT_ALLOW ?? '')
-      .split(',')
-      .map((address) => address.trim().toLowerCase())
-      .filter(Boolean),
-  )
-}
-
 function allDirect(to: string | string[]): boolean {
-  const allow = directAllow()
   const recipients = Array.isArray(to) ? to : [to]
-  // An entry beginning with "@" allows a whole domain (internal staff).
-  const listed = (address: string) => {
-    const lower = address.trim().toLowerCase()
-    return allow.has(lower) || allow.has(lower.slice(lower.lastIndexOf('@')))
-  }
-  return allow.size > 0 && recipients.length > 0 && recipients.every(listed)
+  return (process.env.EMAIL_DIRECT_ALLOW ?? '').trim() !== '' && recipients.length > 0 && recipients.every(isStaffAddress)
 }
 
 /**
@@ -152,6 +138,17 @@ export type SendEmailParams = {
   text?: string
   replyTo?: string
   attachments?: EmailAttachment[]
+  /**
+   * 'client' marks mail meant for a customer. Such mail goes only to an address
+   * an admin has approved (lib/email/approval). Mail to a known client or
+   * contact address is gated even without it.
+   */
+  audience?: 'client'
+  /**
+   * The client this mail is about. When given, the address must be on that
+   * client's own record: an address approved for a different client is refused.
+   */
+  clientId?: string
 }
 
 export async function sendEmail(params: SendEmailParams): Promise<{ success: boolean; error?: string }> {
@@ -160,6 +157,12 @@ export async function sendEmail(params: SendEmailParams): Promise<{ success: boo
   if (!isEmailConfigured()) {
     console.warn(`Email not sent (no RESEND_API_KEY): "${params.subject}"`)
     return { success: false, error: 'Outbound email is switched off in this instance.' }
+  }
+
+  const problem = await approvalProblem(params.to, params.audience, params.clientId)
+  if (problem) {
+    console.warn(`Email not sent (${problem}): "${params.subject}"`)
+    return { success: false, error: problem }
   }
 
   const routed = applyTestRedirect({
@@ -226,6 +229,22 @@ export async function sendBatch(
       `Batch not sent (no RESEND_API_KEY): ${messages.length} × "${messages[0].subject}"`,
     )
     return { success: false, error: 'Outbound email is switched off in this instance.' }
+  }
+
+  // Batches go to staff recipient lists, but a client address in one is still
+  // held to the approval rule.
+  const refused: string[] = []
+  const allowed: BatchMessage[] = []
+  for (const message of messages) {
+    const problem = await approvalProblem(message.to)
+    if (problem) refused.push(problem)
+    else allowed.push(message)
+  }
+  if (refused.length > 0) {
+    console.warn(`Batch: ${refused.length} message(s) held back: ${refused[0]}`)
+    if (allowed.length === 0) return { success: false, error: refused[0] }
+    const rest = await sendBatch(allowed)
+    return rest.success ? { success: false, error: `${refused.length} of ${messages.length} held back: ${refused[0]}` } : rest
   }
 
   // A batch of layout mail goes one message at a time through `sendEmail`,

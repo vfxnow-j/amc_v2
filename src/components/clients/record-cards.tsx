@@ -8,6 +8,8 @@ import {
   getClientInvoices,
   getClientOrders,
 } from "@/lib/queries/client-record";
+import { EmailApprovalToggle } from "@/components/clients/email-approval-toggle";
+import { getSessionUser } from "@/lib/roles";
 import { STATUS_LABEL } from "@/lib/reservations/status";
 
 const DOC_LABEL: Record<string, string> = {
@@ -129,7 +131,8 @@ function Figure({
 }
 
 export async function ContactsCard({ id }: { id: string }) {
-  const contacts = await getClientContacts(id);
+  const [contacts, user] = await Promise.all([getClientContacts(id), getSessionUser()]);
+  const canEdit = user?.role === "ADMIN" || user?.role === "SUPER_ADMIN";
 
   return (
     <Card
@@ -166,6 +169,13 @@ export async function ContactsCard({ id }: { id: string }) {
                   <Unset>No email or phone</Unset>
                 )}
               </span>
+              <EmailApprovalToggle
+                kind="contact"
+                id={contact.id}
+                approved={contact.emailApproved}
+                canEdit={canEdit}
+                hasEmail={!!contact.email}
+              />
             </li>
           ))}
         </ul>

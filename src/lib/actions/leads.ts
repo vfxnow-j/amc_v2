@@ -1010,7 +1010,7 @@ export async function requestOnboarding(input: {
   }
 
   const message = onboardingInviteEmail({ name: leadName, formUrl: url, companyName })
-  const sent = await sendEmail({ to: email, subject: message.subject, html: message.html })
+  const sent = await sendEmail({ to: email, subject: message.subject, html: message.html, audience: 'client' })
   const delivered = sent.success
 
   // Recorded either way. "We asked them to onboard on the 9th" is the fact

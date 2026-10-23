@@ -33,6 +33,11 @@ import {
   type BillingTerms,
   type StageOutcome,
 } from "@/lib/actions/order-stage";
+import {
+  approveOrderRecipients,
+  checkClientRecipients,
+  type RecipientCheck,
+} from "@/lib/actions/email-approval";
 
 /**
  * The controls that move an order along, on the order record.
@@ -300,6 +305,38 @@ function SendQuoteDialog({ id, clientEmail, busy, run, onClose }: DialogProps) {
   const [link, setLink] = useState<string | null>(null);
   const [linkError, setLinkError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  // Set when a typed address is not approved for email: what the dialog says
+  // and, for an admin, offers to fix. Cleared whenever the addresses change.
+  const [gate, setGate] = useState<RecipientCheck | null>(null);
+  const [checking, setChecking] = useState(false);
+
+  async function send() {
+    const typed = emails.split(/[,;\s]+/).filter(Boolean);
+    if (typed.length === 0) return run(() => sendOrderQuote(id, { emails: [emails], message }));
+    setChecking(true);
+    try {
+      const check = await checkClientRecipients(id, typed);
+      if (check.otherClient.length > 0) {
+        setGate(check);
+        return;
+      }
+      if (check.blocked.length > 0) {
+        // Second press, as an admin: this is the "Enable email and send" click.
+        if (gate && check.canApprove) {
+          await approveOrderRecipients(id, check.blocked);
+        } else {
+          setGate(check);
+          return;
+        }
+      }
+      run(() => sendOrderQuote(id, { emails: [emails], message }));
+    } catch (err) {
+      setGate(null);
+      setLinkError(err instanceof Error ? err.message : "Could not check the recipients.");
+    } finally {
+      setChecking(false);
+    }
+  }
 
   // Minted once, when the dialog opens. In an effect and not during render:
   // minting writes a row and stamps the order's expiry, and React is entitled
@@ -338,11 +375,12 @@ function SendQuoteDialog({ id, clientEmail, busy, run, onClose }: DialogProps) {
       footer={
         <>
           <ModalCancel />
-          <ModalConfirm
-            disabled={busy}
-            onClick={() => run(() => sendOrderQuote(id, { emails: [emails], message }))}
-          >
-            {busy ? "Sending…" : "Send quote"}
+          <ModalConfirm disabled={busy || checking} onClick={send}>
+            {busy || checking
+              ? "Sending…"
+              : gate?.canApprove && gate.otherClient.length === 0
+                ? "Enable email and send"
+                : "Send quote"}
           </ModalConfirm>
         </>
       }
@@ -398,7 +436,10 @@ function SendQuoteDialog({ id, clientEmail, busy, run, onClose }: DialogProps) {
         <Label>Email it to</Label>
         <input
           value={emails}
-          onChange={(event) => setEmails(event.target.value)}
+          onChange={(event) => {
+            setEmails(event.target.value);
+            setGate(null);
+          }}
           placeholder="Separate several with commas — leave blank to send it yourself"
           aria-label="Recipient email addresses"
           className="h-9 w-full rounded-well border-0 bg-sunken px-3 text-detail text-ink outline-none placeholder:text-ink-faint"
@@ -408,6 +449,17 @@ function SendQuoteDialog({ id, clientEmail, busy, run, onClose }: DialogProps) {
             This client has no email address on file, so nothing is prefilled.
           </p>
         )}
+        {gate ? (
+          <div className="mt-2">
+            <Notice tone="error">
+              {gate.otherClient.length > 0
+                ? `${gate.otherClient.join(", ")} belongs to a different client, not this one, so this quote can't be emailed there. Add it to this client's contacts first, or remove it.`
+                : gate.canApprove
+                ? `${gate.blocked.join(", ")} ${gate.blocked.length === 1 ? "is" : "are"} not approved for email, so nothing would be sent. Enable email for ${gate.blocked.length === 1 ? "this address" : "these addresses"} and send?`
+                : `${gate.blocked.join(", ")} ${gate.blocked.length === 1 ? "is" : "are"} not approved for email. Ask an admin to enable it on the client record, or copy the link above and send it yourself.`}
+            </Notice>
+          </div>
+        ) : null}
       </div>
 
       <div className="mt-3">

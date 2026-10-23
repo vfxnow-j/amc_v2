@@ -229,6 +229,8 @@ export async function sendProposalEmail(
     subject: template.subject,
     html: template.html,
     text: template.text,
+    audience: 'client',
+    clientId: reservation.clientId,
     attachments: [{
       filename,
       content: buffer,

@@ -2663,7 +2663,7 @@ export async function startPreparing(id: string, preparedById?: string, notifyCl
         new Date(reservation.endDate).toLocaleDateString(),
         (reservation as any).reservationType,
       )
-      await sendEmail({ to: notifyClient.email, subject: template.subject, html: template.html })
+      await sendEmail({ to: notifyClient.email, subject: template.subject, html: template.html, audience: 'client', clientId: reservation.clientId })
     } catch (err) {
       console.error('Failed to send preparing notification:', err)
     }
@@ -2731,7 +2731,7 @@ export async function markShipped(id: string, notifyClient?: { email: string }) 
         new Date(reservation.endDate).toLocaleDateString(),
         (reservation as any).reservationType,
       )
-      await sendEmail({ to: notifyClient.email, subject: template.subject, html: template.html })
+      await sendEmail({ to: notifyClient.email, subject: template.subject, html: template.html, audience: 'client', clientId: reservation.clientId })
     } catch (err) {
       console.error('Failed to send shipped notification:', err)
     }
@@ -2940,7 +2940,7 @@ export async function approveReservation(id: string, force?: boolean) {
       new Date(reservation.updated.endDate).toLocaleDateString(),
       (reservation.updated as any).reservationType,
     )
-    await sendEmail({ to: reservation.updated.client.email, subject: template.subject, html: template.html })
+    await sendEmail({ to: reservation.updated.client.email, subject: template.subject, html: template.html, audience: 'client', clientId: reservation.updated.clientId })
   }
 
   // Notify staff/recipients about approved order — only active package items
@@ -4933,77 +4933,6 @@ export async function duplicateReservation(
   revalidatePath('/dashboard/rent-to-own')
 
   return serialize(newReservation)
-}
-
-// Send quote email for a draft reservation
-export async function sendQuoteEmail(reservationId: string) {
-  const authResult = await requireEditor()
-  if (!authResult.authorized) throw new Error(authResult.error)
-
-  const reservation = await prisma.reservation.findUnique({
-    where: { id: reservationId },
-    include: {
-      client: true,
-      items: {
-        include: {
-          asset: { include: { category: true } },
-        },
-      },
-    },
-  })
-
-  if (!reservation) throw new Error('Reservation not found')
-  // A Flow line's rate is its contract value, which this email would print as a
-  // monthly rate. Flow quotes go out through the client quote link and its PDF.
-  if (reservation.reservationType === 'FLOW') {
-    throw new Error("A Flow order's quote is sent with the client quote link, not this email.")
-  }
-  if (reservation.status !== 'DRAFT') throw new Error('Can only send quotes for draft reservations')
-  if (!reservation.client.email) throw new Error('Client has no email address')
-
-  // Group items by category
-  const itemsByCategory = new Map<string, typeof reservation.items>()
-  for (const item of reservation.items) {
-    const categoryName = item.asset?.category?.name || 'Uncategorized'
-    const existing = itemsByCategory.get(categoryName) || []
-    existing.push(item)
-    itemsByCategory.set(categoryName, existing)
-  }
-
-  const { reservationQuoteEmail } = await import('@/lib/email/templates')
-  const { sendEmail } = await import('@/lib/email')
-
-  const template = reservationQuoteEmail({
-    clientName: reservation.client.name,
-    reservationNumber: reservation.reservationNumber,
-    startDate: new Date(reservation.startDate).toLocaleDateString(),
-    endDate: new Date(reservation.endDate).toLocaleDateString(),
-    reservationType: reservation.reservationType,
-    itemsByCategory: Array.from(itemsByCategory.entries()).map(([category, items]) => ({
-      category,
-      items: items.map((item) => ({
-        name: item.asset?.name || item.description || 'Ad-hoc item',
-        quantity: item.quantity,
-        pricingType: item.pricingType,
-        rate: Number(item.rate),
-        subtotal: Number(item.subtotal),
-      })),
-    })),
-    subtotal: Number(reservation.subtotal),
-    taxRate: Number(reservation.taxRate),
-    taxAmount: Number(reservation.taxAmount),
-    total: Number(reservation.total),
-    notes: reservation.notes || undefined,
-    projectName: reservation.projectName || undefined,
-  })
-
-  await sendEmail({
-    to: reservation.client.email,
-    subject: template.subject,
-    html: template.html,
-  })
-
-  return { success: true }
 }
 
 // ============================================

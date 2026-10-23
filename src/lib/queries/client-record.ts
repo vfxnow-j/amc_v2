@@ -13,6 +13,7 @@ export async function getClientHeader(id: string) {
       name: true,
       companyName: true,
       email: true,
+      emailApproved: true,
       phone: true,
       address: true,
       billingAddress: true,
@@ -137,6 +138,7 @@ export async function getClientContacts(id: string) {
       phone: true,
       role: true,
       isPrimary: true,
+      emailApproved: true,
     },
   });
   return contacts;

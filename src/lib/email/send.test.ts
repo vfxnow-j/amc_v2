@@ -66,3 +66,42 @@ describe('resolveLogo', () => {
     delete process.env.EMAIL_LOGO_URL
   })
 })
+
+describe('classifyAddress', () => {
+  const book = {
+    approved: new Set(['yes@client.com']),
+    known: new Set(['yes@client.com', 'no@client.com']),
+  }
+  it('sorts staff, approved, unapproved and unknown', async () => {
+    const { classifyAddress } = await import('./approval')
+    process.env.EMAIL_DIRECT_ALLOW = '@vfxnow.com'
+    assert.equal(classifyAddress('Dev@VFXnow.com', book), 'staff')
+    assert.equal(classifyAddress('YES@client.com', book), 'approved')
+    assert.equal(classifyAddress('no@client.com', book), 'unapproved')
+    assert.equal(classifyAddress('new@else.com', book), 'unknown')
+    assert.equal(classifyAddress('a@evilvfxnow.com', book), 'unknown')
+  })
+})
+
+describe('approvalAfterEmailChange', () => {
+  it('keeps approval when the address is unchanged, drops it when it changes', async () => {
+    const { approvalAfterEmailChange } = await import('./approval')
+    assert.deepEqual(approvalAfterEmailChange('A@b.com', ' a@b.com '), {})
+    assert.equal(approvalAfterEmailChange('a@b.com', 'c@d.com').emailApproved, false)
+    assert.equal(approvalAfterEmailChange('a@b.com', '').emailApproved, false)
+  })
+})
+
+describe('classifyAddress, scoped to one client', () => {
+  it('calls an address that is only on another client other-client', async () => {
+    const { classifyAddress } = await import('./approval')
+    const book = {
+      approved: new Set(['mine@a.com']),
+      known: new Set(['mine@a.com']),
+      elsewhere: new Set(['theirs@b.com']),
+    }
+    assert.equal(classifyAddress('mine@a.com', book), 'approved')
+    assert.equal(classifyAddress('theirs@b.com', book), 'other-client')
+    assert.equal(classifyAddress('new@c.com', book), 'unknown')
+  })
+})

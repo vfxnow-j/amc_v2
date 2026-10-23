@@ -708,6 +708,11 @@ model Client {
   name           String
   companyName    String?
   email          String?
+  // Mail to this account's address is refused until an admin turns this on
+  // (lib/email/approval). Off for every client, including the restored ones.
+  emailApproved     Boolean   @default(false)
+  emailApprovedAt   DateTime?
+  emailApprovedById String?
   phone          String?
   address        String?
   billingAddress String?
@@ -794,6 +799,10 @@ model ClientContact {
   client    Client  @relation(fields: [clientId], references: [id], onDelete: Cascade)
   name      String
   email     String?
+  // Same gate as Client.emailApproved, for this contact's own address.
+  emailApproved     Boolean   @default(false)
+  emailApprovedAt   DateTime?
+  emailApprovedById String?
   phone     String?
   role      String? // e.g. "Primary", "Billing", "Technical", "Associated"
   isPrimary Boolean @default(false)

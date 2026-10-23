@@ -30,6 +30,7 @@ import {
 import { generateQuoteToken, sendQuoteLinkEmail } from "@/lib/actions/quote-tokens";
 import { createInvoiceFromReservation } from "@/lib/actions/invoices";
 import { isEmailConfigured } from "@/lib/email/client";
+import { approvalProblem } from "@/lib/email/approval";
 import { quoteGate } from "@/lib/approvals/core";
 import type {
   BillingCycleType,
@@ -60,7 +61,7 @@ export type StageOutcome =
 
 /** The stop gap, before anything is saved: every asset checked out. */
 async function notReady(id: string, move: HandoverMove): Promise<StageOutcome | null> {
-  const order = await prisma.reservation.findUnique({ where: { id }, select: { reservationType: true } });
+  const order = await prisma.reservation.findUnique({ where: { id }, select: { reservationType: true, clientId: true } });
   if (order && !gateApplies(move, order.reservationType)) return null;
   const handover = await handoverShortfall(id);
   if (handover.units === 0) return null;
@@ -173,7 +174,7 @@ export async function sendOrderQuote(
   // A Flow order is quoted by its payment schedule, so it can only be sent once
   // that schedule prices (the same gate generateQuoteToken applies). Refused
   // here, before the stage moves on a send that could carry no link.
-  const flow = await prisma.reservation.findUnique({ where: { id }, select: { reservationType: true } });
+  const flow = await prisma.reservation.findUnique({ where: { id }, select: { reservationType: true, clientId: true } });
   if (flow?.reservationType === "FLOW") {
     const problem = await flowQuoteProblem(id);
     if (problem) {
@@ -188,6 +189,13 @@ export async function sendOrderQuote(
     .flatMap((entry) => entry.split(/[,;\s]+/))
     .map((entry) => entry.trim())
     .filter(Boolean);
+
+  // Refused before anything is sent or the stage moves: the dialog asks an
+  // admin to enable these, but the server does not rely on the dialog.
+  if (recipients.length > 0) {
+    const problem = await approvalProblem(recipients, "client", flow?.clientId);
+    if (problem) return { status: "error", message: problem };
+  }
 
   const sent: string[] = [];
   const failed: string[] = [];

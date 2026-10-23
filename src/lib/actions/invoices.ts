@@ -360,7 +360,7 @@ export async function sendInvoice(id: string) {
       `$${Number(invoice.total).toFixed(2)}`,
       new Date(invoice.dueDate).toLocaleDateString(),
     )
-    await sendEmail({ to: client.email, subject: template.subject, html: template.html })
+    await sendEmail({ to: client.email, subject: template.subject, html: template.html, audience: 'client', clientId: invoice.clientId })
   }
 
   revalidatePath('/dashboard/invoices')

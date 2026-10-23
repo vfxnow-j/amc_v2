@@ -17,6 +17,7 @@ import {
   OrdersCard,
 } from "@/components/clients/record-cards";
 import { ClientForecastCard } from "@/components/forecast/client-forecast";
+import { EmailApprovalToggle } from "@/components/clients/email-approval-toggle";
 import { RequirementsCard } from "@/components/clients/requirements-card";
 import { PortalAccountCard } from "@/components/clients/portal-account-card";
 import { ConversationsCard } from "@/components/tracker/conversations-card";
@@ -125,8 +126,15 @@ export default async function ClientRecordPage({ params }: Params) {
 
           <Card title="Details">
             <div className="grid grid-cols-2 gap-3 px-4 pb-4">
-              <Field label="Email">
+              <Field label="Account email">
                 {client.email ?? <Unset>None on file</Unset>}
+                <EmailApprovalToggle
+                  kind="client"
+                  id={id}
+                  approved={client.emailApproved}
+                  canEdit={role === "SUPER_ADMIN" || role === "ADMIN"}
+                  hasEmail={!!client.email}
+                />
               </Field>
               <Field label="Phone">
                 {client.phone ?? <Unset>None on file</Unset>}

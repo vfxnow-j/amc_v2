@@ -957,6 +957,8 @@ export async function sendQuoteLinkEmail(
     to: toEmail,
     subject: template.subject,
     html: template.html,
+    audience: 'client',
+    clientId: reservation.clientId,
   })
 
   if (!result.success) throw new Error(result.error || 'Failed to send email')

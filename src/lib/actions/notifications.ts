@@ -59,6 +59,8 @@ export async function sendOverdueReminders(): Promise<{ sent: number }> {
         to: invoice.client.email,
         subject: template.subject,
         html: template.html,
+        audience: 'client',
+        clientId: invoice.clientId,
       })
       sent++
     } catch (error) {

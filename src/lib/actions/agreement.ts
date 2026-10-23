@@ -238,6 +238,8 @@ export async function sendRequirementsRequest(
     to: email,
     subject: content.subject,
     html: content.html,
+    audience: "client",
+    clientId,
   });
 
   await logAudit({

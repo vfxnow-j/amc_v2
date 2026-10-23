@@ -34,6 +34,7 @@
  * rule) testable with `node:test` alone, no DATABASE_URL required; the
  * routes and server actions that call these pass `prisma` in.
  */
+import { approvalAfterEmailChange } from '@/lib/email/approval'
 import { z } from 'zod'
 import type { Prisma, PrismaClient } from '@/generated/prisma/client'
 import { badRequest } from './errors'
@@ -276,7 +277,11 @@ export async function putPortalAccount(
 
       if (isMirroring(existing)) {
         const clientData: Prisma.ClientUpdateInput = { name: body.company, companyName: body.company }
-        if (body.contact_email !== undefined) clientData.email = body.contact_email
+        if (body.contact_email !== undefined) {
+          clientData.email = body.contact_email
+          const before = await tx.client.findUnique({ where: { id: existing.clientId }, select: { email: true } })
+          Object.assign(clientData, approvalAfterEmailChange(before?.email, body.contact_email))
+        }
         if (body.contact_phone !== undefined) clientData.phone = body.contact_phone
         await tx.client.update({ where: { id: existing.clientId }, data: clientData })
       }

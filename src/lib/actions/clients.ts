@@ -1,5 +1,6 @@
 'use server'
 
+import { approvalAfterEmailChange } from '@/lib/email/approval'
 import { revalidatePath } from 'next/cache'
 import { prisma } from '@/lib/prisma'
 import { serialize } from '@/lib/utils'
@@ -216,7 +217,7 @@ export async function updateClientContact(id: string, data: {
     where: { id },
     data: {
       ...(data.name !== undefined && { name: data.name }),
-      ...(data.email !== undefined && { email: data.email }),
+      ...(data.email !== undefined && { email: data.email, ...approvalAfterEmailChange(existing.email, data.email) }),
       ...(data.phone !== undefined && { phone: data.phone }),
       ...(data.role !== undefined && { role: data.role }),
       ...(data.isPrimary !== undefined && { isPrimary: data.isPrimary }),
@@ -274,12 +275,14 @@ export async function updateClient(id: string, data: Partial<ClientFormData>) {
   const authResult = await requireEditor()
   if (!authResult.authorized) throw new Error(authResult.error)
 
+  const before = await prisma.client.findUnique({ where: { id }, select: { email: true } })
   const client = await prisma.client.update({
     where: { id },
     data: {
       name: data.name,
       companyName: data.companyName,
       email: data.email,
+      ...(data.email !== undefined && approvalAfterEmailChange(before?.email, data.email)),
       phone: data.phone,
       address: data.address,
       billingAddress: data.billingAddress,
