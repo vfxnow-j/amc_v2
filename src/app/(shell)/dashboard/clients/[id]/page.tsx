@@ -17,6 +17,7 @@ import {
   OrdersCard,
 } from "@/components/clients/record-cards";
 import { ClientForecastCard } from "@/components/forecast/client-forecast";
+import { EditAccountButton } from "@/components/clients/edit-account";
 import { EmailApprovalToggle } from "@/components/clients/email-approval-toggle";
 import { RequirementsCard } from "@/components/clients/requirements-card";
 import { PortalAccountCard } from "@/components/clients/portal-account-card";
@@ -82,6 +83,22 @@ export default async function ClientRecordPage({ params }: Params) {
               <span className="rounded-pill bg-sunken px-3 py-1 text-pill text-ink">
                 Tax exempt
               </span>
+            ) : null}
+            {role === "ADMIN" || role === "SUPER_ADMIN" || role === "STAFF" ? (
+              <EditAccountButton
+                account={{
+                  id: client.id,
+                  name: client.name,
+                  companyName: client.companyName,
+                  email: client.email,
+                  phone: client.phone,
+                  address: client.address,
+                  billingAddress: client.billingAddress,
+                  paymentTerms: client.paymentTerms,
+                  taxExempt: client.taxExempt,
+                  notes: client.notes,
+                }}
+              />
             ) : null}
             <Link
               href={`/dashboard/orders/new?client=${client.id}`}
