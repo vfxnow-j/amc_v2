@@ -180,6 +180,8 @@ export type RecordLine = {
   isCloudHost: boolean;
   /** What this line is built from. Empty for anything that is not configured. */
   components: RecordComponent[];
+  /** From the Services catalog: labelled as a service, and totalled apart from the equipment. */
+  isService: boolean;
   /** Asset name, or the free-text description for an ad-hoc line. */
   label: string;
   /** Free text with nothing linked behind it, so its wording can be edited. */
@@ -361,6 +363,7 @@ export async function getReservationLines(
         item.cloudProduct?.name ??
         item.description ??
         "Untitled line",
+      isService: !!item.service,
       textEditable: !item.assetId && !item.service && !item.cloudProductId,
       assetId: item.assetId,
       configurable: (item.asset?._count.components ?? 0) > 0,

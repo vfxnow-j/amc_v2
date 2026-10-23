@@ -136,6 +136,7 @@ export async function LinesCard({
     ? "grid-cols-[minmax(0,1fr)_58px_150px_96px_20px] max-md:min-w-[480px]"
     : "grid-cols-[minmax(0,1fr)_58px_130px_96px] max-md:min-w-[440px]";
   const unitCount = lines.reduce((sum, line) => sum + line.units.length, 0);
+  const serviceTotal = lines.filter((line) => line.isService).reduce((sum, line) => sum + line.subtotal, 0);
 
   if (lines.length === 0) {
     return (
@@ -162,7 +163,9 @@ export async function LinesCard({
   return (
     <Card
       title={title}
-      meta={`${lines.length} ${lines.length === 1 ? "line" : "lines"} · ${unitCount} ${unitCount === 1 ? "unit" : "units"} attached`}
+      meta={`${lines.length} ${lines.length === 1 ? "line" : "lines"} · ${unitCount} ${unitCount === 1 ? "unit" : "units"} attached${
+        serviceTotal > 0 ? ` · ${MONEY.format(serviceTotal)} services` : ""
+      }`}
     >
       <ul className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-2 pb-3 max-md:overflow-x-auto">
         {lines.map((line, lineIndex) => (
@@ -198,6 +201,11 @@ export async function LinesCard({
                 {line.isGroup ? (
                   <span className="ml-2 rounded-pill bg-accent-tint px-[6px] align-middle text-micro font-normal text-accent-on-tint">
                     build
+                  </span>
+                ) : null}
+                {line.isService ? (
+                  <span className="ml-2 rounded-pill bg-sunken px-[6px] align-middle text-micro font-normal text-ink-muted">
+                    service
                   </span>
                 ) : null}
                 {/* Order matters on a quote with builds: parts travel with their build. */}
