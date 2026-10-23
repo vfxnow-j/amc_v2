@@ -29,7 +29,7 @@ export const metadata = { title: "Leads" };
 const COLUMNS: Column[] = [
   { key: "name", label: "Lead", width: "minmax(0,1.2fr)" },
   { key: "company", label: "Company", width: "minmax(0,1.2fr)" },
-  { key: "source", label: "Source", width: "100px" },
+  { key: "source", label: "Source", width: "minmax(0,0.9fr)" },
   { key: "owner", label: "Owner", width: "minmax(0,0.9fr)" },
   { key: "value", label: "Value", width: "92px", align: "right" },
   { key: "status", label: "Status", width: "104px" },
@@ -140,8 +140,13 @@ async function Table({
             <span className="text-ink-muted">{row.companyName ?? "—"}</span>
           ),
           source: (
-            <span className="text-ink-muted">
+            <span className="text-ink-muted" title={row.channel ?? undefined}>
               {LEAD_SOURCE_LABEL[row.source]}
+              {row.channel ? (
+                <span className="block truncate text-detail text-ink-faint">
+                  {row.channel}
+                </span>
+              ) : null}
             </span>
           ),
           owner: row.owner ?? (
@@ -203,7 +208,7 @@ export default async function LeadsPage({
         }
         actions={
           <>
-            <ListSearch placeholder="Search leads, companies, email" />
+            <ListSearch placeholder="Search leads, companies, email, form" />
             <Link
               href="/dashboard/leads/new"
               className="rounded-pill bg-accent-solid px-4 py-2 text-pill text-accent-on-solid"

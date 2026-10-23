@@ -128,6 +128,7 @@ function leadWhere(view: LeadView, search: string): Prisma.LeadWhereInput {
         { companyName: contains },
         { email: contains },
         { phone: contains },
+        { channel: contains },
       ],
     });
   }
@@ -163,6 +164,7 @@ export async function getLeadList({
         companyName: true,
         email: true,
         source: true,
+        channel: true,
         status: true,
         estimatedValue: true,
         createdAt: true,
@@ -183,6 +185,7 @@ export async function getLeadList({
       companyName: record.companyName,
       email: record.email,
       source: record.source,
+      channel: record.channel,
       status: record.status,
       value:
         record.estimatedValue === null ? null : Number(record.estimatedValue),
