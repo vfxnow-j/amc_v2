@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import { prisma } from "@/lib/prisma";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ExternalLink } from "lucide-react";
@@ -169,6 +170,17 @@ export default async function OrderRecordPage({
   const header = await getReservationHeader(id);
   if (!header) notFound();
 
+  // The client's live quote page, when one is out and waiting for an answer.
+  const liveLink =
+    header.status === "QUOTE_SENT"
+      ? await prisma.quoteToken.findFirst({
+          where: { reservationId: id, sentAt: { not: null }, expiresAt: { gt: new Date() } },
+          orderBy: { sentAt: "desc" },
+          select: { token: true },
+        })
+      : null;
+  const liveQuoteUrl = liveLink ? `/quote/${liveLink.token}` : null;
+
   // Quote options (the order's packages). The one viewed is the URL's, else the
   // one the order goes ahead with.
   const options = await getOrderOptions(id);
@@ -241,15 +253,16 @@ export default async function OrderRecordPage({
             user.role !== "VIEWER" ? (
               <EditDates id={id} start={toDateInput(header.start)} end={toDateInput(header.end)} />
             ) : null}
-            {/* What the client sees, at whatever stage the order is — a draft
-                before it is sent, the live page once it is, what their link
-                says after they answer. A preview: no link is issued and nothing
-                is marked viewed (app/quote/preview). */}
+            {/* A quote that is out and waiting opens the live page, exactly as
+                the client has it (no staff bar; a signed-in view is never
+                counted as theirs). A draft, a revision or an answered quote
+                has no live page to show, so it opens the staff preview: no link
+                is issued and nothing is marked viewed (app/quote/preview). */}
             {/* A Flow order whose schedule cannot be priced has no client
                 quote to preview. */}
             {isFlow && !flowQuotable ? null : (
             <a
-              href={`/quote/preview/${header.id}`}
+              href={liveQuoteUrl ?? `/quote/preview/${header.id}`}
               target="_blank"
               rel="noopener"
               className="inline-flex items-center gap-1 rounded-pill bg-sunken px-3 py-1 text-pill text-ink transition-colors hover:bg-row-hover"
