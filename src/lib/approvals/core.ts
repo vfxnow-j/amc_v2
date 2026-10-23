@@ -903,6 +903,28 @@ export async function decide(
     };
   }
 
+  // An approved quote is a sent quote as far as the order goes: the approver's
+  // yes moves a draft or revision to QUOTE_SENT, through the same action the
+  // Send quote dialog uses (status history, lead stage, HubSpot). It was cleared
+  // a line ago, so the gate inside it lets it through. Emailing the client is
+  // still the Send quote / Re-send quote step, and its own email approval.
+  let movedToSent = false;
+  if (approve && request.recordType === "QUOTE") {
+    const order = await prisma.reservation.findUnique({
+      where: { id: request.recordId },
+      select: { status: true },
+    });
+    if (order && (order.status === "DRAFT" || order.status === "REVISION")) {
+      try {
+        const { markQuoteSent } = await import("@/lib/actions/reservations");
+        const result = await markQuoteSent(request.recordId);
+        movedToSent = !(result && typeof result === "object" && "error" in result && result.error);
+      } catch (error) {
+        console.error("Approved quote could not be marked sent:", error);
+      }
+    }
+  }
+
   const report = await notifyRequester(settled, brief);
   const told =
     report.names.length === 0
@@ -914,7 +936,7 @@ export async function decide(
   return {
     status: "ok",
     href: brief.href,
-    message: `${approve ? "Approved" : "Denied"} ${brief.label} at ${moneyExact(brief.amount)}.${told}`,
+    message: `${approve ? "Approved" : "Denied"} ${brief.label} at ${moneyExact(brief.amount)}.${movedToSent ? " The order is now marked quote sent." : ""}${told}`,
   };
 }
 
