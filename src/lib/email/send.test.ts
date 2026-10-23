@@ -17,7 +17,7 @@ describe('applyTestRedirect', () => {
 
   it('tags the subject of every message', () => {
     process.env.EMAIL_SUBJECT_TAG = 'AMC v2'
-    assert.equal(applyTestRedirect(msg('a@x.com')).subject, '[AMC v2] Your code')
+    assert.equal(applyTestRedirect(msg('a@x.com')).subject, 'AMC v2 – Your code')
   })
 
   it('redirects and tags a customer message', () => {
@@ -26,7 +26,7 @@ describe('applyTestRedirect', () => {
     process.env.EMAIL_DIRECT_ALLOW = 'staff@x.com'
     const out = applyTestRedirect(msg('client@y.com'))
     assert.equal(out.to, 'tester@x.com')
-    assert.equal(out.subject, '[AMC v2] [test → client@y.com] Your code')
+    assert.equal(out.subject, 'AMC v2 – [test → client@y.com] Your code')
   })
 
   it('delivers to an allowed address for real, still tagged', () => {
@@ -35,7 +35,7 @@ describe('applyTestRedirect', () => {
     process.env.EMAIL_DIRECT_ALLOW = 'Staff@X.com, other@x.com'
     const out = applyTestRedirect(msg('staff@x.com'))
     assert.equal(out.to, 'staff@x.com')
-    assert.equal(out.subject, '[AMC v2] Your code')
+    assert.equal(out.subject, 'AMC v2 – Your code')
   })
 
   it('delivers to anyone on an allowed domain, but not a lookalike', () => {

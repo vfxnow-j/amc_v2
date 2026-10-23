@@ -40,9 +40,9 @@ function banner(originalTo: string | string[]): string {
 }
 
 /**
- * A label on every subject while this instance is a stand-in for the live one
- * ("AMC v2"), so v2 mail is never mistaken for v1's in an inbox. Unset it when
- * v2 becomes the production system.
+ * A label in front of every subject: "VFXnow – Your quote". Set to the company
+ * name it reads as a sender label to a customer; set to something like "AMC v2"
+ * on a stand-in instance so its mail is never mistaken for the live system's.
  */
 function subjectTag(): string | null {
   const value = process.env.EMAIL_SUBJECT_TAG?.trim()
@@ -70,13 +70,13 @@ export function applyTestRedirect<T extends { to: string | string[]; subject: st
   message: T,
 ): T {
   const tag = subjectTag()
-  const tagged = tag ? `[${tag}] ${message.subject}` : message.subject
+  const tagged = tag ? `${tag} – ${message.subject}` : message.subject
   const target = redirectTo()
   if (!target || allDirect(message.to)) return { ...message, subject: tagged }
   return {
     ...message,
     to: target,
-    subject: `${tag ? `[${tag}] ` : ''}[test → ${describe(message.to)}] ${message.subject}`,
+    subject: `${tag ? `${tag} – ` : ''}[test → ${describe(message.to)}] ${message.subject}`,
     html: withBanner(message.html, message.to),
     // The plain-text part says it too: a client that shows text only must not
     // read a redirected message as the real thing.
