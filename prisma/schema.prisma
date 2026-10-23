@@ -810,6 +810,7 @@ model ClientContact {
   leadId    String? // If created from a bound lead
 
   interactions Interaction[]
+  reservations Reservation[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -992,6 +993,10 @@ model Reservation {
   reservationNumber String @unique
   clientId          String
   client            Client @relation(fields: [clientId], references: [id])
+  // The person at the account this order is for: addressed on the quote and
+  // the order notices, and who the quote dialog ticks first. Optional.
+  contactId         String?
+  contact           ClientContact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
 
   // Type: Rental vs Sale
   reservationType ReservationType @default(RENTAL)
