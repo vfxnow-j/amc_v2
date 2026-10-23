@@ -14,6 +14,9 @@ import { lineTitle } from '@/lib/quotes/line-title'
 import { arrangeBuildGroups, specLabel } from '@/lib/pricing/build-groups'
 import { paymentLineForOrder } from '@/lib/billing/order-payment-schedule'
 
+/** Service lines are listed under this heading, after the equipment (matches the online quote). */
+const SERVICES_CATEGORY = 'Services'
+
 /**
  * Internal-only signed-quote rendering, moved out of the 'use server' module
  * src/lib/actions/documents.ts.
@@ -153,11 +156,11 @@ async function renderSignedQuote(
         rate: rate ?? (Number(item.rate) || 0),
         amount,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any -- legacy line shape without a joined asset
-        category: category ?? (item.asset?.category?.name || (item as any).category || undefined),
+        category: item.serviceId ? SERVICES_CATEGORY : (category ?? (item.asset?.category?.name || (item as any).category || undefined)),
         termNote: formatTermNote(item, reservation),
         ...(isGroupPart ? { isComponent: true } : {}),
       }
-    }),
+    }).sort((a, b) => Number(a.category === SERVICES_CATEGORY) - Number(b.category === SERVICES_CATEGORY)),
     subtotal: financials.itemsSubtotal,
     discountAmount: financials.discountAmount || undefined,
     taxRate: financials.taxRate || undefined,

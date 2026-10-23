@@ -109,6 +109,9 @@ export async function generateQuoteToken(reservationId: string) {
  * What a quote is built from. Shared by the client's link and the staff preview
  * so the two can never show different figures.
  */
+/** The heading service lines are grouped under on a quote, ahead of any category they were given by hand. */
+const SERVICES_GROUP = 'Services'
+
 const QUOTE_INCLUDE = {
           client: true,
           packages: {
@@ -223,6 +226,8 @@ async function buildQuote(
     isGroup?: boolean;
     // A build part whose price the quote hides: a spec line with no figures.
     priceHidden?: boolean;
+    // A line from the Services catalog: the quote lists these in their own block.
+    isService?: boolean;
   }
   const groupByCategory = (items: typeof reservation.items) => {
     // Cloud-host component children (parentId + cloudProductId) are hidden
@@ -285,13 +290,14 @@ async function buildQuote(
         includedInParent: (item as { includedInParent?: boolean }).includedInParent ?? false,
         isGroup: item.isGroup || undefined,
         priceHidden,
+        isService: item.serviceId ? true : undefined,
       }
     }
     // Order: parents first, each followed by its components; they share the parent's category.
     const map = new Map<string, QuoteItem[]>()
     for (const item of visibleItems) {
       if (item.parentId) continue
-      const categoryName = item.asset?.category?.name || (item as any).category || 'Uncategorized'
+      const categoryName = item.serviceId ? SERVICES_GROUP : item.asset?.category?.name || (item as any).category || 'Uncategorized'
       const existing = map.get(categoryName) || []
       existing.push(buildQuoteItem(item))
       const kids = childrenByParent.get(item.id) || []
@@ -307,7 +313,9 @@ async function buildQuote(
       existing.push(buildQuoteItem(item))
       map.set(categoryName, existing)
     }
-    return Array.from(map.entries()).map(([category, items]) => ({ category, items }))
+    return Array.from(map.entries())
+      .map(([category, items]) => ({ category, items, service: category === SERVICES_GROUP || undefined }))
+      .sort((a, b) => Number(!!a.service) - Number(!!b.service))
   }
 
   // Build packages data for the quote page

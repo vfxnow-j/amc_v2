@@ -40,9 +40,11 @@ export type QuoteItem = {
   isGroup?: boolean;
   /** A build part listed as a spec with no figures — the build's total covers it. */
   priceHidden?: boolean;
+  /** From the Services catalog — listed in the Services block. */
+  isService?: boolean;
 };
 
-export type QuoteCategory = { category: string; items: QuoteItem[] };
+export type QuoteCategory = { category: string; items: QuoteItem[]; /** The Services block. */ service?: boolean };
 
 export type QuotePackage = {
   id: string;
@@ -591,6 +593,18 @@ function termLength(start: string, end: string): string {
  * not rows of their own: they fold into one line of names under the build, so a
  * ten-part machine is one row and one short line, not eleven rows.
  */
+/** What a block of lines adds up to: the figure each top-level line shows, parts excluded. */
+function blockTotal(groups: QuoteCategory[]): number {
+  return groups.reduce(
+    (sum, group) =>
+      sum +
+      group.items
+        .filter((item) => !item.isComponent && !item.includedInParent)
+        .reduce((inner, item) => inner + (item.configuredTotal ?? item.subtotal), 0),
+    0,
+  );
+}
+
 function foldIncluded(items: QuoteItem[]): { item: QuoteItem; parts: QuoteItem[] }[] {
   const rows: { item: QuoteItem; parts: QuoteItem[] }[] = [];
   for (const item of items) {
@@ -624,6 +638,8 @@ function Lines({
     );
   }
   const count = categories.reduce((sum, group) => sum + group.items.filter((item) => !item.isComponent).length, 0);
+  // Equipment and services both present: show a subtotal for each so the client sees what is what.
+  const split = categories.some((g) => g.service) && categories.some((g) => !g.service);
   const HEAD = "py-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#71717a]";
 
   return (
@@ -644,14 +660,21 @@ function Lines({
           </tr>
         </thead>
         <tbody>
-          {categories.map((group) => (
+          {categories.map((group, index) => (
             <Fragment key={group.category}>
+              {split && group.service && !categories[index - 1]?.service ? (
+                <tr>
+                  <td colSpan={4} className="border-t border-[#e4e4e7] px-4 py-1.5 text-right text-[12px] text-[#71717a]">
+                    Equipment <span className="ml-3 font-semibold tabular-nums text-[#18181b]">{money(blockTotal(categories.filter((g) => !g.service)))}</span>
+                  </td>
+                </tr>
+              ) : null}
               <tr>
                 <td
                   colSpan={4}
                   className="bg-[#fafafa]/60 px-4 pb-0.5 pt-2 text-[10px] font-bold uppercase tracking-[0.12em] text-[#71717a]"
                 >
-                  {group.category}
+                  {group.service ? "Services" : group.category}
                 </td>
               </tr>
               {foldIncluded(group.items).map(({ item, parts }) => {
@@ -694,6 +717,13 @@ function Lines({
               })}
             </Fragment>
           ))}
+          {split ? (
+            <tr>
+              <td colSpan={4} className="border-t border-[#e4e4e7] px-4 py-1.5 text-right text-[12px] text-[#71717a]">
+                Services <span className="ml-3 font-semibold tabular-nums text-[#18181b]">{money(blockTotal(categories.filter((g) => g.service)))}</span>
+              </td>
+            </tr>
+          ) : null}
         </tbody>
       </table>
       <div className="border-t border-[#e4e4e7] bg-[#fafafa]/60 px-4 py-3">{footer}</div>

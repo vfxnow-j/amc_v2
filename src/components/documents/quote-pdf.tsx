@@ -130,9 +130,23 @@ export function QuotePDF({ data, logoDataUri, signatureDataUrl, signerName, sign
               groups.push({ category: cat, items: catMap.get(cat)! })
             }
             const hasCategories = groups.length > 1 || (groups.length === 1 && groups[0].category !== 'Other')
+            // Equipment and services both on the quote: a subtotal for each block.
+            const isServices = (category: string) => category === 'Services'
+            const splitBlocks = groups.some((g) => isServices(g.category)) && groups.some((g) => !isServices(g.category))
+            const blockTotal = (services: boolean) =>
+              groups
+                .filter((g) => isServices(g.category) === services)
+                .reduce((sum, g) => sum + g.items.filter((i) => !i.isComponent).reduce((inner, i) => inner + (i.amount || 0), 0), 0)
+            const subtotalRow = (label: string, amount: number) => (
+              <View key={`sub-${label}`} wrap={false} style={{ flexDirection: 'row', justifyContent: 'flex-end', paddingVertical: 4, paddingHorizontal: 8 }}>
+                <Text style={{ fontSize: 9, color: '#6b7280', marginRight: 12 }}>{label}</Text>
+                <Text style={{ fontSize: 9, fontFamily: 'Helvetica-Bold' }}>{formatCurrency(amount)}</Text>
+              </View>
+            )
             let rowIdx = 0
-            return groups.map((group) => (
+            return groups.map((group, groupIdx) => (
               <View key={group.category}>
+                {splitBlocks && isServices(group.category) && !isServices(groups[groupIdx - 1]?.category ?? '') && subtotalRow('Equipment subtotal', blockTotal(false))}
                 {hasCategories && (
                   <View
                     style={{ flexDirection: 'row', backgroundColor: '#f3f4f6', paddingVertical: 3, paddingHorizontal: 6 }}
@@ -213,6 +227,7 @@ export function QuotePDF({ data, logoDataUri, signatureDataUrl, signerName, sign
                     </View>
                   )
                 })}
+                {splitBlocks && isServices(group.category) && subtotalRow('Services subtotal', blockTotal(true))}
               </View>
             ))
           })()}
