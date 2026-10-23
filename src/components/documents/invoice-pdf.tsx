@@ -23,6 +23,8 @@ export type InvoiceData = {
     amount: number
     // Component nesting — true for items rendered indented beneath a parent.
     isComponent?: boolean
+    // Billed from a service on the order: listed in its own block after the equipment.
+    isService?: boolean
     configuredTotal?: number
   }[]
   // Totals
@@ -143,8 +145,20 @@ export function InvoicePDF({ data, logoDataUri, proForma }: Props) {
           </View>
           {data.items.map((item, index) => {
             const showConfigured = item.configuredTotal != null && item.configuredTotal !== item.amount
+            // Equipment and services both billed: each block gets a heading and a subtotal.
+            const split = data.items.some((i) => i.isService) && data.items.some((i) => !i.isService)
+            const blockTotal = (services: boolean) =>
+              data.items.filter((i) => !!i.isService === services && !i.isComponent).reduce((sum, i) => sum + i.amount, 0)
+            const heading = (label: string, amount: number) => (
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', backgroundColor: '#f3f4f6', paddingVertical: 3, paddingHorizontal: 6 }} wrap={false} minPresenceAhead={30}>
+                <Text style={{ fontSize: 9, fontFamily: 'Helvetica-Bold', color: '#374151' }}>{label}</Text>
+                <Text style={{ fontSize: 9, fontFamily: 'Helvetica-Bold', color: '#374151' }}>{formatCurrency(amount)}</Text>
+              </View>
+            )
             return (
               <React.Fragment key={index}>
+                {split && index === 0 && heading('Equipment', blockTotal(false))}
+                {split && item.isService && !data.items[index - 1]?.isService && heading('Services', blockTotal(true))}
                 <View
                   style={index % 2 === 0 ? s.tableRow : s.tableRowAlt}
                   wrap={false}

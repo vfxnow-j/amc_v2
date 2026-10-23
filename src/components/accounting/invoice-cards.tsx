@@ -73,6 +73,11 @@ export async function LinesCard({
               className={`truncate ${line.isComponent ? "pl-4 text-ink-muted" : ""}`}
             >
               {line.description}
+              {line.isService ? (
+                <span className="ml-2 rounded-pill bg-sunken px-[6px] align-middle text-micro font-normal text-ink-muted">
+                  service
+                </span>
+              ) : null}
               {/* The asset link is what ties a billed line back to a product
                   type, and descriptions are free text that drift from it — but
                   most were generated *from* the asset name, so it is only worth

@@ -46,6 +46,7 @@ export async function renderInvoicePdf(
     unitPrice: line.unitPrice,
     amount: line.amount,
     isComponent: line.isComponent,
+    isService: line.isService,
   }));
 
   const total = Number(invoice.total);

@@ -74,6 +74,8 @@ export type InvoiceLine = {
   /** Rendered indented beneath its parent — a component of a configured item. */
   isComponent: boolean;
   assetName: string | null;
+  /** Billed from a Services-catalog order line: listed after the equipment. */
+  isService: boolean;
 };
 
 /**
@@ -99,9 +101,24 @@ export async function getInvoiceLines(id: string): Promise<InvoiceLine[]> {
       unitPrice: true,
       amount: true,
       parentId: true,
+      reservationItemId: true,
       asset: { select: { name: true } },
     },
   });
+
+  // Which billed lines came from a service on the order. An invoice line only
+  // remembers the order line it was billed from, so ask that line.
+  const orderLineIds = items.map((item) => item.reservationItemId).filter((v): v is string => !!v);
+  const serviceLines = new Set(
+    orderLineIds.length === 0
+      ? []
+      : (
+          await prisma.reservationItem.findMany({
+            where: { id: { in: orderLineIds }, serviceId: { not: null } },
+            select: { id: true },
+          })
+        ).map((row) => row.id),
+  );
 
   const shape = (item: (typeof items)[number], isComponent: boolean) => ({
     id: item.id,
@@ -111,6 +128,7 @@ export async function getInvoiceLines(id: string): Promise<InvoiceLine[]> {
     amount: Number(item.amount),
     isComponent,
     assetName: item.asset?.name ?? null,
+    isService: !!item.reservationItemId && serviceLines.has(item.reservationItemId),
   });
 
   const children = new Map<string, typeof items>();
@@ -137,7 +155,13 @@ export async function getInvoiceLines(id: string): Promise<InvoiceLine[]> {
     if (!shown.has(item.id)) lines.push(shape(item, false));
   }
 
-  return lines;
+  // Services after the equipment, each parent still followed by its parts.
+  const blocks: InvoiceLine[][] = [];
+  for (const line of lines) {
+    if (!line.isComponent || blocks.length === 0) blocks.push([line]);
+    else blocks[blocks.length - 1].push(line);
+  }
+  return [...blocks.filter((b) => !b[0].isService), ...blocks.filter((b) => b[0].isService)].flat();
 }
 
 export async function getInvoicePayments(id: string) {
