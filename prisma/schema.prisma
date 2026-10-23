@@ -997,6 +997,7 @@ model Reservation {
   // the order notices, and who the quote dialog ticks first. Optional.
   contactId         String?
   contact           ClientContact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  quoteSendIntent   QuoteSendIntent?
 
   // Type: Rental vs Sale
   reservationType ReservationType @default(RENTAL)
@@ -3436,4 +3437,21 @@ model UserEntity {
 
   @@id([userId, entityId])
   @@map("user_entities")
+}
+
+// What the person pressing Send quote chose (recipients and note), kept while the
+// quote waits for an approver. The approver's yes sends exactly this and marks
+// the order sent, so nobody presses Send a second time. One per order; replaced
+// each time Send quote is pressed and removed once a send goes out.
+model QuoteSendIntent {
+  id            String      @id @default(cuid())
+  reservationId String      @unique
+  reservation   Reservation @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+  emails        String[]
+  message       String?
+  createdById   String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@map("quote_send_intents")
 }

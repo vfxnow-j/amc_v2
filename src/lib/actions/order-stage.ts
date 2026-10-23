@@ -17,7 +17,6 @@ import {
   cancelReservation,
   completeReservation,
   markLost,
-  markQuoteSent,
   addItemToReservation,
   markShipped,
   removeReservationItem,
@@ -27,10 +26,11 @@ import {
   startPreparing,
   updateReservation,
 } from "@/lib/actions/reservations";
-import { generateQuoteToken, sendQuoteLinkEmail } from "@/lib/actions/quote-tokens";
+import { generateQuoteToken } from "@/lib/actions/quote-tokens";
 import { createInvoiceFromReservation } from "@/lib/actions/invoices";
 import { isEmailConfigured } from "@/lib/email/client";
 import { approvalProblem } from "@/lib/email/approval";
+import { deliverQuote, splitRecipients } from "@/lib/orders/quote-delivery";
 import { quoteGate } from "@/lib/approvals/core";
 import type {
   BillingCycleType,
@@ -182,68 +182,37 @@ export async function sendOrderQuote(
     }
   }
 
+  const recipients = splitRecipients(input.emails);
+
   const hold = await held(id, "sending it", "Send the quote to the client");
-  if (hold) return hold;
-
-  const recipients = input.emails
-    .flatMap((entry) => entry.split(/[,;\s]+/))
-    .map((entry) => entry.trim())
-    .filter(Boolean);
-
-  // Refused before anything is sent or the stage moves: the dialog asks an
-  // admin to enable these, but the server does not rely on the dialog.
-  if (recipients.length > 0) {
-    const problem = await approvalProblem(recipients, "client", flow?.clientId);
-    if (problem) return { status: "error", message: problem };
-  }
-
-  const sent: string[] = [];
-  const failed: string[] = [];
-
-  if (recipients.length > 0 && !isEmailConfigured()) {
-    failed.push(...recipients);
-  } else {
-    for (const email of recipients) {
-      try {
-        await sendQuoteLinkEmail(id, email, input.message);
-        sent.push(email);
-      } catch {
-        failed.push(email);
-      }
+  if (hold) {
+    // Waiting on an approver (or on onboarding). Keep what was chosen: the
+    // approver sees it, and their yes sends exactly this and marks the order
+    // sent, so nobody presses Send a second time. Checked now, so a choice the
+    // client cannot be mailed at is refused here and not discovered later.
+    if (recipients.length > 0) {
+      const problem = await approvalProblem(recipients, "client", flow?.clientId);
+      if (problem) return { status: "error", message: problem };
     }
+    await prisma.quoteSendIntent.upsert({
+      where: { reservationId: id },
+      create: { reservationId: id, emails: recipients, message: input.message?.trim() || null, createdById: auth.userId },
+      update: { emails: recipients, message: input.message?.trim() || null, createdById: auth.userId },
+    });
+    return hold.status === "ok"
+      ? {
+          ...hold,
+          message:
+            recipients.length > 0
+              ? `${hold.message} When it is approved it will be emailed to ${recipients.join(", ")} and marked sent.`
+              : hold.message,
+        }
+      : hold;
   }
 
-  // sendQuoteLinkEmail already moves DRAFT/REVISION to QUOTE_SENT on a
-  // successful send. When nothing sent — or the order was already out — this is
-  // what records it, and a refusal here is only ever "it is past that stage".
-  const order = await prisma.reservation.findUnique({
-    where: { id },
-    select: { status: true },
-  });
-  if (!order) return { status: "error", message: "Order not found." };
-
-  let moved = false;
-  if (order.status === "DRAFT" || order.status === "REVISION") {
-    const result = await markQuoteSent(id);
-    const problem = refusal(result);
-    if (problem) return { status: "error", message: problem };
-    moved = true;
-  }
-
+  const outcome = await deliverQuote(id, recipients, input.message);
   touch(id);
-
-  const parts: string[] = [];
-  if (sent.length > 0) parts.push(`Emailed to ${sent.join(", ")}.`);
-  if (failed.length > 0) {
-    parts.push(
-      isEmailConfigured()
-        ? `Could not email ${failed.join(", ")} — send the link yourself.`
-        : `Outbound email is switched off here, so ${failed.join(", ")} was not written to. Copy the link and send it yourself.`,
-    );
-  }
-  parts.push(moved ? "Marked as quoted." : "Already marked as quoted.");
-
-  return { status: "ok", message: parts.join(" ") };
+  return outcome.status === "ok" ? { status: "ok", message: outcome.message } : outcome;
 }
 
 // ---------------------------------------------------------------------------

@@ -123,6 +123,14 @@ function Headline({
               ? " You approve these too, but not a request you raised."
               : ""}
           </span>
+          {panel.sendPlan ? (
+            <span className="mt-1 block text-ink-muted">
+              {panel.sendPlan.emails.length > 0
+                ? `On approval it is emailed to ${panel.sendPlan.emails.join(", ")} and marked sent.`
+                : "On approval it is marked sent (no email was chosen)."}
+              {panel.sendPlan.message ? ` Note to the client: “${panel.sendPlan.message}”` : ""}
+            </span>
+          ) : null}
         </>
       );
     }

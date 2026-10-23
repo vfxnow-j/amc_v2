@@ -268,6 +268,7 @@ export async function briefFor(
       projectName: true,
       notes: true,
       createdById: true,
+      quoteSendIntent: { select: { emails: true, message: true, updatedAt: true } },
       client: { select: { name: true, companyName: true } },
       items: {
         where: { includedInParent: false },
@@ -286,6 +287,13 @@ export async function briefFor(
     facts: [
       { label: "Window", value: `${dayYear(order.startDate)} – ${dayYear(order.endDate)}` },
       ...(order.projectName ? [{ label: "Project", value: order.projectName }] : []),
+      // What the person asking chose to send: what the approver is approving.
+      ...(order.quoteSendIntent && order.quoteSendIntent.emails.length > 0
+        ? [{ label: "Will email", value: order.quoteSendIntent.emails.join(", ") }]
+        : []),
+      ...(order.quoteSendIntent?.message
+        ? [{ label: "Note to client", value: order.quoteSendIntent.message }]
+        : []),
     ],
     lines: lineList(
       order.items,
@@ -800,6 +808,47 @@ export type DecisionOutcome =
   | { status: "ok"; message: string; href: string }
   | { status: "error"; message: string };
 
+const INTENT_LIFE_MS = 7 * 24 * 60 * 60 * 1000;
+
+async function sendApprovedQuote(orderId: string): Promise<string> {
+  const order = await prisma.reservation.findUnique({
+    where: { id: orderId },
+    select: { status: true, quoteSendIntent: true },
+  });
+  if (!order || (order.status !== "DRAFT" && order.status !== "REVISION")) return "";
+
+  const { deliverQuote } = await import("@/lib/orders/quote-delivery");
+  const intent =
+    order.quoteSendIntent && Date.now() - order.quoteSendIntent.updatedAt.getTime() < INTENT_LIFE_MS
+      ? order.quoteSendIntent
+      : null;
+
+  if (intent) {
+    try {
+      const outcome = await deliverQuote(orderId, intent.emails, intent.message);
+      if (outcome.status === "ok") return ` ${outcome.message}`;
+      // Refused (an address is not approved for email, say): fall through and
+      // still mark it sent, telling the approver why nothing was emailed.
+      return await markSentOnly(orderId, ` Not emailed: ${outcome.message}`);
+    } catch (error) {
+      console.error("Approved quote could not be sent:", error);
+      return await markSentOnly(orderId, " It could not be emailed; the requester can send it again.");
+    }
+  }
+  return await markSentOnly(orderId, "");
+}
+
+async function markSentOnly(orderId: string, why: string): Promise<string> {
+  try {
+    const { markQuoteSent } = await import("@/lib/actions/reservations");
+    const result = (await markQuoteSent(orderId)) as unknown;
+    const failed = result && typeof result === "object" && "error" in result && (result as { error?: unknown }).error;
+    return failed ? why : `${why} The order is now marked quote sent.`;
+  } catch {
+    return why;
+  }
+}
+
 export async function decide(
   requestId: string,
   actor: Actor,
@@ -903,25 +952,19 @@ export async function decide(
     };
   }
 
-  // An approved quote is a sent quote as far as the order goes: the approver's
-  // yes moves a draft or revision to QUOTE_SENT, through the same action the
-  // Send quote dialog uses (status history, lead stage, HubSpot). It was cleared
-  // a line ago, so the gate inside it lets it through. Emailing the client is
-  // still the Send quote / Re-send quote step, and its own email approval.
-  let movedToSent = false;
-  if (approve && request.recordType === "QUOTE") {
-    const order = await prisma.reservation.findUnique({
-      where: { id: request.recordId },
-      select: { status: true },
-    });
-    if (order && (order.status === "DRAFT" || order.status === "REVISION")) {
-      try {
-        const { markQuoteSent } = await import("@/lib/actions/reservations");
-        const result = await markQuoteSent(request.recordId);
-        movedToSent = !(result && typeof result === "object" && "error" in result && result.error);
-      } catch (error) {
-        console.error("Approved quote could not be marked sent:", error);
-      }
+  // An approved quote goes out. If the person who pressed Send quote chose
+  // recipients and a note, the approver's yes sends exactly that (each address
+  // its own link) and marks the order sent: no second press. With nothing
+  // chosen, or if the send is refused, the order is still marked sent, the
+  // approver's say-so is what that status records, and the message says what
+  // did not go. The intent is only honoured for a week, so an old choice never
+  // surprises anyone.
+  let sentNote = "";
+  if (request.recordType === "QUOTE") {
+    if (approve) {
+      sentNote = await sendApprovedQuote(request.recordId);
+    } else {
+      await prisma.quoteSendIntent.deleteMany({ where: { reservationId: request.recordId } });
     }
   }
 
@@ -936,7 +979,7 @@ export async function decide(
   return {
     status: "ok",
     href: brief.href,
-    message: `${approve ? "Approved" : "Denied"} ${brief.label} at ${moneyExact(brief.amount)}.${movedToSent ? " The order is now marked quote sent." : ""}${told}`,
+    message: `${approve ? "Approved" : "Denied"} ${brief.label} at ${moneyExact(brief.amount)}.${sentNote}${told}`,
   };
 }
 
@@ -989,6 +1032,8 @@ export type ApprovalPanel = {
   viewerApproves: boolean;
   /** The viewer may approve or deny the pending request. */
   viewerCanDecide: boolean;
+  /** A quote's chosen recipients and note, sent when it is approved. */
+  sendPlan: { emails: string[]; message: string | null } | null;
 };
 
 export async function approvalPanel(
@@ -1002,6 +1047,10 @@ export async function approvalPanel(
   const standing = standingOf(history, brief.amount);
   const current = standing.kind === "none" ? null : standing.request;
   const viewerApproves = viewer ? await isApprover(viewer, type) : false;
+  const intent =
+    type === "QUOTE" && standing.kind === "pending"
+      ? await prisma.quoteSendIntent.findUnique({ where: { reservationId: id } })
+      : null;
   const approvers =
     standing.kind === "pending" ? await approversFor(type, standing.request.requestedById) : [];
 
@@ -1022,6 +1071,7 @@ export async function approvalPanel(
       !!viewer &&
       standing.request.requestedById !== viewer.id &&
       !brief.closed,
+    sendPlan: intent ? { emails: intent.emails, message: intent.message } : null,
   };
 }
 
