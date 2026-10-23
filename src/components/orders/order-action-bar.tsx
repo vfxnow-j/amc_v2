@@ -1,4 +1,5 @@
 import { Card, CardEmpty } from "@/components/record/record-card";
+import { getQuoteRecipients } from "@/lib/queries/contacts";
 import { OrderActions } from "@/components/orders/order-actions";
 import { STATUS_LABEL } from "@/lib/reservations/status";
 import { movesFor } from "@/lib/orders/lifecycle";
@@ -27,10 +28,11 @@ export async function OrderActionBar({
   id: string;
   type: ReservationType;
 }) {
-  const [order, staff, flowProblem] = await Promise.all([
+  const [order, staff, flowProblem, quoteRecipients] = await Promise.all([
     getOrderLifecycle(id),
     getFloorStaff(),
     type === "FLOW" ? flowQuoteProblem(id) : Promise.resolve(null),
+    getQuoteRecipients(id),
   ]);
   if (!order) return null;
 
@@ -59,6 +61,7 @@ export async function OrderActionBar({
           type={type}
           flowQuotable={flowQuotable}
           clientEmail={order.client.email}
+          quoteRecipients={quoteRecipients}
           clientPaymentTerms={order.client.paymentTerms}
           staff={staff}
           total={billing.total}

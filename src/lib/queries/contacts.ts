@@ -91,3 +91,57 @@ export async function getContact(id: string) {
     },
   });
 }
+
+export type QuoteRecipients = {
+  options: { email: string; label: string; role: string | null; approved: boolean }[];
+  /** Who is ticked when the dialog opens: the primary contact, else the account email. */
+  defaultEmail: string | null;
+};
+
+/**
+ * Every address a quote on this order could go to: the account's own email and
+ * each contact's. One entry per address (an address on both the account and a
+ * contact is listed once, under the person), with whether it is approved.
+ */
+export async function getQuoteRecipients(orderId: string): Promise<QuoteRecipients> {
+  const order = await prisma.reservation.findUnique({
+    where: { id: orderId },
+    select: {
+      client: {
+        select: {
+          email: true,
+          emailApproved: true,
+          contacts: {
+            orderBy: [{ isPrimary: "desc" }, { name: "asc" }],
+            select: { name: true, email: true, role: true, isPrimary: true, emailApproved: true },
+          },
+        },
+      },
+    },
+  });
+  if (!order) return { options: [], defaultEmail: null };
+
+  const { client } = order;
+  const options: QuoteRecipients["options"] = [];
+  const seen = new Map<string, number>();
+  const add = (email: string | null, label: string, role: string | null, approved: boolean) => {
+    const trimmed = email?.trim();
+    if (!trimmed) return;
+    const key = trimmed.toLowerCase();
+    const at = seen.get(key);
+    if (at !== undefined) {
+      options[at].approved ||= approved;
+      return;
+    }
+    seen.set(key, options.length);
+    options.push({ email: trimmed, label, role, approved });
+  };
+
+  for (const contact of client.contacts) {
+    add(contact.email, contact.name, contact.role, contact.emailApproved);
+  }
+  add(client.email, "Account email", null, client.emailApproved);
+
+  const primary = client.contacts.find((contact) => contact.isPrimary && contact.email?.trim());
+  return { options, defaultEmail: primary?.email?.trim() || client.email?.trim() || null };
+}

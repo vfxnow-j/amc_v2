@@ -33,6 +33,7 @@ import {
   type BillingTerms,
   type StageOutcome,
 } from "@/lib/actions/order-stage";
+import type { QuoteRecipients } from "@/lib/queries/contacts";
 import {
   approveOrderRecipients,
   checkClientRecipients,
@@ -64,6 +65,8 @@ export type OrderActionsProps = {
   /** Flow only: its schedule prices, so it can be quoted to the client. */
   flowQuotable?: boolean;
   clientEmail: string | null;
+  /** Every address a quote could go to, for the Send quote dialog. */
+  quoteRecipients: QuoteRecipients;
   clientPaymentTerms: number;
   staff: { id: string; name: string }[];
   terms: BillingTerms;
@@ -299,8 +302,13 @@ function readOut(items: string[]): string {
  * see is no use for that. Minting it also stamps the order's expiry, so what is
  * copied and what the order says expire on the same day.
  */
-function SendQuoteDialog({ id, clientEmail, busy, run, onClose }: DialogProps) {
-  const [emails, setEmails] = useState(clientEmail ?? "");
+function SendQuoteDialog({ id, quoteRecipients, busy, run, onClose }: DialogProps) {
+  // Ticked addresses from the account, plus any typed by hand.
+  const [picked, setPicked] = useState<string[]>(
+    quoteRecipients.defaultEmail ? [quoteRecipients.defaultEmail] : [],
+  );
+  const [extra, setExtra] = useState("");
+  const emails = [...picked, ...extra.split(/[,;\s]+/).filter(Boolean)].join(", ");
   const [message, setMessage] = useState("");
   const [link, setLink] = useState<string | null>(null);
   const [linkError, setLinkError] = useState<string | null>(null);
@@ -434,21 +442,57 @@ function SendQuoteDialog({ id, clientEmail, busy, run, onClose }: DialogProps) {
 
       <div className="mt-4">
         <Label>Email it to</Label>
-        <input
-          value={emails}
-          onChange={(event) => {
-            setEmails(event.target.value);
-            setGate(null);
-          }}
-          placeholder="Separate several with commas — leave blank to send it yourself"
-          aria-label="Recipient email addresses"
-          className="h-9 w-full rounded-well border-0 bg-sunken px-3 text-detail text-ink outline-none placeholder:text-ink-faint"
-        />
-        {clientEmail ? null : (
-          <p className="mt-1 text-micro text-ink-faint">
-            This client has no email address on file, so nothing is prefilled.
+        {quoteRecipients.options.length > 0 ? (
+          <ul className="mb-2 flex flex-col gap-1">
+            {quoteRecipients.options.map((option) => {
+              const on = picked.some((email) => email.toLowerCase() === option.email.toLowerCase());
+              return (
+                <li key={option.email}>
+                  <label className="flex items-start gap-2 text-detail">
+                    <input
+                      type="checkbox"
+                      className="mt-[3px]"
+                      checked={on}
+                      onChange={(event) => {
+                        setPicked((current) =>
+                          event.target.checked
+                            ? [...current, option.email]
+                            : current.filter((email) => email.toLowerCase() !== option.email.toLowerCase()),
+                        );
+                        setGate(null);
+                      }}
+                    />
+                    <span className="min-w-0">
+                      <span className="font-bold">{option.label}</span>
+                      {option.role ? <span className="text-ink-faint"> · {option.role}</span> : null}
+                      <span className="block truncate text-ink-muted">{option.email}</span>
+                    </span>
+                    {option.approved ? null : (
+                      <span className="ml-auto flex-none text-micro text-ink-faint">Not approved</span>
+                    )}
+                  </label>
+                </li>
+              );
+            })}
+          </ul>
+        ) : (
+          <p className="mb-2 text-micro text-ink-faint">
+            This client has no email address or contacts with one yet. Type an address below, or add a contact on the client.
           </p>
         )}
+        <input
+          value={extra}
+          onChange={(event) => {
+            setExtra(event.target.value);
+            setGate(null);
+          }}
+          placeholder="Other addresses, separated by commas"
+          aria-label="Other recipient email addresses"
+          className="h-9 w-full rounded-well border-0 bg-sunken px-3 text-detail text-ink outline-none placeholder:text-ink-faint"
+        />
+        <p className="mt-1 text-micro text-ink-faint">
+          Leave everything unticked and empty to send the link yourself.
+        </p>
         {gate ? (
           <div className="mt-2">
             <Notice tone="error">
