@@ -31,6 +31,7 @@ import { FlowScheduleCard } from "@/components/orders/flow/flow-schedule-card";
 import { FlowEconomicsCard } from "@/components/orders/flow/flow-economics-card";
 import { getFlowRecord } from "@/lib/queries/flow-record";
 import { flowQuoteProblem } from "@/lib/flow-terms-server";
+import { PrintMenu } from "@/components/orders/print-menu";
 import { OrderDocumentsCard } from "@/components/orders/documents-card";
 import { ShippingCard } from "@/components/orders/shipping-card";
 import { EditDates } from "@/components/orders/edit-dates";
@@ -260,6 +261,7 @@ export default async function OrderRecordPage({
                 is issued and nothing is marked viewed (app/quote/preview). */}
             {/* A Flow order whose schedule cannot be priced has no client
                 quote to preview. */}
+            <PrintMenu id={header.id} flow={isFlow} />
             {isFlow && !flowQuotable ? null : (
             <a
               href={liveQuoteUrl ?? `/quote/preview/${header.id}`}

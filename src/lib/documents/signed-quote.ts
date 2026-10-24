@@ -12,6 +12,7 @@ import { formatTermLength, formatTermNote } from '@/lib/pricing/periods'
 import { computeReservationFinancials } from '@/lib/pricing/financials'
 import { lineTitle } from '@/lib/quotes/line-title'
 import { arrangeBuildGroups, specLabel } from '@/lib/pricing/build-groups'
+import type { OrderDetailData } from '@/components/documents/order-detail-pdf'
 import { paymentLineForOrder } from '@/lib/billing/order-payment-schedule'
 
 /** Service lines are listed under this heading, after the equipment (matches the online quote). */
@@ -54,6 +55,9 @@ function sanitizeSignatureDataUrl(signatureDataUrl: string): string {
   return signatureDataUrl
 }
 
+/** The units attached to a line, for the printed documents that list tags and serials. */
+const UNIT_TAGS = { include: { assetUnit: { select: { barcode: true, serialNumber: true } } } } as const
+
 type SignedQuoteReservation = NonNullable<Awaited<ReturnType<typeof loadSignedQuoteReservation>>>
 
 function loadSignedQuoteReservation(reservationId: string) {
@@ -64,28 +68,27 @@ function loadSignedQuoteReservation(reservationId: string) {
       packages: {
         include: {
           items: {
-            include: { asset: { include: { category: true } } },
+            include: { asset: { include: { category: true } }, units: UNIT_TAGS },
             orderBy: { sortOrder: 'asc' },
           },
         },
         orderBy: { sortOrder: 'asc' },
       },
       items: {
-        include: { asset: { include: { category: true } } },
+        include: { asset: { include: { category: true } }, units: UNIT_TAGS },
         orderBy: { sortOrder: 'asc' },
       },
     },
   })
 }
 
-/** The rental / sale / rent-to-own signed quote, rendered to a PDF buffer. */
-async function renderSignedQuote(
-  reservation: SignedQuoteReservation,
-  signatureDataUrl: string,
-  signerName: string,
-  signedAt: string,
-  approvalStamp?: { method: string; signerName: string; signedAtIso: string },
-): Promise<Buffer> {
+/**
+ * What every printed order document is drawn from: the order's lines at their
+ * derived amounts, its totals, delivery and payment terms, and the units
+ * attached to each line. One builder so the quote, order detail, delivery note
+ * and asset list can never disagree about the order.
+ */
+async function buildOrderData(reservation: SignedQuoteReservation): Promise<OrderDetailData> {
   // Use active package items if multi-package
   const activePackage = reservation.packages.find((p) => p.isActive)
   const items = activePackage ? activePackage.items : reservation.items
@@ -107,14 +110,13 @@ async function renderSignedQuote(
     /* eslint-enable @typescript-eslint/no-explicit-any */
   })
 
-  const { QuotePDF } = await import('@/components/documents/quote-pdf')
   const payment = await paymentLineForOrder(reservation.id)
 
   const visibleItems = items
     .map((item, index) => ({ item, index }))
     .filter(({ item }) => !(item.parentId && item.cloudProductId))
 
-  const quoteData = {
+  const quoteData: OrderDetailData = {
     entityType: 'RESERVATION' as const,
     number: reservation.reservationNumber,
     reservationType: reservation.reservationType,
@@ -158,6 +160,11 @@ async function renderSignedQuote(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any -- legacy line shape without a joined asset
         category: item.serviceId ? SERVICES_CATEGORY : (category ?? (item.asset?.category?.name || (item as any).category || undefined)),
         termNote: formatTermNote(item, reservation),
+        manufacturer: item.asset?.manufacturer || undefined,
+        model: item.asset?.model || undefined,
+        isAsset: !!item.assetId,
+        units: (item.units ?? []).map((u) => ({ barcode: u.assetUnit.barcode, serialNumber: u.assetUnit.serialNumber || undefined })),
+        assetNumbers: (item.units ?? []).map((u) => u.assetUnit.barcode),
         ...(isGroupPart ? { isComponent: true } : {}),
       }
     }).sort((a, b) => Number(a.category === SERVICES_CATEGORY) - Number(b.category === SERVICES_CATEGORY)),
@@ -170,6 +177,7 @@ async function renderSignedQuote(
     deliveryMethod: reservation.deliveryMethod ? (allDeliveryMethodLabels[reservation.deliveryMethod] || reservation.deliveryMethod) : undefined,
     deliveryAddress: reservation.deliveryAddress || undefined,
     deliveryDate: reservation.deliveryDate ? formatDate(reservation.deliveryDate) : undefined,
+    shipDate: reservation.shipDate ? formatDate(reservation.shipDate) : undefined,
     deliveryNotes: reservation.deliveryNotes || undefined,
     deliveryTrackingProvider: reservation.deliveryTrackingProvider || undefined,
     deliveryTrackingNumber: reservation.deliveryTrackingNumber || undefined,
@@ -181,6 +189,19 @@ async function renderSignedQuote(
     notes: reservation.notes || undefined,
     paymentLine: payment ?? undefined,
   }
+  return quoteData
+}
+
+/** The rental / sale / rent-to-own signed quote, rendered to a PDF buffer. */
+async function renderSignedQuote(
+  reservation: SignedQuoteReservation,
+  signatureDataUrl: string,
+  signerName: string,
+  signedAt: string,
+  approvalStamp?: { method: string; signerName: string; signedAtIso: string },
+): Promise<Buffer> {
+  const quoteData = await buildOrderData(reservation)
+  const { QuotePDF } = await import('@/components/documents/quote-pdf')
 
   const logoDataUri = await getServerLogoDataUri()
 
@@ -227,6 +248,54 @@ export async function renderQuotePdf(
 
   const buffer = await renderSignedQuote(reservation, '', '', '')
   return { ok: true, buffer, filename: `${reservation.reservationNumber}-quote.pdf` }
+}
+
+/** The printable documents an order offers from its Print menu. */
+export type OrderDocumentKind = 'quote' | 'order-detail' | 'delivery-note' | 'asset-list'
+export const ORDER_DOCUMENT_KINDS: readonly OrderDocumentKind[] = ['quote', 'order-detail', 'delivery-note', 'asset-list']
+
+/**
+ * Any of the order's printable documents, rendered from the order as it stands.
+ * Flow orders carry contract values the priced documents would misrender, so
+ * they print their Flow quote and the unpriced asset list only.
+ */
+export async function renderOrderDocument(
+  reservationId: string,
+  kind: OrderDocumentKind,
+  { serials = false }: { serials?: boolean } = {},
+): Promise<{ ok: true; buffer: Buffer; filename: string } | { ok: false; problem: string }> {
+  if (kind === 'quote') return renderQuotePdf(reservationId)
+
+  const reservation = await loadSignedQuoteReservation(reservationId)
+  if (!reservation) return { ok: false, problem: 'Order not found.' }
+  if (reservation.reservationType === 'FLOW' && kind !== 'asset-list') {
+    return { ok: false, problem: 'A Flow order prints its quote and its asset list only.' }
+  }
+
+  const data = await buildOrderData(reservation)
+  const logoDataUri = await getServerLogoDataUri()
+  let element: React.ReactElement
+  let suffix: string
+  if (kind === 'order-detail') {
+    const { OrderDetailPDF } = await import('@/components/documents/order-detail-pdf')
+    element = React.createElement(OrderDetailPDF, { data, logoDataUri })
+    suffix = 'order-detail'
+  } else if (kind === 'delivery-note') {
+    const { DeliveryNotePDF } = await import('@/components/documents/delivery-note-pdf')
+    element = React.createElement(DeliveryNotePDF, { data, logoDataUri })
+    suffix = 'delivery-note'
+  } else {
+    const { AssetListPDF } = await import('@/components/documents/asset-list-pdf')
+    element = React.createElement(AssetListPDF, { data, logoDataUri, includeSerials: serials })
+    suffix = serials ? 'asset-list-serials' : 'asset-list'
+  }
+
+  const { pdf } = await import('@react-pdf/renderer')
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- @react-pdf/renderer's DocumentProps typing
+  const stream = await pdf(element as any).toBuffer()
+  const chunks: Uint8Array[] = []
+  for await (const chunk of stream as AsyncIterable<Uint8Array>) chunks.push(chunk)
+  return { ok: true, buffer: Buffer.concat(chunks), filename: `${reservation.reservationNumber}-${suffix}.pdf` }
 }
 
 /**

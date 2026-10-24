@@ -38,6 +38,12 @@ export type OrderDetailData = {
     costBasis?: number
     marginPercent?: number
     assetNumbers?: string[]
+    manufacturer?: string
+    model?: string
+    /** The units attached to the line, with serials — the asset list prints them on request. */
+    units?: { barcode?: string; serialNumber?: string }[]
+    /** False for services and ad-hoc lines: they have no units to assign. */
+    isAsset?: boolean
     // Component nesting — when isComponent is true, the row is rendered indented
     // beneath its parent. configuredTotal on parents shows base + components sum.
     isComponent?: boolean
@@ -66,6 +72,8 @@ export type OrderDetailData = {
   deliveryMethod?: string
   deliveryAddress?: string
   deliveryDate?: string
+  /** Pre-formatted date the order ships. */
+  shipDate?: string
   deliveryCost?: number
   deliveryNotes?: string
   deliveryTrackingProvider?: string
@@ -288,6 +296,18 @@ export function OrderDetailPDF({ data, logoDataUri }: Props) {
               <Text style={s.totalsLabel}>Subtotal</Text>
               <Text style={s.totalsValue}>{formatCurrency(data.subtotal)}</Text>
             </View>
+            {(data.discountAmount ?? 0) > 0 && (
+              <View style={s.totalsRow}>
+                <Text style={s.totalsLabel}>Discount</Text>
+                <Text style={s.totalsValue}>-{formatCurrency(data.discountAmount!)}</Text>
+              </View>
+            )}
+            {((data.deliveryCost ?? 0) + (data.returnCost ?? 0)) > 0 && (
+              <View style={s.totalsRow}>
+                <Text style={s.totalsLabel}>Shipping</Text>
+                <Text style={s.totalsValue}>{formatCurrency((data.deliveryCost ?? 0) + (data.returnCost ?? 0))}</Text>
+              </View>
+            )}
             {data.taxAmount > 0 && (
               <View style={s.totalsRow}>
                 <Text style={s.totalsLabel}>
@@ -395,6 +415,9 @@ export function OrderDetailPDF({ data, logoDataUri }: Props) {
                   <Text style={{ fontSize: 9 }}>Method: {data.deliveryMethod}</Text>
                   {data.deliveryAddress && (
                     <Text style={{ fontSize: 9 }}>Address: {data.deliveryAddress}</Text>
+                  )}
+                  {data.shipDate && (
+                    <Text style={{ fontSize: 9 }}>Ships: {data.shipDate}</Text>
                   )}
                   {data.deliveryDate && (
                     <Text style={{ fontSize: 9 }}>Date: {data.deliveryDate}</Text>
