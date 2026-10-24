@@ -44,3 +44,16 @@ test("overdue return raises when units are out past the due date, clears when ba
 test("overdueDays counts whole days", () => {
   assert.equal(overdueDays(new Date("2026-10-20T00:00:00Z"), new Date("2026-10-23T12:00:00Z")), 3);
 });
+
+test("a case whose reason has no outcomes closes with a note, and needs one", () => {
+  const base = { outcome: null, amount: null, stepsOpen: 2, unitsStillMissing: 0, outcomesAllowed: [] as never[] };
+  assert.deepEqual(canClose({ ...base, note: "" }), { ok: false, message: "Say how it was resolved." });
+  assert.deepEqual(canClose({ ...base, note: "  " }), { ok: false, message: "Say how it was resolved." });
+  assert.deepEqual(canClose({ ...base, note: "Rebooked the truck for Friday" }), { ok: true });
+});
+
+test("an outcome the reason does not offer is refused", () => {
+  const r = canClose({ outcome: "FOUND_RETURNED", amount: null, stepsOpen: 0, unitsStillMissing: 0, outcomesAllowed: ["CLIENT_BILLED"] });
+  assert.equal(r.ok, false);
+  assert.equal(canClose({ outcome: "CLIENT_BILLED", amount: 50, stepsOpen: 0, unitsStillMissing: 0, outcomesAllowed: ["CLIENT_BILLED"] }).ok, true);
+});

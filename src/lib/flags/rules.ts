@@ -29,8 +29,20 @@ export function canClose(i: {
   amount: number | null;
   stepsOpen: number;
   unitsStillMissing: number;
+  /**
+   * The outcomes this reason offers (`ReasonDef.outcomes`). Left out, any outcome
+   * is accepted and one is required. Empty, the case closes with a note instead.
+   */
+  outcomesAllowed?: FlagOutcome[];
+  note?: string;
 }): { ok: true } | { ok: false; message: string } {
+  if (i.outcomesAllowed && i.outcomesAllowed.length === 0) {
+    return (i.note ?? "").trim() ? { ok: true } : { ok: false, message: "Say how it was resolved." };
+  }
   if (!i.outcome) return { ok: false, message: "Choose an outcome to close this case." };
+  if (i.outcomesAllowed && !i.outcomesAllowed.includes(i.outcome)) {
+    return { ok: false, message: "That outcome does not apply to this kind of case." };
+  }
   const def = outcomeDef(i.outcome);
   if (def.needsAmount && (i.amount === null || i.amount <= 0)) {
     return { ok: false, message: "Enter the amount for this outcome." };

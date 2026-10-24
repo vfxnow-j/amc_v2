@@ -198,7 +198,8 @@ async function endUnits(
 
 export async function closeFlag(input: {
   flagId: string;
-  outcome: FlagOutcome;
+  /** Left out when the reason has no outcomes: the case closes with `note`. */
+  outcome?: FlagOutcome | null;
   amount?: number;
   note?: string;
   unitIds?: string[];
@@ -213,30 +214,36 @@ export async function closeFlag(input: {
   if (!flag) return fail("That case no longer exists.");
   if (flag.resolvedAt) return fail("This case is already closed.");
 
-  const def = outcomeDef(input.outcome);
+  // A reason with no outcomes closes with a note; whatever outcome was sent is ignored.
+  const allowed = reasonByCode(flag.reason)?.outcomes;
+  const noteOnly = !!allowed && allowed.length === 0;
+  const outcome = noteOnly ? null : (input.outcome ?? null);
+  const def = outcome ? outcomeDef(outcome) : null;
   // Units this closing resolves: those named, or every still-open unit when none are.
   const open = flag.units.filter((u) => !u.foundAt);
   const resolving = (input.unitIds ?? open.map((u) => u.assetUnitId)).filter((id) => open.some((u) => u.assetUnitId === id));
   const unitsStillMissing = open.filter((u) => !resolving.includes(u.assetUnitId)).length;
 
   const verdict = canClose({
-    outcome: input.outcome,
+    outcome,
     amount: input.amount ?? null,
     stepsOpen: flag.steps.filter((s) => !s.doneAt).length,
     unitsStillMissing,
+    outcomesAllowed: allowed,
+    note: input.note,
   });
   if (!verdict.ok) return fail(verdict.message);
 
   const now = new Date();
   await prisma.$transaction(async (tx) => {
-    await endUnits(tx, flag, resolving, def.unitsEnd, now);
+    await endUnits(tx, flag, resolving, def?.unitsEnd ?? "keep", now);
     await tx.orderFlag.update({
       where: { id: flag.id },
       data: {
         resolvedAt: now,
         resolvedById: auth.userId,
-        outcome: input.outcome,
-        outcomeAmount: def.needsAmount ? input.amount : null,
+        outcome,
+        outcomeAmount: def?.needsAmount ? input.amount : null,
         resolutionNote: input.note?.trim() || null,
       },
     });
@@ -246,16 +253,21 @@ export async function closeFlag(input: {
     action: "UPDATE",
     entityType: "Reservation",
     entityId: flag.reservationId,
-    newValues: { flagId: flag.id, outcome: input.outcome, amount: input.amount ?? null, event: `Case closed: ${def.label}` },
+    newValues: {
+      flagId: flag.id,
+      outcome,
+      amount: input.amount ?? null,
+      event: def ? `Case closed: ${def.label}` : "Case closed: resolved",
+    },
     userId: auth.userId,
   });
-  if (input.outcome === "WRITTEN_OFF" || input.outcome === "CLAIM_PAID") {
+  if (outcome === "WRITTEN_OFF" || outcome === "CLAIM_PAID") {
     for (const id of resolving) {
       await logAudit({
         action: "UPDATE",
         entityType: "Asset",
         entityId: id,
-        newValues: { status: "RETIRED", retirementReason: "LOST", flagId: flag.id, outcome: input.outcome },
+        newValues: { status: "RETIRED", retirementReason: "LOST", flagId: flag.id, outcome },
         userId: auth.userId,
       });
     }

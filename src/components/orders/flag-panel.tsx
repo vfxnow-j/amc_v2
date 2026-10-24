@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Card, CardEmpty } from "@/components/record/record-card";
 import { FlagDialog } from "@/components/orders/flag-dialog";
 import { closeFlag, toggleFlagStep, updateFlagTracking } from "@/lib/actions/order-flags";
-import { OUTCOMES, outcomeDef } from "@/lib/flags/catalog";
+import { OUTCOMES, outcomeDef, reasonByCode } from "@/lib/flags/catalog";
 import { canClose, isStale } from "@/lib/flags/rules";
 import type { FlagOutcome } from "@/generated/prisma/client";
 import type { FlagView, OrderUnitOption } from "@/lib/queries/order-flags";
@@ -58,7 +58,7 @@ export function FlagPanel({
                 <li key={flag.id} className="rounded-well bg-sunken p-2">
                   <p className="font-bold">{flag.label}</p>
                   <p className="text-ink-muted">
-                    {flag.outcome ? outcomeDef(flag.outcome).label : "Cleared"}
+                    {flag.outcome ? outcomeDef(flag.outcome).label : flag.source === "SYSTEM" ? "Cleared" : "Resolved"}
                     {flag.outcomeAmount ? ` · ${MONEY.format(flag.outcomeAmount)}` : ""}
                     {" · "}
                     {flag.resolvedAt ? DAY.format(new Date(flag.resolvedAt)) : ""}
@@ -90,11 +90,17 @@ function OpenCase({ flag, staff, canEdit }: { flag: FlagView; staff: { id: strin
   const stale = isStale({ nextActionDate: flag.nextActionDate ? new Date(flag.nextActionDate) : null, resolvedAt: null }, new Date());
   const system = flag.source === "SYSTEM";
   const openUnits = flag.units.filter((u) => !u.foundAt);
+  // What this kind of case can end as. None means it closes with a note.
+  const allowed = reasonByCode(flag.reason)?.outcomes;
+  const choices = allowed ? OUTCOMES.filter((o) => allowed.includes(o.code)) : OUTCOMES;
+  const noteOnly = !!allowed && allowed.length === 0;
   const verdict = canClose({
     outcome: outcome || null,
     amount: amount ? Number(amount) : null,
     stepsOpen: flag.steps.filter((s) => !s.doneAt).length,
     unitsStillMissing: openUnits.filter((u) => !resolves.includes(u.assetUnitId)).length,
+    outcomesAllowed: allowed,
+    note,
   });
 
   function run(work: () => Promise<{ ok: boolean; message?: string }>) {
@@ -208,16 +214,18 @@ function OpenCase({ flag, staff, canEdit }: { flag: FlagView; staff: { id: strin
         <div className="mt-3 border-t border-hairline pt-2">
           <p className="text-micro uppercase text-ink-muted">Close case</p>
           <div className="mt-1 flex flex-wrap items-center gap-2">
-            <select className={FIELD} value={outcome} onChange={(e) => setOutcome(e.target.value as FlagOutcome | "")}>
-              <option value="">Choose an outcome</option>
-              {OUTCOMES.map((o) => (
-                <option key={o.code} value={o.code}>{o.label}</option>
-              ))}
-            </select>
+            {noteOnly ? null : (
+              <select className={FIELD} value={outcome} onChange={(e) => setOutcome(e.target.value as FlagOutcome | "")}>
+                <option value="">Choose an outcome</option>
+                {choices.map((o) => (
+                  <option key={o.code} value={o.code}>{o.label}</option>
+                ))}
+              </select>
+            )}
             {outcome && outcomeDef(outcome).needsAmount ? (
               <input className={`${FIELD} w-24`} inputMode="decimal" placeholder="Amount" value={amount} onChange={(e) => setAmount(e.target.value)} />
             ) : null}
-            <input className={`${FIELD} flex-1`} placeholder="Note" value={note} onChange={(e) => setNote(e.target.value)} />
+            <input className={`${FIELD} flex-1`} placeholder={noteOnly ? "How was it resolved?" : "Note"} value={note} onChange={(e) => setNote(e.target.value)} />
           </div>
           {openUnits.length > 1 ? (
             <div className="mt-1 text-detail">
@@ -244,7 +252,7 @@ function OpenCase({ flag, staff, canEdit }: { flag: FlagView; staff: { id: strin
                 run(() =>
                   closeFlag({
                     flagId: flag.id,
-                    outcome: outcome as FlagOutcome,
+                    outcome: noteOnly ? null : (outcome as FlagOutcome),
                     amount: amount ? Number(amount) : undefined,
                     note,
                     unitIds: resolves,
