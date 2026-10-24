@@ -41,6 +41,12 @@ export type NavPage = {
    * top of its cluster's roles. The page checks again; hiding it is courtesy.
    */
   approversOnly?: boolean;
+  /**
+   * Narrower than the cluster: shown only to these roles. For a page whose cluster
+   * admits people who cannot use it (a viewer would be sent away from an editing
+   * screen). Like `approversOnly`, hiding it is courtesy; the page checks again.
+   */
+  roles?: Role[];
 };
 
 export type NavCluster = {
@@ -166,14 +172,6 @@ export const NAV_CLUSTERS: NavCluster[] = [
         id: "map",
         label: "Map",
         href: "/dashboard/map",
-      },
-      {
-        // Units that should carry a serial and do not (scan-flagged or never
-        // recorded), with the serial entered inline. Track A of the scan
-        // cross-check, 2026-10-23.
-        id: "missing-data",
-        label: "Missing data",
-        href: "/dashboard/inventory/missing-data",
       },
       {
         // TODO(step 4): one screen, two tabs.
@@ -397,6 +395,16 @@ export const NAV_CLUSTERS: NavCluster[] = [
         href: "/dashboard/insights",
         from: ["/dashboard/insights"],
       },
+      {
+        // Units that should carry a serial and do not (scan-flagged or never
+        // recorded), with the serial entered inline. Listed here, not under Inventory, at
+        // the owner's request, 2026-10-23; the screen itself stays at its inventory address. Editing, so not for viewers; STAFF are
+        // outside this cluster, so they reach it by link or fix the serial at the scan.
+        id: "missing-data",
+        label: "Missing data",
+        href: "/dashboard/inventory/missing-data",
+        roles: ["SUPER_ADMIN", "ADMIN"],
+      },
       // v1's AI assistant is not here. It is dropped in v2 along with
       // lib/llm and the chat models, and its route 404s by design.
     ],
@@ -448,11 +456,12 @@ export const SETTINGS_PAGE: NavPage = {
 };
 
 export function clustersForRole(role: Role, approver = false): NavCluster[] {
-  return NAV_CLUSTERS.filter((cluster) => cluster.roles.includes(role)).map((cluster) =>
-    cluster.pages.some((page) => page.approversOnly && !approver)
-      ? { ...cluster, pages: cluster.pages.filter((page) => !page.approversOnly) }
-      : cluster,
-  );
+  return NAV_CLUSTERS.filter((cluster) => cluster.roles.includes(role)).map((cluster) => {
+    const shown = cluster.pages.filter(
+      (page) => (!page.approversOnly || approver) && (!page.roles || page.roles.includes(role)),
+    );
+    return shown.length === cluster.pages.length ? cluster : { ...cluster, pages: shown };
+  });
 }
 
 /**

@@ -22,7 +22,7 @@ test('the completion refusal names the count and what to do', () => {
 
 test('units missing a serial are named in the refusal, alone or with the shortfall', () => {
   const flaggedOnly = { ...short, units: 0, missing: [], dataFlagged: 2 }
-  assert.match(shortfallMessage(flaggedOnly, 'ship'), /^2 units are missing a serial\. Fix them under Inventory → Missing data before shipping\.$/)
+  assert.match(shortfallMessage(flaggedOnly, 'ship'), /^2 units are missing a serial\. Fix them under Insight → Missing data \(or ask an admin\) before shipping\.$/)
   assert.match(shortfallMessage({ ...flaggedOnly, dataFlagged: 1 }, 'ship'), /^1 unit is missing a serial\./)
   const both = shortfallMessage({ ...short, dataFlagged: 2 }, 'ship')
   assert.match(both, /3 units are still to be checked out/)

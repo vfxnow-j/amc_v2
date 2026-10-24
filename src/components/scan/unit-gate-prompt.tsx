@@ -214,7 +214,7 @@ export function UnitGatePrompt({
       <p className="text-card-title text-accent-on-tint">{title}</p>
       {noBarcode ? (
         <p className="mt-1 text-detail text-accent-on-tint">
-          This unit has no barcode. Fix it under Inventory → Missing data.
+          This unit has no barcode. Fix it under Insight → Missing data, or ask an admin.
         </p>
       ) : (
         <>

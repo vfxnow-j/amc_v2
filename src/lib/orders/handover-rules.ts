@@ -6,7 +6,7 @@ export function shortfallMessage(handover: Handover, move: HandoverMove): string
   const { units, missing, dataFlagged } = handover;
   const doing = move === "ship" ? "shipping" : move === "complete" ? "completing the order" : "activating";
   const flagged = `${dataFlagged} ${dataFlagged === 1 ? "unit is" : "units are"} missing a serial.`;
-  if (units === 0) return `${flagged} Fix them under Inventory → Missing data before ${doing}.`;
+  if (units === 0) return `${flagged} Fix them under Insight → Missing data (or ask an admin) before ${doing}.`;
   const short = `${units} ${units === 1 ? "unit is" : "units are"} still to be checked out across ${missing.length} ${
     missing.length === 1 ? "line" : "lines"
   }. Scan everything out before ${doing}.`;

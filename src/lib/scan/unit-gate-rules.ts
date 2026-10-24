@@ -54,7 +54,7 @@ export function decideGate(f: GateFacts): GateResult {
   // A unit already flagged cannot leave until its data is fixed. Coming back in,
   // it prompts again: the person is holding it and can read the label now.
   if (!check.complete && f.dataFlag && f.move === "out") {
-    return { kind: "blocked", ...id, reason: "Serial number is missing. Fix it under Inventory → Missing data." };
+    return { kind: "blocked", ...id, reason: "Serial number is missing. Fix it under Insight → Missing data, or ask an admin." };
   }
   if (!check.complete) return { kind: "needs-data", ...id, gap: check.gap };
 
