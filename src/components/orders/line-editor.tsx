@@ -221,7 +221,7 @@ export function PartQuantity({
             event.currentTarget.blur();
           }
         }}
-        className={`w-[56px] ${LINE_NUMBER} text-ink-muted`}
+        className={`w-[52px] ${LINE_NUMBER} text-ink-muted`}
       />
       {error ? <span className="text-micro text-danger">{error}</span> : null}
     </span>
@@ -286,7 +286,7 @@ export function PartRate({
               event.currentTarget.blur();
             }
           }}
-          className={`w-[80px] ${LINE_NUMBER} text-ink-muted`}
+          className={`w-[76px] ${LINE_NUMBER} text-ink-muted`}
         />
         {unit}
       </span>
