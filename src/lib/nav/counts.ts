@@ -6,13 +6,10 @@ import type { ClusterId } from "@/lib/nav/clusters";
  * components can import `formatCount` without pulling the pg driver into the
  * browser bundle.
  *
- * A cluster with no entry renders no count — which is how Service center reads
- * until `WorkOrder` exists. Absent, not zero: zero claims an empty queue, and
- * there is no queue there yet to be empty.
- *
- * Per-page counts are deliberately absent. The reference doesn't specify any,
- * and inventing them would put fake numbers next to real labels. The rail
- * renders them whenever `pages` supplies them.
+ * A page with no entry renders no count. Absent, not zero: zero claims an empty
+ * queue. The counts are per page, keyed by page id, so each number sits beside
+ * the name of the thing it counts; section headers can show one too (`clusters`),
+ * but none does, because a number on a section said nothing about what it was.
  */
 export type NavCounts = {
   clusters: Partial<Record<ClusterId, number>>;
