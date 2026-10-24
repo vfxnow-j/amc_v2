@@ -22,7 +22,18 @@ type ContractOrder = NonNullable<Awaited<ReturnType<typeof getContractOrder>>>;
  */
 
 /** Cost and margin, as stored when the order was priced. */
-export async function MarginStrip({ id }: { id: string }) {
+export async function MarginStrip({
+  id,
+  viewing,
+}: {
+  id: string;
+  /**
+   * The option being looked at while the quote is still open: its total stands in for
+   * the contract. `isOrder` is true for the order's own option, whose cost and margin
+   * are the stored ones; for any other option they are not known.
+   */
+  viewing?: { name: string; total: number; isOrder: boolean };
+}) {
   const order = await getContractOrder(id);
   if (!order) return null;
 
@@ -38,14 +49,19 @@ export async function MarginStrip({ id }: { id: string }) {
 
   return (
     <section className="flex flex-wrap items-center gap-6 rounded-card bg-panel px-4 py-3 shadow-sm">
-      <Figure label="Contract" value={moneyExact(order.total)} loud />
+      <Figure
+        label={viewing && !viewing.isOrder ? `Contract · option "${viewing.name}"` : "Contract"}
+        value={moneyExact(viewing ? viewing.total : order.total)}
+      />
+      {/* Cost and margin are stored for the order's own lines, so they say nothing
+          about an option that is not the order yet. */}
       <Figure
         label="Cost"
-        value={order.totalCost === null ? "—" : moneyExact(order.totalCost)}
+        value={(viewing && !viewing.isOrder) || order.totalCost === null ? "—" : moneyExact(order.totalCost)}
       />
       <Figure
         label="Margin"
-        value={order.totalMargin === null ? "—" : moneyExact(order.totalMargin)}
+        value={(viewing && !viewing.isOrder) || order.totalMargin === null ? "—" : moneyExact(order.totalMargin)}
       />
       {order.reservationType === "RENT_TO_OWN" ? (
         <Figure
@@ -196,23 +212,11 @@ export async function CommercialDetailsCard({ id }: { id: string }) {
   );
 }
 
-function Figure({
-  label,
-  value,
-  loud,
-}: {
-  label: string;
-  value: string;
-  loud?: boolean;
-}) {
+function Figure({ label, value }: { label: string; value: string }) {
   return (
     <span className="flex flex-col">
       <span className="text-micro uppercase text-ink-muted">{label}</span>
-      <span
-        className={`tabular-nums ${loud ? "text-kpi" : "text-[20px] font-bold tracking-[-0.02em]"}`}
-      >
-        {value}
-      </span>
+      <span className="text-[20px] font-bold tabular-nums tracking-[-0.02em]">{value}</span>
     </span>
   );
 }

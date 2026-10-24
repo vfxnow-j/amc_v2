@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { pickRate } from "@/lib/queries/order-builder";
 import type { Prisma, ReservationStatus } from "@/generated/prisma/client";
+import { calculateReservationTotals } from "@/lib/pricing/reservation-totals";
 
 /**
  * Reads behind Inventory → Packages and the quote options on an order.
@@ -265,9 +266,26 @@ export type OrderOption = {
   lineCount: number;
   /** Sum of the option's line amounts, parts included. Before tax, discount and shipping. */
   subtotal: number;
+  /**
+   * What the order's total becomes if this option is chosen: the same sum and the
+   * same discount, credit, tax and shipping rule `setActivePackage` writes with, so
+   * the figure shown for an option is the figure Make this the order produces.
+   */
+  total: number;
 };
 
 export async function getOrderOptions(reservationId: string): Promise<OrderOption[]> {
+  const order = await prisma.reservation.findUnique({
+    where: { id: reservationId },
+    select: {
+      discountType: true,
+      discountValue: true,
+      taxRate: true,
+      shippingMarginType: true,
+      shippingMargin: true,
+      rentalCreditAmount: true,
+    },
+  });
   const packages = await prisma.package.findMany({
     where: { reservationId },
     orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
@@ -277,6 +295,8 @@ export async function getOrderOptions(reservationId: string): Promise<OrderOptio
       description: true,
       isActive: true,
       rtoTermMonths: true,
+      deliveryCost: true,
+      returnCost: true,
       items: { select: { parentId: true, subtotal: true, includedInParent: true } },
     },
   });
@@ -291,5 +311,18 @@ export async function getOrderOptions(reservationId: string): Promise<OrderOptio
       (sum, item) => sum + (item.includedInParent ? 0 : Number(item.subtotal)),
       0,
     ),
+    total: order
+      ? calculateReservationTotals({
+          itemsSubtotal: pkg.items.reduce((sum, item) => sum + Number(item.subtotal), 0),
+          discountType: order.discountType,
+          discountValue: Number(order.discountValue) || 0,
+          taxRate: Number(order.taxRate) || 0,
+          deliveryCost: Number(pkg.deliveryCost) || 0,
+          returnCost: Number(pkg.returnCost) || 0,
+          shippingMarginType: order.shippingMarginType,
+          shippingMargin: Number(order.shippingMargin) || 0,
+          rentalCreditAmount: Number(order.rentalCreditAmount) || 0,
+        }).total
+      : 0,
   }));
 }

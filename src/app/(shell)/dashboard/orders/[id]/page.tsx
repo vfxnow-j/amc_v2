@@ -194,6 +194,15 @@ export default async function OrderRecordPage({
     options.find((option) => option.isActive) ??
     options[0];
   const optionsEditable = quoteEditable(header.status, header.type);
+  // While a quote with several options is still being worked on, the money in
+  // the header follows the option being looked at, so the figure at the top is
+  // the one for the lines below it. The order's stored total can disagree with
+  // its active option (older edits summed every option), so this reads the
+  // option's own total. A committed order keeps its stored total: that is what
+  // was billed. `previewing` is set only for an option that is not the order yet.
+  const followsOption = optionsEditable && options.length > 1 && !!viewedOption;
+  const shownTotal = followsOption && viewedOption ? viewedOption.total : header.totals.total;
+  const previewing = followsOption && viewedOption && !viewedOption.isActive ? viewedOption : null;
 
   const { progress } = header;
   // The counters are cumulative — check-in never decrements checkedOutCount —
@@ -280,8 +289,15 @@ export default async function OrderRecordPage({
             <span className="rounded-pill bg-sunken px-3 py-1 text-pill text-ink">
               {STATUS_LABEL[header.status]}
             </span>
-            <span className="text-page-title text-[20px] tabular-nums">
-              {MONEY.format(header.totals.total)}
+            <span className="flex flex-col items-end leading-tight">
+              <span className="text-page-title text-[20px] tabular-nums">
+                {MONEY.format(shownTotal)}
+              </span>
+              {previewing ? (
+                <span className="text-micro text-ink-muted">
+                  Option “{previewing.name}” · not the order yet
+                </span>
+              ) : null}
             </span>
           </>
         }
@@ -324,7 +340,10 @@ export default async function OrderRecordPage({
       {/* Type-dependent: only a sale or a rent-to-own has a cost and a margin. */}
       {commercial ? (
         <Suspense fallback={<MarginStripSkeleton />}>
-          <MarginStrip id={id} />
+          <MarginStrip
+            id={id}
+            viewing={followsOption && viewedOption ? { name: viewedOption.name, total: viewedOption.total, isOrder: viewedOption.isActive } : undefined}
+          />
         </Suspense>
       ) : null}
 
