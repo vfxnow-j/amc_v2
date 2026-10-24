@@ -7,6 +7,13 @@ import {
   OrderTableSkeleton,
 } from "@/components/orders/order-table";
 import { PageHeader } from "@/components/shell/page-header";
+import { requireAuth } from "@/lib/auth-utils";
+import {
+  FLAG_FILTERS,
+  FLAG_FILTER_LABEL,
+  isFlagFilter,
+  type FlagFilter,
+} from "@/lib/flags/filter";
 import { moneyCompact } from "@/lib/format";
 import {
   TYPE_FILTERS,
@@ -36,14 +43,18 @@ async function ViewTabs({
   view,
   type,
   search,
+  flag,
+  userId,
 }: {
   view: View;
   type: TypeFilter;
   search: string;
+  flag: FlagFilter;
+  userId: string | null;
 }) {
   // Counted through the same filter the table uses, so switching type doesn't
   // leave the tabs promising rows the table won't show.
-  const counts = await getViewCounts(search, type);
+  const counts = await getViewCounts(search, type, flag, userId);
   return (
     <FilterTabs
       param="view"
@@ -84,6 +95,7 @@ export default async function OrdersPage({
   searchParams: Promise<{
     view?: string;
     type?: string;
+    flag?: string;
     q?: string;
     page?: string;
   }>;
@@ -91,8 +103,11 @@ export default async function OrdersPage({
   const params = await searchParams;
   const view: View = isView(params.view) ? params.view : "open";
   const type: TypeFilter = isTypeFilter(params.type) ? params.type : "all";
+  const flag: FlagFilter = isFlagFilter(params.flag) ? params.flag : "all";
   const search = params.q?.trim() ?? "";
   const page = Math.max(1, Number(params.page) || 1);
+  const session = await requireAuth();
+  const userId = session.authorized ? (session.userId ?? null) : null;
 
   return (
     <>
@@ -118,7 +133,7 @@ export default async function OrdersPage({
 
       <div className="flex flex-wrap items-center gap-2">
         <Suspense fallback={<FilterTabsSkeleton width={360} />}>
-          <ViewTabs view={view} type={type} search={search} />
+          <ViewTabs view={view} type={type} search={search} flag={flag} userId={userId} />
         </Suspense>
 
         <FilterTabs
@@ -132,16 +147,27 @@ export default async function OrdersPage({
           }))}
         />
 
+        <FilterTabs
+          param="flag"
+          value={flag}
+          fallback="all"
+          label="Flags"
+          options={FLAG_FILTERS.map((option) => ({
+            value: option,
+            label: FLAG_FILTER_LABEL[option],
+          }))}
+        />
+
         <span className="ml-auto">
           <ListSearch placeholder="Search orders" />
         </span>
       </div>
 
       <Suspense
-        key={`${view}:${type}:${search}:${page}`}
+        key={`${view}:${type}:${flag}:${search}:${page}`}
         fallback={<OrderTableSkeleton />}
       >
-        <OrderTable view={view} type={type} search={search} page={page} />
+        <OrderTable view={view} type={type} flag={flag} userId={userId} search={search} page={page} />
       </Suspense>
     </>
   );

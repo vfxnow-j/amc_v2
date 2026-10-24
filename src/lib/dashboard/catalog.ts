@@ -60,6 +60,7 @@ export type TileId =
   | "recurring-health"
   | "rate-health"
   | "data-flags"
+  | "order-flags"
   // New-query wave: logistics, over existing columns and no new schema.
   | "untracked-shipments"
   | "delivery-mix"
@@ -352,6 +353,20 @@ export const TILE_CATALOG: Record<TileId, TileMeta> = {
       default: { w: 6, h: 6 },
       min: { w: 4, h: 4 },
       max: { w: 12, h: 12 },
+    },
+    access: "everyone",
+    readsRange: false,
+  },
+
+  "order-flags": {
+    id: "order-flags",
+    title: "Flagged",
+    blurb: "Orders with an open flag case: how many, how critical, and the money at risk.",
+    category: "Needs a person",
+    size: {
+      default: { w: 6, h: 4 },
+      min: { w: 4, h: 3 },
+      max: { w: 12, h: 8 },
     },
     access: "everyone",
     readsRange: false,

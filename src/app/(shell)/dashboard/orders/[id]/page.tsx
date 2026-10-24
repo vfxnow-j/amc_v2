@@ -37,6 +37,10 @@ import { ShippingCard } from "@/components/orders/shipping-card";
 import { EditDates } from "@/components/orders/edit-dates";
 import { ConversionCard } from "@/components/tracker/conversion-card";
 import { getSessionUser } from "@/lib/roles";
+import { FlagPanel } from "@/components/orders/flag-panel";
+import { syncAutoFlagsCore } from "@/lib/flags/sync";
+import { getOrderFlags } from "@/lib/queries/order-flags";
+import { getFloorStaff } from "@/lib/queries/order-lifecycle";
 import { ApprovalCard } from "@/components/approvals/approval-card";
 import { ForecastTreatment } from "@/components/orders/forecast-treatment";
 import { OrderActionBar } from "@/components/orders/order-action-bar";
@@ -372,6 +376,11 @@ export default async function OrderRecordPage({
             <OrderActionBar id={id} type={header.type} />
           </Suspense>
 
+          {/* Cases raised against this order: playbook, units, outcome. */}
+          <Suspense fallback={null}>
+            <OrderFlags id={id} canEdit={!!user && user.role !== "VIEWER"} />
+          </Suspense>
+
           {/* Whether the quote is cleared to go to the client, and the trail of
               asks and answers (docs/procurement.md, Phase 6). Quiet on orders
               quoted before approvals existed. */}
@@ -507,6 +516,26 @@ export default async function OrderRecordPage({
         </div>
       </div>
     </>
+  );
+}
+
+/**
+ * The order's flag cases. Visiting the order re-checks the automatic rules
+ * (overdue return, unpaid invoice, units missing a serial), so the panel never
+ * shows a stale automatic flag; the nightly pass covers orders nobody opens.
+ */
+async function OrderFlags({ id, canEdit }: { id: string; canEdit: boolean }) {
+  await syncAutoFlagsCore(id);
+  const [flags, staff] = await Promise.all([getOrderFlags(id), getFloorStaff()]);
+  return (
+    <FlagPanel
+      reservationId={id}
+      open={flags.open}
+      closed={flags.closed}
+      unitsOut={flags.unitsOut}
+      staff={staff}
+      canEdit={canEdit}
+    />
   );
 }
 

@@ -1,5 +1,6 @@
 'use server'
 
+import { syncAutoFlagsCore } from '@/lib/flags/sync'
 import { assertQuoteEditable, assertQuoteEditableForPackage } from '@/lib/orders/quote-lock-server'
 import { QUOTE_LOCKED_MESSAGE, quoteEditable, updateChangesQuote } from '@/lib/orders/quote-lock'
 import { handoverShortfall, shortfallMessage } from '@/lib/orders/handover'
@@ -4729,6 +4730,9 @@ export async function checkinByBarcode(
       assetUnit.id,
       data
     )
+    // The last unit back clears an automatic overdue-return flag. Best effort: a
+    // failure here must not fail a check-in that has already been recorded.
+    await syncAutoFlagsCore(reservationId).catch(() => undefined)
     return { success: true }
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : 'Check-in failed' }

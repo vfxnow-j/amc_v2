@@ -5,15 +5,17 @@ import {
   type Column,
   type Row,
 } from "@/components/list/list-table";
+import { FLAG_FILTER_LABEL, type FlagFilter } from "@/lib/flags/filter";
 import { dayYear, daysUntil, money, windowLabel } from "@/lib/format";
 import { TYPE_FILTER_LABEL, type TypeFilter } from "@/lib/orders/types";
 import { getReservationList } from "@/lib/queries/reservations";
 import { STATUS_LABEL, TYPE_LABEL } from "@/lib/reservations/status";
 import { VIEW_LABEL, type View } from "@/lib/reservations/views";
 
-/** Order · Type · Client · Window · Units · Value · State */
+/** Order · Flags · Type · Client · Raised · Window · Units · Value · State */
 const COLUMNS: Column[] = [
   { key: "number", label: "Order", width: "132px" },
+  { key: "flags", label: "Flags", width: "56px" },
   { key: "type", label: "Type", width: "96px" },
   { key: "client", label: "Client", width: "minmax(0,1.4fr)" },
   { key: "raised", label: "Raised", width: "84px" },
@@ -63,11 +65,15 @@ const EMPTY: Record<View, React.ReactNode> = {
 export async function OrderTable({
   view,
   type,
+  flag,
+  userId,
   search,
   page,
 }: {
   view: View;
   type: TypeFilter;
+  flag: FlagFilter;
+  userId: string | null;
   search: string;
   page: number;
 }) {
@@ -76,6 +82,8 @@ export async function OrderTable({
     type,
     search,
     page,
+    flag,
+    userId,
   });
   const pages = Math.max(1, Math.ceil(total / pageSize));
 
@@ -83,6 +91,7 @@ export async function OrderTable({
     const params = new URLSearchParams();
     if (view !== "open") params.set("view", view);
     if (type !== "all") params.set("type", type);
+    if (flag !== "all") params.set("flag", flag);
     if (search) params.set("q", search);
     if (next > 1) params.set("page", String(next));
     const query = params.toString();
@@ -107,6 +116,21 @@ export async function OrderTable({
           ) : null}
         </span>
       ),
+      flags:
+        row.openFlags > 0 ? (
+          <span
+            title={`${row.openFlags} open flag${row.openFlags === 1 ? "" : "s"}`}
+            className={`truncate font-bold ${
+              row.topSeverity === "CRITICAL"
+                ? "text-danger"
+                : row.topSeverity === "ATTENTION"
+                  ? "text-warning"
+                  : "text-ink-muted"
+            }`}
+          >
+            ⚑ {row.openFlags}
+          </span>
+        ) : null,
       type: <span className="truncate text-ink-muted">{TYPE_LABEL[row.type]}</span>,
       client: (
         <span className="truncate">
@@ -160,7 +184,8 @@ export async function OrderTable({
         search ? (
           <>
             Nothing in {VIEW_LABEL[view]}
-            {type === "all" ? "" : ` · ${TYPE_FILTER_LABEL[type]}`} matches
+            {type === "all" ? "" : ` · ${TYPE_FILTER_LABEL[type]}`}
+            {flag === "all" ? "" : ` · ${FLAG_FILTER_LABEL[flag]}`} matches
             &ldquo;{search}&rdquo;. Try a different term, or widen the filters.
           </>
         ) : type === "all" ? (

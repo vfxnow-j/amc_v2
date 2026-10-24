@@ -12,6 +12,7 @@ import {
 import { BenchLoadTile } from "@/components/dashboard/tiles/bench";
 import { CalendarStripTile } from "@/components/dashboard/tiles/calendar-strip";
 import { DataFlagsTile } from "@/components/dashboard/tiles/flags";
+import { OrderFlagsTile } from "@/components/dashboard/tiles/order-flags";
 import { RateHealthTile } from "@/components/dashboard/tiles/fleet";
 import {
   DeliveryMixTile,
@@ -212,6 +213,11 @@ export const TILE_REGISTRY: Record<TileId, TileEntry> = {
     meta: TILE_CATALOG["data-flags"],
     Component: DataFlagsTile,
     fallback: <CardSkeleton rows={6} />,
+  },
+  "order-flags": {
+    meta: TILE_CATALOG["order-flags"],
+    Component: OrderFlagsTile,
+    fallback: <CardSkeleton rows={3} />,
   },
   "tracker-queue": {
     meta: TILE_CATALOG["tracker-queue"],

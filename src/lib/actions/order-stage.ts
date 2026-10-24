@@ -9,6 +9,8 @@ import { flowQuoteProblem } from "@/lib/flow-terms-server";
 import { speedApplies, type ShippingSpeed } from "@/lib/orders/shipping";
 import { gateApplies, handoverShortfall, shortfallMessage, type HandoverMove, type MissingLine } from "@/lib/orders/handover";
 import { hasScanOverride } from "@/lib/orders/scan-override";
+import { criticalFlagBlock } from "@/lib/orders/flag-gate";
+import { logAudit } from "@/lib/actions/audit";
 import { parseDateInput } from "@/lib/billing/calendar";
 import { requireEditor } from "@/lib/auth-utils";
 import {
@@ -351,6 +353,22 @@ export async function shipOrder(
 
   try {
     const result = await markShipped(id, email ? { email } : undefined);
+  // An open Critical flag stops the order shipping. The super admin's scan
+  // override (moveWithoutScanning) stands this down too, and the pass is logged.
+  const critical = await prisma.orderFlag.count({
+    where: { reservationId: id, resolvedAt: null, severity: "CRITICAL" },
+  });
+  const flagBlock = criticalFlagBlock(critical);
+  if (flagBlock) {
+    if (!hasScanOverride(id, "ship")) return { status: "error", message: flagBlock };
+    await logAudit({
+      action: "OVERRIDE",
+      entityType: "Reservation",
+      entityId: id,
+      newValues: { event: "FLAG_GATE_OVERRIDE", summary: `Shipped past ${critical} open critical flag${critical === 1 ? "" : "s"} on a super admin's override.` },
+    }).catch(() => {});
+  }
+
     const problem = refusal(result);
     if (problem) return { status: "error", message: problem };
     touch(id);

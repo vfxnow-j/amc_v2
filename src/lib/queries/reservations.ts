@@ -1,5 +1,5 @@
 import { startOfDay } from "date-fns";
-import type { Prisma, ReservationStatus, ReservationType } from "@/generated/prisma/client";
+import type { FlagSeverity, Prisma, ReservationStatus, ReservationType } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import {
   ARCHIVE_STATUSES,
@@ -8,6 +8,7 @@ import {
 } from "@/lib/reservations/status";
 import { VIEWS, type View } from "@/lib/reservations/views";
 import { typeForFilter, type TypeFilter } from "@/lib/orders/types";
+import { flagWhere, type FlagFilter } from "@/lib/flags/filter";
 
 /**
  * Queries behind Operate → Orders, the hub the whole app orbits.
@@ -80,8 +81,12 @@ function listWhere(
   view: View,
   type: TypeFilter,
   search: string,
+  flag: FlagFilter = "all",
+  userId: string | null = null,
+  now: Date = new Date(),
 ): Prisma.ReservationWhereInput {
   const clauses = [viewWhere(view), typeWhere(type)];
+  if (flag !== "all") clauses.push(flagWhere(flag, userId, now));
   if (search) clauses.push(searchWhere(search));
   return { AND: clauses };
 }
@@ -110,7 +115,12 @@ export type ReservationRow = {
    * this way — their endDate is a billing period end, not a return date.
    */
   isLate: boolean;
+  /** Open flag cases on the order, and the worst severity among them. */
+  openFlags: number;
+  topSeverity: FlagSeverity | null;
 };
+
+const SEVERITY_RANK: Record<FlagSeverity, number> = { INFO: 0, ATTENTION: 1, CRITICAL: 2 };
 
 export type ReservationList = {
   rows: ReservationRow[];
@@ -129,10 +139,12 @@ export const PAGE_SIZE = 40;
 export async function getViewCounts(
   search = "",
   type: TypeFilter = "all",
+  flag: FlagFilter = "all",
+  userId: string | null = null,
 ): Promise<Record<View, number>> {
   const counts = await Promise.all(
     VIEWS.map((view) =>
-      prisma.reservation.count({ where: listWhere(view, type, search) }),
+      prisma.reservation.count({ where: listWhere(view, type, search, flag, userId) }),
     ),
   );
   return Object.fromEntries(
@@ -146,14 +158,18 @@ export async function getReservationList({
   search = "",
   page = 1,
   now = new Date(),
+  flag = "all",
+  userId = null,
 }: {
   view?: View;
   type?: TypeFilter;
   search?: string;
   page?: number;
   now?: Date;
+  flag?: FlagFilter;
+  userId?: string | null;
 } = {}): Promise<ReservationList> {
-  const where = listWhere(view, type, search);
+  const where = listWhere(view, type, search, flag, userId, now);
 
   const [records, total] = await Promise.all([
     prisma.reservation.findMany({
@@ -180,6 +196,7 @@ export async function getReservationList({
         total: true,
         client: { select: { name: true } },
         dealMember: { select: { dealGroupId: true } },
+        flags: { where: { resolvedAt: null }, select: { severity: true } },
         items: {
           where: { assetId: { not: null }, parentId: null },
           select: {
@@ -225,6 +242,11 @@ export async function getReservationList({
             record.reservationType === "FLOW") &&
           unitsOut > 0 &&
           record.endDate < dayStart,
+        openFlags: record.flags.length,
+        topSeverity: record.flags.reduce<FlagSeverity | null>(
+          (top, f) => (top === null || SEVERITY_RANK[f.severity] > SEVERITY_RANK[top] ? f.severity : top),
+          null,
+        ),
       };
     }),
   };
