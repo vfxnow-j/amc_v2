@@ -62,6 +62,7 @@ export async function OrderActionBar({
           flowQuotable={flowQuotable}
           clientEmail={order.client.email}
           quoteRecipients={quoteRecipients}
+          quoteExpiresOn={order.stamps.quoteExpires ? order.stamps.quoteExpires.toISOString().slice(0, 10) : null}
           clientPaymentTerms={order.client.paymentTerms}
           staff={staff}
           total={billing.total}

@@ -1,6 +1,8 @@
 import { getQuoteByToken } from "@/lib/actions/quote-tokens";
 import { QuotePortal, type QuoteData } from "@/components/quote/quote-portal";
 import { ViewBeacon } from "@/components/quote/view-beacon";
+import { RefreshRequest } from "@/components/quote/refresh-request";
+import { dayYear } from "@/lib/format";
 
 /**
  * Operate → the client's half of a quote.
@@ -26,16 +28,27 @@ export default async function QuotePage({ params }: Params) {
     if (result.error === "already_used") {
       return <AlreadyAnswered status={(result as { status?: string }).status} />;
     }
-    return (
-      <Closed
-        title="Quote unavailable"
-        blurb={
-          result.error === "This quote link has expired"
-            ? "This link has expired. Ask your account manager for a fresh one — the pricing may have changed."
-            : result.error
-        }
-      />
-    );
+    if (result.error === "revising") {
+      const held = result as { orderNumber?: string };
+      return (
+        <Closed
+          title="This quote is being updated"
+          blurb={`We are making changes to ${held.orderNumber ? `quote ${held.orderNumber}` : "this quote"}. Please check back soon, and we will send you the revised quote. This link will work again then.`}
+        />
+      );
+    }
+    if (result.error === "This quote link has expired") {
+      const expiredOn = (result as { expiredOn?: string }).expiredOn;
+      return (
+        <Closed
+          title="This quote has expired"
+          blurb={`${expiredOn ? `The pricing held until ${dayYear(new Date(expiredOn))}. ` : ""}Hardware prices change often, so this quote can no longer be accepted. Ask for an updated one and we will get back to you.`}
+        >
+          <RefreshRequest token={token} />
+        </Closed>
+      );
+    }
+    return <Closed title="Quote unavailable" blurb={result.error} />;
   }
 
   return (
@@ -72,11 +85,12 @@ function AlreadyAnswered({ status }: { status?: string }) {
   );
 }
 
-function Closed({ title, blurb }: { title: string; blurb: string }) {
+function Closed({ title, blurb, children }: { title: string; blurb: string; children?: React.ReactNode }) {
   return (
     <div className="rounded-2xl bg-white p-10 text-center shadow-sm">
       <h1 className="text-2xl font-bold tracking-tight">{title}</h1>
       <p className="mx-auto mt-2 max-w-prose text-sm text-[#71717a]">{blurb}</p>
+      {children}
     </div>
   );
 }

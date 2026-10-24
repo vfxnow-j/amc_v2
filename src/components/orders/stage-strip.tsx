@@ -6,6 +6,7 @@ import {
   stageLabel,
 } from "@/lib/orders/lifecycle";
 import { getOrderLifecycle } from "@/lib/queries/order-lifecycle";
+import { QuoteExpiryLine } from "@/components/orders/quote-expiry";
 import type { ReservationStatus } from "@/generated/prisma/client";
 
 /**
@@ -132,14 +133,23 @@ export async function StageStrip({ id }: { id: string }) {
           .
         </p>
       ) : null}
-      {status === "QUOTE_SENT" && stamps.quoteExpires ? (
-        <p className="text-detail text-ink-muted">
-          Quoted pricing holds until {dayYear(stamps.quoteExpires)}
-          {order.quoteLinks.count > 0
-            ? ` · ${order.quoteLinks.count} live ${order.quoteLinks.count === 1 ? "link" : "links"}`
-            : " · no live link — send the quote again to issue one"}
-          .
-        </p>
+      {(status === "QUOTE_SENT" || status === "REVISION" || status === "DRAFT") && stamps.quoteExpires ? (
+        <div className="space-y-1">
+          <QuoteExpiryLine
+            id={order.id}
+            expiresOn={stamps.quoteExpires.toISOString().slice(0, 10)}
+            label={dayYear(stamps.quoteExpires)}
+            expired={stamps.quoteExpires.getTime() < Date.now()}
+          />
+          {status === "QUOTE_SENT" ? (
+            <p className="text-detail text-ink-muted">
+              {order.quoteLinks.count > 0
+                ? `${order.quoteLinks.count} live ${order.quoteLinks.count === 1 ? "link" : "links"}`
+                : "No live link — send the quote again to issue one"}
+              .
+            </p>
+          ) : null}
+        </div>
       ) : null}
     </section>
   );

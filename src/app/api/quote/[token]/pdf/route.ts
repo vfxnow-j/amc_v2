@@ -23,9 +23,11 @@ export async function GET(
   const { token } = await params;
   const link = await prisma.quoteToken.findUnique({
     where: { token },
-    select: { reservationId: true, expiresAt: true },
+    select: { reservationId: true, expiresAt: true, reservation: { select: { status: true } } },
   });
-  if (!link || link.expiresAt < new Date()) {
+  // Not while it is being revised: the PDF is rendered from the live order, so it
+  // would carry half-finished edits the page itself refuses to show.
+  if (!link || link.expiresAt < new Date() || link.reservation.status === "REVISION") {
     return NextResponse.json({ error: "This quote link is not available" }, { status: 404 });
   }
 

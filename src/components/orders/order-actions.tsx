@@ -34,6 +34,9 @@ import {
   type StageOutcome,
 } from "@/lib/actions/order-stage";
 import type { QuoteRecipients } from "@/lib/queries/contacts";
+import { ExpiryPicker } from "@/components/orders/quote-expiry";
+import { setQuoteExpiry } from "@/lib/actions/quote-tokens";
+import { DEFAULT_EXPIRY_CHOICE, expiryFromChoice } from "@/lib/quotes/expiry";
 import {
   approveOrderRecipients,
   checkClientRecipients,
@@ -67,6 +70,8 @@ export type OrderActionsProps = {
   clientEmail: string | null;
   /** Every address a quote could go to, for the Send quote dialog. */
   quoteRecipients: QuoteRecipients;
+  /** `YYYY-MM-DD` the quote's pricing holds until, when one is set. */
+  quoteExpiresOn: string | null;
   clientPaymentTerms: number;
   staff: { id: string; name: string }[];
   terms: BillingTerms;
@@ -302,7 +307,7 @@ function readOut(items: string[]): string {
  * see is no use for that. Minting it also stamps the order's expiry, so what is
  * copied and what the order says expire on the same day.
  */
-function SendQuoteDialog({ id, quoteRecipients, busy, run, onClose }: DialogProps) {
+function SendQuoteDialog({ id, quoteRecipients, quoteExpiresOn, busy, run, onClose }: DialogProps) {
   // Ticked addresses from the account, plus any typed by hand.
   const [picked, setPicked] = useState<string[]>(
     quoteRecipients.defaultEmail ? [quoteRecipients.defaultEmail] : [],
@@ -310,6 +315,15 @@ function SendQuoteDialog({ id, quoteRecipients, busy, run, onClose }: DialogProp
   const [extra, setExtra] = useState("");
   const emails = [...picked, ...extra.split(/[,;\s]+/).filter(Boolean)].join(", ");
   const [message, setMessage] = useState("");
+  // The date in force, or the default when the quote has none or it has passed.
+  // Minting the link below makes the order carry this date, so what is shown
+  // here is what the link, the email and the PDF will say.
+  const [expiresOn] = useState(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    return quoteExpiresOn && quoteExpiresOn >= today
+      ? quoteExpiresOn
+      : expiryFromChoice(DEFAULT_EXPIRY_CHOICE).toISOString().slice(0, 10);
+  });
   const [link, setLink] = useState<string | null>(null);
   const [linkError, setLinkError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -320,7 +334,7 @@ function SendQuoteDialog({ id, quoteRecipients, busy, run, onClose }: DialogProp
 
   async function send() {
     const typed = emails.split(/[,;\s]+/).filter(Boolean);
-    if (typed.length === 0) return run(() => sendOrderQuote(id, { emails: [emails], message }));
+    if (typed.length === 0) return run(() => sendOrderQuote(id, { emails: [emails], message, copiedLink: link ?? undefined }));
     setChecking(true);
     try {
       const check = await checkClientRecipients(id, typed);
@@ -352,14 +366,18 @@ function SendQuoteDialog({ id, quoteRecipients, busy, run, onClose }: DialogProp
   // them for a link nobody was ever shown.
   useEffect(() => {
     let live = true;
-    createQuoteLink(id).then((result) => {
+    createQuoteLink(id).then(async (result) => {
       if (!live) return;
-      if (result.status === "ok") setLink(result.url);
-      else setLinkError(result.message);
+      if (result.status !== "ok") return setLinkError(result.message);
+      // Mint stamps its own default when the quote has no date; pin the one the
+      // dialog shows so the two cannot differ by a day across time zones.
+      if (expiresOn !== quoteExpiresOn) await setQuoteExpiry(id, expiresOn);
+      if (live) setLink(result.url);
     });
     return () => {
       live = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   async function copy() {
@@ -379,7 +397,7 @@ function SendQuoteDialog({ id, quoteRecipients, busy, run, onClose }: DialogProp
       open
       onOpenChange={(next) => !next && onClose()}
       title="Send quote"
-      blurb="Email the client a link to the online quote, or copy one to send yourself. Either way, confirming marks the quote as sent."
+      blurb="Email the client a link to the online quote, or copy one to send yourself. Either way, confirming marks the quote as sent, and a copied link is tracked once you do."
       footer={
         <>
           <ModalCancel />
@@ -388,7 +406,9 @@ function SendQuoteDialog({ id, quoteRecipients, busy, run, onClose }: DialogProp
               ? "Sending…"
               : gate?.canApprove && gate.otherClient.length === 0
                 ? "Enable email and send"
-                : "Send quote"}
+                : emails.trim()
+                  ? "Send quote"
+                  : "Mark as sent"}
           </ModalConfirm>
         </>
       }
@@ -436,9 +456,16 @@ function SendQuoteDialog({ id, quoteRecipients, busy, run, onClose }: DialogProp
         </div>
       )}
       <p className="mt-1 text-micro text-ink-faint">
-        The link expires with the quote. Opening it shows the client exactly what
-        they would see.
+        Opening it shows the client exactly what they would see.
       </p>
+
+      <div className="mt-3">
+        <Label>Quote expires</Label>
+        <ExpiryPicker id={id} value={expiresOn} />
+        <p className="mt-1 text-micro text-ink-faint">
+          The link stops working at the end of this day, and the price with it.
+        </p>
+      </div>
 
       <div className="mt-4">
         <Label>Email it to</Label>

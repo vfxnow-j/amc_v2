@@ -166,7 +166,7 @@ async function held(
  */
 export async function sendOrderQuote(
   id: string,
-  input: { emails: string[]; message?: string },
+  input: { emails: string[]; message?: string; copiedLink?: string },
 ): Promise<StageOutcome> {
   const auth = await requireEditor();
   if (!auth.authorized) return { status: "error", message: auth.error ?? "Unauthorized" };
@@ -210,7 +210,17 @@ export async function sendOrderQuote(
       : hold;
   }
 
-  const outcome = await deliverQuote(id, recipients, input.message);
+  // The token is the last path segment of the link the dialog showed.
+  const copiedToken = input.copiedLink?.split("/").filter(Boolean).pop();
+  const copied = copiedToken
+    ? {
+        token: copiedToken,
+        by:
+          (await prisma.user.findUnique({ where: { id: auth.userId }, select: { name: true } }))?.name ??
+          "staff",
+      }
+    : null;
+  const outcome = await deliverQuote(id, recipients, input.message, copied);
   touch(id);
   return outcome.status === "ok" ? { status: "ok", message: outcome.message } : outcome;
 }

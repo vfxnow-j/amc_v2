@@ -29,7 +29,8 @@ import {
 /** The status guard every answer writes through: only a live quote can move. */
 const ANSWERABLE = { in: [...QUOTE_ANSWERABLE_STATUSES] }
 
-const TOKEN_EXPIRY_DAYS = 30
+/** Hardware prices move: a quote holds for a week unless the sender picks otherwise (lib/quotes/expiry). */
+const TOKEN_EXPIRY_DAYS = 7
 
 /**
  * Generate a unique quote token for a reservation and return the full URL.
@@ -161,11 +162,23 @@ export async function getQuoteByToken(token: string) {
   })
 
   if (!quoteToken) return { error: 'Quote not found' }
-  if (quoteToken.expiresAt < new Date()) return { error: 'This quote link has expired' }
+  if (quoteToken.expiresAt < new Date()) {
+    return { error: 'This quote link has expired', expiredOn: quoteToken.expiresAt.toISOString() }
+  }
   if (quoteToken.usedAt) {
     // Return status so the page can resume the post-approval flow
     const status = quoteToken.reservation.status as string
     return { error: 'already_used', status }
+  }
+  // Pulled back for revision by staff (a client-requested revision spends the
+  // link above). Nothing of the quote leaves the server while it is being
+  // edited: the page would show half-finished figures, and Approve would sign them.
+  if (quoteToken.reservation.status === 'REVISION') {
+    return {
+      error: 'revising',
+      orderNumber: quoteToken.reservation.reservationNumber,
+      clientName: quoteToken.reservation.client.name,
+    }
   }
 
   return buildQuote(quoteToken.reservation, quoteToken.createdAt, quoteToken.expiresAt)
@@ -1168,4 +1181,110 @@ export async function clearActionRequired(reservationId: string) {
   })
 
   return { success: true }
+}
+
+
+/**
+ * Set when a quote's pricing stops being honored.
+ *
+ * Moves the order's date and, in the same transaction, the cutoff of every link
+ * not yet answered, so the order, the PDF, the email and the link all agree. A
+ * link's own `expiresAt` is what actually kills it, which is why moving only the
+ * order's date would leave a "valid until" that the link ignores.
+ */
+export async function setQuoteExpiry(
+  reservationId: string,
+  isoDate: string,
+): Promise<{ status: 'ok'; expiresOn: string } | { status: 'error'; message: string }> {
+  const authResult = await requireEditor()
+  if (!authResult.authorized) return { status: 'error', message: authResult.error || 'Unauthorized' }
+
+  const parsed = new Date(`${isoDate}T12:00:00.000Z`)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(isoDate) || Number.isNaN(parsed.getTime())) {
+    return { status: 'error', message: 'Pick a valid date.' }
+  }
+
+  const reservation = await prisma.reservation.findUnique({
+    where: { id: reservationId },
+    select: { status: true, quoteExpiresAt: true },
+  })
+  if (!reservation) return { status: 'error', message: 'Order not found.' }
+
+  const { canSetExpiry, endOfExpiryDay } = await import('@/lib/quotes/expiry')
+  const allowed = canSetExpiry(reservation.status, parsed)
+  if (!allowed.ok) return { status: 'error', message: allowed.message }
+
+  await prisma.$transaction([
+    prisma.reservation.update({ where: { id: reservationId }, data: { quoteExpiresAt: parsed } }),
+    prisma.quoteToken.updateMany({
+      where: { reservationId, usedAt: null },
+      data: { expiresAt: endOfExpiryDay(parsed) },
+    }),
+  ])
+
+  const { logAudit } = await import('@/lib/actions/audit')
+  await logAudit({
+    action: 'UPDATE',
+    entityType: 'Reservation',
+    entityId: reservationId,
+    oldValues: { quoteExpiresAt: reservation.quoteExpiresAt },
+    newValues: { quoteExpiresAt: parsed },
+    userId: authResult.userId,
+  })
+
+  const { revalidatePath } = await import('next/cache')
+  revalidatePath(`/dashboard/orders/${reservationId}`)
+  return { status: 'ok', expiresOn: isoDate }
+}
+
+/** The note an expired-link request leaves, so a second press can tell one is already waiting. */
+const REFRESH_NOTE = 'Client asked for a refreshed quote (their link expired).'
+
+/**
+ * The expired page's button (NO AUTH). Flags the order and tells the team.
+ *
+ * Works on an expired link by design. Refused for a spent link and for an order
+ * that is no longer a quote, and quiet when a request is already waiting, so a
+ * public button cannot be used to mail the team repeatedly.
+ */
+export async function requestQuoteRefresh(
+  token: string,
+): Promise<{ status: 'ok'; message: string } | { status: 'error'; message: string }> {
+  if (typeof token !== 'string' || !token) return { status: 'error', message: 'Quote not found.' }
+
+  const link = await prisma.quoteToken.findUnique({
+    where: { token },
+    include: { reservation: { include: { client: { select: { name: true } } } } },
+  })
+  if (!link) return { status: 'error', message: 'Quote not found.' }
+  if (link.usedAt) return { status: 'error', message: 'This quote has already been answered.' }
+
+  const order = link.reservation
+  if (!['QUOTE_SENT', 'REVISION'].includes(order.status)) {
+    return { status: 'error', message: 'This quote can no longer be refreshed. Reply to the email it came in.' }
+  }
+
+  const done = { status: 'ok' as const, message: 'Thank you. We have your request and will send an updated quote.' }
+  if (order.actionRequired && order.actionRequiredNote === REFRESH_NOTE) return done
+
+  const claimed = await prisma.reservation.updateMany({
+    where: { id: order.id, OR: [{ actionRequired: false }, { actionRequiredNote: { not: REFRESH_NOTE } }] },
+    data: { actionRequired: true, actionRequiredNote: REFRESH_NOTE },
+  })
+  if (claimed.count !== 1) return done
+
+  try {
+    const { sendEmail } = await import('@/lib/email')
+    const { recipientsFor } = await import('@/lib/notifications/recipients')
+    const { escapeHtml } = await import('@/lib/email/layout')
+    const { APP_URL } = await import('@/lib/email/client')
+    const recipients = await recipientsFor('reservations')
+    const subject = `Quote refresh requested: ${order.reservationNumber}`
+    const html = `<p>${escapeHtml(order.client.name)} opened an expired quote link for <strong>${escapeHtml(order.reservationNumber)}</strong> and asked for an updated quote.</p><p><a href="${APP_URL}/dashboard/orders/${order.id}">Open the order</a>, then extend the quote's expiry or revise it.</p>`
+    for (const email of recipients) await sendEmail({ to: email, subject, html })
+  } catch (error) {
+    console.error('Failed to send quote refresh notice:', error)
+  }
+
+  return done
 }

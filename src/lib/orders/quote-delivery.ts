@@ -36,6 +36,8 @@ export async function deliverQuote(
   id: string,
   recipients: string[],
   message?: string | null,
+  /** The link the sender copied to send themselves, when no address was given. */
+  copied?: { token: string; by: string } | null,
 ): Promise<DeliveryOutcome> {
   const order = await prisma.reservation.findUnique({
     where: { id },
@@ -63,6 +65,16 @@ export async function deliverQuote(
         failed.push(email);
       }
     }
+  }
+
+  // A link pasted into the sender's own email is the client's link too: mark
+  // that one token sent so its opens count (lib/quotes/quote-view). Only this
+  // token; the dialog mints one each time it opens and the rest were never shown.
+  if (recipients.length === 0 && copied) {
+    await prisma.quoteToken.updateMany({
+      where: { token: copied.token, reservationId: id, sentAt: null },
+      data: { sentAt: new Date(), sentTo: `Copied by ${copied.by}` },
+    });
   }
 
   // sendQuoteLinkEmail already moves DRAFT/REVISION to QUOTE_SENT on a

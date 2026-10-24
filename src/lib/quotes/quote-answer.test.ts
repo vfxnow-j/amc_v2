@@ -79,3 +79,7 @@ test('an order with no options scopes to all its visible lines', () => {
   assert.equal(validateApprovalChoice({ ...flat, selectedPackageId: undefined, quantityChanges: [{ itemId: 'x1', newQuantity: 4 }] }).ok, true)
   assert.equal(validateApprovalChoice({ ...flat, selectedPackageId: 'pkg_a', quantityChanges: undefined }).ok, false)
 })
+
+test('a quote in revision says it is being updated, not that it is closed', () => {
+  assert.equal(quoteAnswerProblem(live, 'REVISION', now), 'This quote is being updated. Please check back soon.')
+})

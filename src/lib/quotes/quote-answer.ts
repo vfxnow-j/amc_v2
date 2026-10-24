@@ -30,6 +30,7 @@ export function quoteAnswerProblem(
 ): string | null {
   if (link.expiresAt < now) return 'Quote link expired'
   if (link.usedAt) return 'This quote has already been answered.'
+  if (status === 'REVISION') return 'This quote is being updated. Please check back soon.'
   if (!(QUOTE_ANSWERABLE_STATUSES as readonly string[]).includes(status)) {
     return 'This quote can no longer be answered.'
   }
