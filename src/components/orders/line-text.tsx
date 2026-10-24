@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { setLineCategory, setLineDescription } from "@/lib/actions/order-stage";
+import { LINE_NUMBER, LINE_SELECT, LINE_TEXT } from "@/components/orders/line-field";
 
 /**
  * The wording of a free-text line, edited in place. Saved on blur or Enter;
@@ -59,7 +60,7 @@ export function LineText({
             event.currentTarget.blur();
           }
         }}
-        className="w-full rounded-row border-0 bg-transparent px-1 font-bold text-ink outline-none hover:bg-row-hover focus:bg-sunken disabled:opacity-50"
+        className={`w-full ${LINE_TEXT} font-bold text-ink`}
       />
       {error ? <span className="block text-micro font-normal text-danger">{error}</span> : null}
     </>
@@ -124,7 +125,7 @@ export function LineCategory({
             event.currentTarget.blur();
           }
         }}
-        className="block w-full rounded-row border-0 bg-transparent px-1 text-micro font-normal text-ink-muted outline-none placeholder:text-ink-faint hover:bg-row-hover focus:bg-sunken disabled:opacity-50"
+        className={`block w-full ${LINE_TEXT} text-micro font-normal text-ink-muted placeholder:text-ink-faint`}
       />
       <datalist id={listId}>
         {choices.map((choice) => (

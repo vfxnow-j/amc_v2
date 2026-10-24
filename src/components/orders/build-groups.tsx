@@ -14,6 +14,7 @@ import {
   setHideBuildPartPrices,
 } from "@/lib/actions/build-groups";
 import { setLineRate, type StageOutcome } from "@/lib/actions/order-stage";
+import { LINE_NUMBER, LINE_SELECT, LINE_TEXT } from "@/components/orders/line-field";
 
 /**
  * The controls on a sales order's builds (lib/pricing/build-groups).
@@ -25,8 +26,7 @@ import { setLineRate, type StageOutcome } from "@/lib/actions/order-stage";
  * same way (and for the same reason: every save reprices the order).
  */
 
-const CELL =
-  "w-full rounded-row border-0 bg-transparent px-1 py-0 text-right tabular-nums text-ink outline-none hover:bg-row-hover focus:bg-sunken disabled:opacity-50";
+const CELL = `w-full ${LINE_NUMBER} text-ink`;
 
 const MONEY = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -357,7 +357,7 @@ export function MoveToBuild({
             }
           })
         }
-        className="max-w-[160px] rounded-row border-0 bg-transparent text-micro text-ink-faint outline-none hover:bg-row-hover"
+        className={`max-w-[160px] ${LINE_SELECT} text-ink-muted`}
       >
         <option value="">{current ? "Take out of build" : "Not in a build"}</option>
         {builds.map((build) => (

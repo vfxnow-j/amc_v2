@@ -4,11 +4,11 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Notice } from "@/components/feedback/notice";
 import { setLineCost, setLineMargin, type StageOutcome } from "@/lib/actions/order-stage";
+import { LINE_NUMBER, LINE_SELECT, LINE_TEXT } from "@/components/orders/line-field";
 
 const MONEY = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 
-const CELL =
-  "w-[72px] rounded-row border-0 bg-transparent px-1 py-0 text-right tabular-nums text-ink outline-none hover:bg-row-hover focus:bg-sunken disabled:opacity-50";
+const CELL = `w-[80px] ${LINE_NUMBER} text-ink`;
 
 /** Gross margin on the price, as the server computes it: (rate − cost) / rate. */
 function marginOf(rate: number, cost: number | null): number | null {

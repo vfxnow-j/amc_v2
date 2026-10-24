@@ -4,9 +4,9 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Notice } from "@/components/feedback/notice";
 import { setAllMargins, setInternalCosts, type StageOutcome } from "@/lib/actions/order-stage";
+import { LINE_NUMBER, LINE_SELECT, LINE_TEXT } from "@/components/orders/line-field";
 
-const INPUT =
-  "w-[80px] rounded-row border border-hairline bg-transparent px-1 text-right tabular-nums text-ink outline-none focus:bg-sunken disabled:opacity-50";
+const INPUT = `w-[80px] ${LINE_NUMBER} text-ink`;
 const BUTTON =
   "rounded-row border border-hairline px-2 text-ink hover:bg-row-hover disabled:opacity-50";
 

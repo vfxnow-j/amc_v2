@@ -9,6 +9,7 @@ import {
   setLineRate,
   type StageOutcome,
 } from "@/lib/actions/order-stage";
+import { LINE_NUMBER, LINE_SELECT, LINE_TEXT } from "@/components/orders/line-field";
 
 const PRICING: PricingType[] = ["HOURLY", "DAILY", "WEEKLY", "MONTHLY", "PROJECT", "CUSTOM"];
 
@@ -142,7 +143,7 @@ export function LineEditor({
               setType(event.target.value);
               commitRate(event.target.value);
             }}
-            className="min-w-[78px] rounded-row border-0 bg-transparent text-micro text-ink-faint outline-none hover:bg-row-hover"
+            className={`min-w-[78px] ${LINE_SELECT} text-ink-muted`}
           >
             {PRICING.map((option) => (
               <option key={option} value={option}>
@@ -162,8 +163,7 @@ export function LineEditor({
   );
 }
 
-const CELL =
-  "w-full rounded-row border-0 bg-transparent px-1 py-0 text-right tabular-nums text-ink outline-none hover:bg-row-hover focus:bg-sunken disabled:opacity-50";
+const CELL = `w-full ${LINE_NUMBER} text-ink`;
 
 /**
  * The quantity of a part under a line, edited in place — the same save as a
@@ -221,7 +221,7 @@ export function PartQuantity({
             event.currentTarget.blur();
           }
         }}
-        className="w-[48px] rounded-row border-0 bg-transparent px-1 py-0 text-right tabular-nums text-ink-faint outline-none hover:bg-row-hover focus:bg-sunken disabled:opacity-50"
+        className={`w-[56px] ${LINE_NUMBER} text-ink-muted`}
       />
       {error ? <span className="text-micro text-danger">{error}</span> : null}
     </span>
@@ -286,7 +286,7 @@ export function PartRate({
               event.currentTarget.blur();
             }
           }}
-          className="w-[72px] rounded-row border-0 bg-transparent px-1 py-0 text-right tabular-nums outline-none hover:bg-row-hover focus:bg-sunken disabled:opacity-50"
+          className={`w-[80px] ${LINE_NUMBER} text-ink-muted`}
         />
         {unit}
       </span>
