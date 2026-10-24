@@ -22,7 +22,7 @@ export function loadUnits() {
       asset: { include: { category: true } },
       location: true,
       vendor: true,
-      purchaseOrder: { select: { poNumber: true, vendor: { select: { name: true } } } },
+      purchaseOrder: { select: { poNumber: true, receivedDate: true, vendor: { select: { name: true } } } },
       checkouts: {
         where: { status: { in: ["ACTIVE", "OVERDUE", "RETURNED"] } },
         include: {
@@ -47,7 +47,9 @@ export function toMonthEndUnit(u: LoadedUnit): MonthEndUnit {
     barcode: u.barcode,
     cost: unitCost(u.purchasePrice, u.landedCostAdjustment),
     purchaseDate: u.purchaseDate,
-    receivedDate: u.receivedDate,
+    // In service = received in: the unit's own receipt, else its PO's receipt. The
+    // purchase date (when we paid) is only the last resort, flagged as such.
+    receivedDate: u.receivedDate ?? u.purchaseOrder?.receivedDate ?? null,
     method: u.asset.depreciationMethod as DepreciationMethod,
     lifeMonths: u.asset.usefulLifeMonths || 60,
     salvage: u.asset.salvageValue ? Number(u.asset.salvageValue) : 0,

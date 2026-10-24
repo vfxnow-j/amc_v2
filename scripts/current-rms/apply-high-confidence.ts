@@ -31,10 +31,11 @@ import { proposalFor, saleFor } from './lib/proposals'
 
 export const HIGH = 85
 /** Columns this script can write; the v1 sync must treat them as v2-owned (engine.ts TABLE_RULES.asset_units). */
-export const SYNC_PROTECTED_COLUMNS = ['purchaseDate', 'purchasePrice', 'status', 'retirementReason', 'soldAt', 'soldPrice', 'retiredTo', 'soldNotes'] as const
+export const SYNC_PROTECTED_COLUMNS = ['purchaseDate', 'purchasePrice', 'status', 'retirementReason', 'soldAt', 'soldPrice', 'retiredTo', 'soldNotes', 'receivedDate', 'saleFees', 'retiredAt', 'purchaseOrderId', 'landedCostAdjustment'] as const
 const CAST: Record<string, string> = {
   purchaseDate: 'timestamp(3)', purchasePrice: 'numeric(12,2)', status: '"AssetStatus"', retirementReason: '"RetirementReason"',
   soldAt: 'timestamp(3)', soldPrice: 'numeric(12,2)', retiredTo: 'text', soldNotes: 'text',
+  receivedDate: 'timestamp(3)', saleFees: 'numeric(12,2)', retiredAt: 'timestamp(3)', purchaseOrderId: 'text', landedCostAdjustment: 'numeric(12,2)',
 }
 const OPEN_RES = ['COMPLETED', 'CANCELLED'] // reservations in any other status are "non-completed orders"
 const noon = (ymd: string) => `${ymd}T12:00:00Z` // v2 convention for a calendar date (sellAssetUnit)

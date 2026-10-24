@@ -186,8 +186,9 @@ const TABLE_RULES: Record<string, TableRule> = {
     // for particular units and logs every change in current_rms_apply_log. Those units keep v2's value
     // for those columns until the apply is undone (undoneAt set); every other unit still follows v1, so
     // v1's live status/sale changes keep flowing. Keep this list equal to SYNC_PROTECTED_COLUMNS there.
+    // receivedDate (apply-in-service.ts), saleFees/retiredAt (apply-ebay-fees.ts) and purchaseOrderId/landedCostAdjustment (link-po-units.ts) are logged the same way.
     v2OwnedWhere: Object.fromEntries(
-      ["purchaseDate", "purchasePrice", "status", "retirementReason", "soldAt", "soldPrice", "retiredTo", "soldNotes"].map((c) => [
+      ["purchaseDate", "purchasePrice", "status", "retirementReason", "soldAt", "soldPrice", "retiredTo", "soldNotes", "receivedDate", "saleFees", "retiredAt", "purchaseOrderId", "landedCostAdjustment"].map((c) => [
         c,
         `exists (select 1 from public.current_rms_apply_log l where l."unitId" = p.id and l."column" = '${c}' and l."undoneAt" is null)`,
       ]),
