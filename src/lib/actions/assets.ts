@@ -14,6 +14,8 @@ export type AssetFormData = {
   categoryId: string
   manufacturer?: string
   model?: string
+  // False for items that carry no serial (cables, consumables); scans then ask for a barcode only
+  requiresSerial?: boolean
   vendorId?: string
   purchaseDate: Date
   purchasePrice?: number
@@ -218,6 +220,7 @@ export async function createAsset(data: AssetFormData) {
         categoryId: data.categoryId,
         manufacturer: data.manufacturer,
         model: data.model,
+        requiresSerial: data.requiresSerial,
         vendorId: data.vendorId || null,
         depreciationMethod: data.depreciationMethod || 'STRAIGHT_LINE',
         depreciationCategory: data.depreciationCategory || null,
@@ -299,6 +302,7 @@ export async function updateAsset(id: string, data: Partial<AssetFormData>) {
       categoryId: data.categoryId,
       manufacturer: data.manufacturer,
       model: data.model,
+      requiresSerial: data.requiresSerial,
       vendorId: data.vendorId || null,
       depreciationMethod: data.depreciationMethod,
       depreciationCategory: data.depreciationCategory !== undefined ? (data.depreciationCategory || null) : undefined,

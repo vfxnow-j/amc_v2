@@ -111,12 +111,23 @@ export async function commitCheckin(
   let checkedIn = 0;
 
   for (const entry of entries) {
-    const result = await scanUnitIn(reservationId, entry.barcode, entry.condition, entry.damageNotes);
+    const result = await scanUnitIn(
+      reservationId,
+      entry.barcode,
+      entry.condition,
+      entry.damageNotes,
+      // The session has no place to ask for a serial mid-commit, and a return
+      // must not be refused for missing data. Such units show on Missing data.
+      { skipGate: true },
+    );
     if (result.status === "ok") {
       checkedIn++;
       if (result.workOrder) workOrders.push(result.workOrder);
     } else {
-      failed.push({ barcode: entry.barcode, message: result.message });
+      failed.push({
+        barcode: entry.barcode,
+        message: result.status === "gate" ? "Serial needs checking." : result.message,
+      });
     }
   }
 

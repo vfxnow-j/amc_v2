@@ -66,7 +66,9 @@ async function notReady(id: string, move: HandoverMove): Promise<StageOutcome | 
   const order = await prisma.reservation.findUnique({ where: { id }, select: { reservationType: true, clientId: true } });
   if (order && !gateApplies(move, order.reservationType)) return null;
   const handover = await handoverShortfall(id);
-  if (handover.units === 0) return null;
+  // Units still to scan out, or (shipping only) units out without a serial: the
+  // dialog shows the same stop either way, and markShipped holds the same rule.
+  if (handover.units === 0 && !(move === "ship" && handover.dataFlagged > 0)) return null;
   // A super admin's override (lib/orders/scan-override) stands the gate down for
   // ship and activate; the ported action still consumes the grant, so it works
   // once. Completing a sale has no override: it must be crisp.
@@ -351,8 +353,6 @@ export async function shipOrder(
   const blocked = await notReady(id, "ship");
   if (blocked) return blocked;
 
-  try {
-    const result = await markShipped(id, email ? { email } : undefined);
   // An open Critical flag stops the order shipping. The super admin's scan
   // override (moveWithoutScanning) stands this down too, and the pass is logged.
   const critical = await prisma.orderFlag.count({
@@ -369,6 +369,8 @@ export async function shipOrder(
     }).catch(() => {});
   }
 
+  try {
+    const result = await markShipped(id, email ? { email } : undefined);
     const problem = refusal(result);
     if (problem) return { status: "error", message: problem };
     touch(id);

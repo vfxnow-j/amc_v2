@@ -113,6 +113,7 @@ export default async function AssetRecordPage({ params }: Params) {
                 manufacturer={asset.manufacturer}
                 model={asset.model}
                 description={asset.description}
+                requiresSerial={asset.requiresSerial}
               />
             ) : null}
             <Link

@@ -34,11 +34,13 @@ export type Handover = {
   missing: MissingLine[];
   /** Units still to check out across those lines. */
   units: number;
+  /** Units on the order whose serial is missing and was skipped (AssetUnit.dataFlag set). */
+  dataFlagged: number;
   /** Nothing on the order has a unit to scan. */
   nothingToScan: boolean;
 };
 
-type Db = Pick<typeof prisma, "reservationItem">;
+type Db = Pick<typeof prisma, "reservationItem" | "reservationItemUnit">;
 
 export async function handoverShortfall(reservationId: string, db: Db = prisma): Promise<Handover> {
   const lines = await db.reservationItem.findMany({
@@ -68,8 +70,13 @@ export async function handoverShortfall(reservationId: string, db: Db = prisma):
       missing: line.quantity - line.checkedOutCount,
     }));
 
+  const dataFlagged = await db.reservationItemUnit.count({
+    where: { reservationItem: { reservationId }, assetUnit: { dataFlag: { not: null } } },
+  });
+
   return {
     missing,
+    dataFlagged,
     units: missing.reduce((sum, line) => sum + line.missing, 0),
     nothingToScan: lines.length === 0,
   };

@@ -932,14 +932,29 @@ export async function receivePurchaseOrder(id: string, data: ReceivePOData) {
 
       // If inventoried and units are provided, create AssetUnits
       if (poItem.isInventoried && receiveItem.units && receiveItem.units.length > 0 && assetId) {
+        const needsSerial = (await tx.asset.findUnique({
+          where: { id: assetId },
+          select: { requiresSerial: true },
+        }))?.requiresSerial ?? true
+
         for (const unit of receiveItem.units) {
           const barcode = unit.barcode || generateBarcode()
+          // A unit received without its serial is not refused (that would stall
+          // the whole pallet): it is flagged, and shows under Missing data.
+          const missingSerial = needsSerial && !unit.serialNumber?.trim()
 
           await tx.assetUnit.create({
             data: {
               assetId,
               barcode,
-              serialNumber: unit.serialNumber || null,
+              serialNumber: unit.serialNumber?.trim() || null,
+              ...(missingSerial
+                ? {
+                    dataFlag: 'MISSING_SERIAL' as const,
+                    dataFlaggedAt: new Date(),
+                    dataFlaggedById: authResult.userId,
+                  }
+                : {}),
               status: 'AVAILABLE',
               locationId: unit.locationId,
               condition: unit.condition || 'New',

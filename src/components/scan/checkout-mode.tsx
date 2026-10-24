@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ScanField } from "@/components/scan/scan-field";
 import { ScanLog, type ScanEntry } from "@/components/scan/scan-log";
 import { OverScanPrompt } from "@/components/scan/over-scan-prompt";
+import { UnitGatePrompt, type GatePromptResult } from "@/components/scan/unit-gate-prompt";
 import { Notice } from "@/components/feedback/notice";
 import { scanUnitOut } from "@/lib/actions/desk";
 import {
@@ -80,6 +81,7 @@ export function CheckoutMode() {
   const [entries, setEntries] = useState<ScanEntry[]>([]);
   const [pending, setPending] = useState(0);
   const [conflict, setConflict] = useState<OverScanConflict | null>(null);
+  const [gate, setGate] = useState<GatePromptResult | null>(null);
   const [stray, setStray] = useState<{ assetName: string; barcode: string } | null>(null);
   const [notice, setNotice] = useState<{ tone: "ok" | "error"; message: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -158,6 +160,11 @@ export function CheckoutMode() {
       if (outcome.status === "conflict") {
         heldCode.current = code;
         setConflict(outcome.conflict);
+        return settle(key, "warn", "Waiting on an answer — see above.");
+      }
+      if (outcome.status === "gate") {
+        heldCode.current = code;
+        setGate(outcome.gate);
         return settle(key, "warn", "Waiting on an answer — see above.");
       }
       if (outcome.status === "not-on-order") {
@@ -377,7 +384,7 @@ export function CheckoutMode() {
         <ScanField
           onCommit={commit}
           pending={pending}
-          blocked={!!conflict || !!stray}
+          blocked={!!conflict || !!stray || !!gate}
           blockedReason="Answer the question above before scanning again."
           placeholder={`Scan a unit onto ${brief.number}`}
         />
@@ -388,6 +395,21 @@ export function CheckoutMode() {
             busy={busy}
             onResolve={resolve}
             onDismiss={() => setConflict(null)}
+          />
+        ) : null}
+
+        {gate ? (
+          <UnitGatePrompt
+            result={gate}
+            skipLabel="Flag it and don’t check it out"
+            onResolved={(how) => {
+              setGate(null);
+              // A saved serial lets the same scan go through. A skipped one is
+              // flagged, and a flagged unit does not leave.
+              if (how === "fixed") void commit(heldCode.current);
+              else setNotice({ tone: "error", message: `${heldCode.current} was flagged, not checked out.` });
+            }}
+            onCancel={() => setGate(null)}
           />
         ) : null}
 

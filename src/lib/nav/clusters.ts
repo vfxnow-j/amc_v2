@@ -168,6 +168,14 @@ export const NAV_CLUSTERS: NavCluster[] = [
         href: "/dashboard/map",
       },
       {
+        // Units that should carry a serial and do not (scan-flagged or never
+        // recorded), with the serial entered inline. Track A of the scan
+        // cross-check, 2026-10-23.
+        id: "missing-data",
+        label: "Missing data",
+        href: "/dashboard/inventory/missing-data",
+      },
+      {
         // TODO(step 4): one screen, two tabs.
         id: "audits",
         label: "Audits & scan lists",

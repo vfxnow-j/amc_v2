@@ -7,6 +7,7 @@ import {
   completeInventoryAudit,
   verifyAuditItemByBarcode,
 } from "@/lib/actions/inventory-audits";
+import { UnitGatePrompt, type GatePromptResult } from "@/components/scan/unit-gate-prompt";
 
 type Entry = { id: number; tone: "ok" | "warn" | "error"; message: string };
 
@@ -36,6 +37,7 @@ export function AuditScanPanel({
   const [barcode, setBarcode] = useState("");
   const [log, setLog] = useState<Entry[]>([]);
   const [confirmClose, setConfirmClose] = useState(false);
+  const [gate, setGate] = useState<GatePromptResult | null>(null);
   const [busy, startTransition] = useTransition();
   const inputRef = useRef<HTMLInputElement>(null);
   const nextId = useRef(0);
@@ -63,6 +65,8 @@ export function AuditScanPanel({
         record("ok", `${scanned} verified`);
         router.refresh();
       }
+      // The scan is already counted; this only asks about the serial.
+      if (result.success && result.gate) setGate(result.gate);
       inputRef.current?.focus();
     });
   }
@@ -100,6 +104,7 @@ export function AuditScanPanel({
             onChange={(event) => setBarcode(event.target.value)}
             // The gun types straight into whatever has focus.
             autoFocus
+            disabled={!!gate}
             autoComplete="off"
             spellCheck={false}
             placeholder="Scan or type a barcode"
@@ -113,6 +118,23 @@ export function AuditScanPanel({
           ) : null}
         </label>
       </form>
+
+      {gate ? (
+        <UnitGatePrompt
+          result={gate}
+          skipLabel="Skip for now"
+          onResolved={() => {
+            setGate(null);
+            router.refresh();
+            inputRef.current?.focus();
+          }}
+          onCancel={() => {
+            setGate(null);
+            inputRef.current?.focus();
+          }}
+          className="mx-4 mt-3"
+        />
+      ) : null}
 
       {log.length > 0 ? (
         <ul className="mt-3 flex flex-col gap-px px-2">

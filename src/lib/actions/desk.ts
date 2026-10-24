@@ -11,6 +11,11 @@ import {
   checkoutReservationItem,
 } from "@/lib/actions/reservations";
 import type { OverScanResolution, OverScanConflict } from "@/lib/reservations/over-scan";
+import { gateUnit } from "@/lib/scan/unit-gate";
+import type { GateResult } from "@/lib/scan/unit-gate-rules";
+
+/** A gate result a person has to answer: everything except "clear". */
+export type GatePrompt = Exclude<GateResult, { kind: "clear" }>;
 
 /**
  * The check-out surface on the order record.
@@ -24,7 +29,9 @@ export type ScanOutcome =
   | { status: "ok"; message: string }
   | { status: "error"; message: string }
   | { status: "conflict"; conflict: OverScanConflict }
-  | { status: "not-on-order"; assetName: string; barcode: string };
+  | { status: "not-on-order"; assetName: string; barcode: string }
+  /** The unit lacks its serial (or is flagged). Nothing was written. */
+  | { status: "gate"; gate: GatePrompt };
 
 /**
  * Scan a unit out against an order.
@@ -43,6 +50,11 @@ export async function scanUnitOut(
   if (!trimmed) {
     return { status: "error", message: "Scan a barcode or type one in." };
   }
+
+  // A unit without its serial is stopped before any write. Answered in the
+  // prompt (serial saved), the caller re-submits the same scan.
+  const gate = await gateUnit(trimmed, { move: "out" });
+  if (gate && gate.kind !== "clear") return { status: "gate", gate };
 
   // 'new-line' can't go through the normal path: it needs the line to exist
   // before a unit can be checked out against it.
@@ -214,7 +226,9 @@ export type CheckinOutcome =
       status: "wrong-order";
       message: string;
       order: { id: string; reservationNumber: string };
-    };
+    }
+  /** The unit lacks its serial, or the serial label scanned is not its own. Nothing was written. */
+  | { status: "gate"; gate: GatePrompt };
 
 /**
  * Scan a unit back in against an order.
@@ -229,10 +243,19 @@ export async function scanUnitIn(
   barcode: string,
   condition: CheckinCondition = "GOOD",
   damageNotes?: string,
+  options: { scannedSerial?: string; skipGate?: boolean } = {},
 ): Promise<CheckinOutcome> {
   const trimmed = barcode.trim();
   if (!trimmed) {
     return { status: "error", message: "Scan a barcode or type one in." };
+  }
+
+  // The person is holding the unit and can read its label, so a return is where
+  // a missing serial is asked for. `skipGate` is the re-submit after they chose
+  // to carry on (the unit is already flagged by then).
+  if (!options.skipGate) {
+    const gate = await gateUnit(trimmed, { move: "in", scannedSerial: options.scannedSerial });
+    if (gate && gate.kind !== "clear") return { status: "gate", gate };
   }
 
   const damaged = condition === "DAMAGED";

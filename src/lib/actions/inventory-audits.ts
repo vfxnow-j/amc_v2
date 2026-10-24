@@ -9,6 +9,8 @@ import { logAudit } from './audit'
 import { checkoutByBarcode } from './reservations'
 import { restoreUnit } from './assets'
 import type { ScanResult } from './reservations'
+import { gateUnit } from '@/lib/scan/unit-gate'
+import type { GateResult } from '@/lib/scan/unit-gate-rules'
 import type { InventoryAuditScope, InventoryAuditStatus } from '@/lib/types'
 
 // ------------------------------------------------------------------
@@ -401,7 +403,10 @@ async function verifyBarcodeInternal(
   return 'VERIFIED'
 }
 
-export async function verifyAuditItemByBarcode(auditId: string, barcode: string): Promise<ScanResult> {
+/** A scan result that may also carry a question about the unit's serial. The scan itself is already recorded. */
+export type AuditScanResult = ScanResult & { gate?: Exclude<GateResult, { kind: 'clear' }> }
+
+export async function verifyAuditItemByBarcode(auditId: string, barcode: string): Promise<AuditScanResult> {
   try {
     const authResult = await requireEditor()
     if (!authResult.authorized) return { success: false, error: authResult.error || 'Unauthorized' }
@@ -413,11 +418,15 @@ export async function verifyAuditItemByBarcode(auditId: string, barcode: string)
     if (!code) return { success: false, error: 'Empty barcode' }
 
     const outcome = await verifyBarcodeInternal(auditId, code, userId)
+    // The count is recorded first. An incomplete unit raises a question after
+    // it, so a missing serial never stops the shelf being counted.
+    const found = await gateUnit(code, { move: 'audit' })
+    const gate = found && found.kind !== 'clear' ? found : undefined
     switch (outcome) {
       case 'VERIFIED':
-        return { success: true }
+        return { success: true, gate }
       case 'NOT_ON_ORDER':
-        return { success: true, warning: `${code} is not on the order — flagged Not on Order` }
+        return { success: true, warning: `${code} is not on the order — flagged Not on Order`, gate }
       case 'UNKNOWN':
         return { success: true, warning: `${code} is not a registered asset — flagged Unknown` }
       case 'ALREADY_VERIFIED':

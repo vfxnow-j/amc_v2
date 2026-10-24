@@ -22,6 +22,7 @@ export async function getAssetHeader(id: string) {
       subCategory: true,
       manufacturer: true,
       model: true,
+      requiresSerial: true,
       notes: true,
       specs: true,
       createdAt: true,

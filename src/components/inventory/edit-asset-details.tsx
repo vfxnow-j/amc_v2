@@ -18,12 +18,14 @@ export function EditAssetDetails({
   manufacturer,
   model,
   description,
+  requiresSerial,
 }: {
   id: string;
   name: string;
   manufacturer: string | null;
   model: string | null;
   description: string | null;
+  requiresSerial: boolean;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -32,6 +34,7 @@ export function EditAssetDetails({
     manufacturer: manufacturer ?? "",
     model: model ?? "",
     description: description ?? "",
+    requiresSerial,
   });
   const [error, setError] = useState("");
   const [busy, startTransition] = useTransition();
@@ -49,6 +52,7 @@ export function EditAssetDetails({
           manufacturer: form.manufacturer.trim(),
           model: form.model.trim(),
           description: form.description.trim(),
+          requiresSerial: form.requiresSerial,
         });
         setOpen(false);
         router.refresh();
@@ -113,6 +117,14 @@ export function EditAssetDetails({
             onChange={(event) => setForm({ ...form, description: event.target.value })}
             className={`${FIELD} h-auto py-2`}
           />
+        </label>
+        <label className="flex items-center gap-2 text-detail text-ink">
+          <input
+            type="checkbox"
+            checked={form.requiresSerial}
+            onChange={(event) => setForm({ ...form, requiresSerial: event.target.checked })}
+          />
+          Requires a serial number
         </label>
         {error ? <p role="alert" className="text-detail text-destructive">{error}</p> : null}
         <div className="flex justify-end gap-2">

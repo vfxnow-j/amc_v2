@@ -2693,7 +2693,7 @@ export async function markShipped(id: string, notifyClient?: { email: string }) 
   // with no asset — a service, a fee, a spec part — has nothing to scan; an
   // order with nothing physical ships on the say-so of whoever ships it.
   const handover = await handoverShortfall(id)
-  if (handover.units > 0 && !consumeScanOverride(id, 'ship')) {
+  if ((handover.units > 0 || handover.dataFlagged > 0) && !consumeScanOverride(id, 'ship')) {
     return { error: shortfallMessage(handover, 'ship') }
   }
 

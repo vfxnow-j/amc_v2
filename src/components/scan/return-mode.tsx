@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ScanField } from "@/components/scan/scan-field";
 import { ScanLog, type ScanEntry } from "@/components/scan/scan-log";
 import { Notice } from "@/components/feedback/notice";
+import { UnitGatePrompt, type GatePromptResult } from "@/components/scan/unit-gate-prompt";
 import { scanUnitIn, type CheckinCondition } from "@/lib/actions/desk";
 import {
   findOpenReturnsForCode,
@@ -86,6 +87,7 @@ export function ReturnMode() {
   const [pending, setPending] = useState(0);
   const [notice, setNotice] = useState<{ tone: "ok" | "error"; message: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [gate, setGate] = useState<{ result: GatePromptResult; code: string; target: ReturnCandidate } | null>(null);
 
   const seq = useRef(0);
 
@@ -117,15 +119,20 @@ export function ReturnMode() {
 
   /** Check one unit in against the chosen order. */
   const checkIn = useCallback(
-    async (code: string, target: ReturnCandidate): Promise<Tone> => {
+    async (code: string, target: ReturnCandidate, skipGate = false): Promise<Tone> => {
       const key = log(code);
       const outcome = await scanUnitIn(
         target.orderId,
         code,
         condition,
         condition === "DAMAGED" ? damageNotes : undefined,
+        { skipGate },
       );
 
+      if (outcome.status === "gate") {
+        setGate({ result: outcome.gate, code, target });
+        return settle(key, "warn", "Waiting on an answer — see above.");
+      }
       if (outcome.status === "wrong-order") {
         return settle(
           key,
@@ -228,12 +235,29 @@ export function ReturnMode() {
         <ScanField
           onCommit={commit}
           pending={pending}
-          blocked={!!discovery && discovery.kind !== "none"}
+          blocked={(!!discovery && discovery.kind !== "none") || !!gate}
           blockedReason="Confirm the order before scanning the rest."
           placeholder={
             order ? `Scan items back onto ${order.number}` : "Scan any item coming back"
           }
         />
+
+        {gate ? (
+          <UnitGatePrompt
+            result={gate.result}
+            skipLabel="Skip for now and check it in"
+            onResolved={(how) => {
+              const held = gate;
+              setGate(null);
+              // A return carries on either way: the unit is back, and the
+              // serial is the only thing in question.
+              void checkIn(held.code, held.target, how === "skipped").then(() =>
+                refresh(held.target.orderId),
+              );
+            }}
+            onCancel={() => setGate(null)}
+          />
+        ) : null}
 
         {discovery && discovery.kind === "one" ? (
           <div

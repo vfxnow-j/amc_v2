@@ -4,6 +4,7 @@ import { useRef, useState, useTransition } from "react";
 import { ScanLine } from "lucide-react";
 import { scanUnitOut, type ScanOutcome } from "@/lib/actions/desk";
 import { OverScanPrompt } from "@/components/scan/over-scan-prompt";
+import { UnitGatePrompt, type GatePromptResult } from "@/components/scan/unit-gate-prompt";
 import type {
   OverScanConflict,
   OverScanResolution,
@@ -24,6 +25,7 @@ export function CheckoutPanel({ reservationId }: { reservationId: string }) {
   const [barcode, setBarcode] = useState("");
   const [log, setLog] = useState<Entry[]>([]);
   const [conflict, setConflict] = useState<OverScanConflict | null>(null);
+  const [gate, setGate] = useState<GatePromptResult | null>(null);
   const [pendingBarcode, setPendingBarcode] = useState("");
   const [busy, startTransition] = useTransition();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -39,6 +41,11 @@ export function CheckoutPanel({ reservationId }: { reservationId: string }) {
     if (outcome.status === "conflict") {
       setPendingBarcode(scanned);
       setConflict(outcome.conflict);
+      return;
+    }
+    if (outcome.status === "gate") {
+      setPendingBarcode(scanned);
+      setGate(outcome.gate);
       return;
     }
     if (outcome.status === "not-on-order") {
@@ -89,11 +96,11 @@ export function CheckoutPanel({ reservationId }: { reservationId: string }) {
             onChange={(event) => setBarcode(event.target.value)}
             // The gun types straight into whatever has focus.
             autoFocus
-            disabled={!!conflict}
+            disabled={!!conflict || !!gate}
             autoComplete="off"
             spellCheck={false}
             placeholder={
-              conflict ? "Answer the question below first" : "Scan or type a barcode"
+              conflict || gate ? "Answer the question below first" : "Scan or type a barcode"
             }
             aria-label="Unit barcode"
             className="w-full border-0 bg-transparent text-body text-ink outline-none placeholder:text-ink-faint disabled:opacity-60"
@@ -111,6 +118,31 @@ export function CheckoutPanel({ reservationId }: { reservationId: string }) {
           onResolve={resolve}
           onDismiss={() => {
             setConflict(null);
+            record("error", `${pendingBarcode} was not checked out.`);
+            inputRef.current?.focus();
+          }}
+          className="mx-4 mt-3"
+        />
+      ) : null}
+
+      {gate ? (
+        <UnitGatePrompt
+          result={gate}
+          skipLabel="Flag it and don’t check it out"
+          onResolved={(how) => {
+            const scanned = pendingBarcode;
+            setGate(null);
+            if (how === "fixed") {
+              startTransition(async () => {
+                handle(await scanUnitOut(reservationId, scanned), scanned);
+              });
+            } else {
+              record("error", `${scanned} was flagged, not checked out.`);
+              inputRef.current?.focus();
+            }
+          }}
+          onCancel={() => {
+            setGate(null);
             record("error", `${pendingBarcode} was not checked out.`);
             inputRef.current?.focus();
           }}
