@@ -4,7 +4,7 @@ import type { OrderAutoFacts } from "@/lib/flags/rules";
 /**
  * What the auto-raise rules need to know about one order.
  *
- * `returnDue` is the order's end date, and only rentals and Flow orders have a
+ * `unitsOut` counts units still with the client that can come back. `returnDue` is the order's end date, and only rentals and Flow orders have a
  * return to be late on. "Past due" invoices are the ones a client owes on:
  * sent, part-paid or already marked overdue, with a due date behind us.
  * Drafts, paid, cancelled and void invoices never count.
@@ -22,6 +22,10 @@ export async function loadOrderAutoFacts(reservationId: string): Promise<OrderAu
         reservationItem: { reservationId },
         checkedOutAt: { not: null },
         checkedInAt: null,
+        // A unit written off as lost or sold is not coming back, so it is no
+        // longer a late return. Without this the automatic Overdue return flag
+        // could never clear on an order whose missing units were written off.
+        assetUnit: { status: { notIn: ["RETIRED", "SOLD"] } },
       },
     }),
     prisma.invoice.count({
