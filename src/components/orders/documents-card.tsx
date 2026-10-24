@@ -122,6 +122,23 @@ export async function OrderDocumentsCard({
           ))}
         </ul>
       )}
+      <div className="px-2 pb-3">
+        <a
+          href={`/api/orders/${id}/quote-pdf`}
+          target="_blank"
+          rel="noreferrer"
+          className="flex items-baseline gap-2 rounded-row px-2 py-[6px] text-detail hover:bg-row-hover"
+        >
+          <FileText className="size-[13px] flex-none translate-y-[2px] text-ink-faint" aria-hidden />
+          <span className="min-w-0 flex-1">
+            <span className="block break-words font-bold">Quote (PDF)</span>
+            <span className="block break-words text-ink-faint">
+              The quote as it stands now — print it or attach it by hand
+            </span>
+          </span>
+          <span className="flex-none text-ink-faint">Open</span>
+        </a>
+      </div>
       {flowQuote ? (
         <div className="px-2 pb-3">
           <a

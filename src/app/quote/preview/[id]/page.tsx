@@ -119,7 +119,7 @@ export default async function QuotePreviewPage({ params }: Params) {
         </Link>
       </div>
 
-      <QuotePortal token="" quote={quote} preview={stage} />
+      <QuotePortal token="" quote={quote} preview={stage} pdfHref={`/api/orders/${id}/quote-pdf`} />
     </div>
   );
 }

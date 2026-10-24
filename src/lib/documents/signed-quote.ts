@@ -206,6 +206,30 @@ async function renderSignedQuote(
 }
 
 /**
+ * The quote as a PDF, unsigned, rendered from the order as it stands — for staff
+ * to print or attach, and for the client's link to offer as a download. Not
+ * stored: each open reflects the order. A Flow order gets its Flow quote.
+ *
+ * Plain module, not a server action: it renders whatever order id it is given,
+ * so each caller (a session-gated route, the token-checked public route) does
+ * its own authorisation.
+ */
+export async function renderQuotePdf(
+  reservationId: string,
+): Promise<{ ok: true; buffer: Buffer; filename: string } | { ok: false; problem: string }> {
+  const reservation = await loadSignedQuoteReservation(reservationId)
+  if (!reservation) return { ok: false, problem: 'Order not found.' }
+
+  if (reservation.reservationType === 'FLOW') {
+    const { renderFlowQuotePdf } = await import('@/lib/flow/quote-pdf')
+    return renderFlowQuotePdf(reservationId)
+  }
+
+  const buffer = await renderSignedQuote(reservation, '', '', '')
+  return { ok: true, buffer, filename: `${reservation.reservationNumber}-quote.pdf` }
+}
+
+/**
  * Generate a signed quote PDF and save it as a PROPOSAL document when a
  * customer approves via the public quote page.
  *

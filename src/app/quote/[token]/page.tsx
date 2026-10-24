@@ -40,7 +40,7 @@ export default async function QuotePage({ params }: Params) {
 
   return (
     <>
-      <QuotePortal token={token} quote={result as unknown as QuoteData} />
+      <QuotePortal token={token} quote={result as unknown as QuoteData} pdfHref={`/api/quote/${token}/pdf`} />
       <ViewBeacon token={token} />
     </>
   );

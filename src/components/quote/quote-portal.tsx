@@ -194,10 +194,13 @@ export function QuotePortal({
   token,
   quote,
   preview,
+  pdfHref,
 }: {
   token: string;
   quote: QuoteData;
   preview?: PreviewStage;
+  /** Where the quote's PDF is served from: the client's link, or the order for staff. */
+  pdfHref?: string;
 }) {
   const [answer, setAnswer] = useState<Answer | null>(null);
   const [panel, setPanel] = useState<"approve" | "changes" | "decline" | null>(null);
@@ -245,6 +248,18 @@ export function QuotePortal({
   return (
     <div className="flex flex-col gap-3">
       <Header quote={quote} expired={expired} />
+
+      {pdfHref ? (
+        <p className="-mt-1 text-right text-xs">
+          <a href={pdfHref} target="_blank" rel="noreferrer" className="font-semibold text-[#52525b] underline-offset-2 hover:underline">
+            View as PDF
+          </a>
+          <span className="text-[#a1a1aa]"> · </span>
+          <a href={`${pdfHref}?download=1`} className="font-semibold text-[#52525b] underline-offset-2 hover:underline">
+            Download
+          </a>
+        </p>
+      ) : null}
 
       {flow ? (
         <FlowBody quote={quote} flow={flow} />
