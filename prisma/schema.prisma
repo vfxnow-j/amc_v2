@@ -33,6 +33,7 @@ model User {
   passwordChangedAt DateTime?
   // Set = cannot sign in (and a live session ends). v2-only; see prisma/manual/2026-10-19-user-disabled.sql.
   disabledAt        DateTime?
+  ownedFlags        OrderFlag[] @relation("OrderFlagOwner")
 
   // Entities: whether this person may open other owners' gear workspaces, and
   // which ones. SUPER_ADMIN always may. v2-only; see prisma/manual/2026-10-20-entities.sql.
@@ -209,6 +210,33 @@ enum AssetStatus {
   RETIRED
   RESERVED
   SOLD
+  /// Out on an open order flag (lost in transit, not returned). Not bookable.
+  MISSING
+}
+
+enum DataFlag {
+  MISSING_SERIAL
+  MISSING_BARCODE
+  MISMATCH
+}
+
+enum FlagSeverity {
+  INFO
+  ATTENTION
+  CRITICAL
+}
+
+enum FlagSource {
+  MANUAL
+  SYSTEM
+}
+
+enum FlagOutcome {
+  FOUND_RETURNED
+  FOUND_DAMAGED
+  CLAIM_PAID
+  CLIENT_BILLED
+  WRITTEN_OFF
 }
 
 enum RetirementReason {
@@ -375,6 +403,10 @@ model Asset {
   // Basic Info
   manufacturer String?
   model        String?
+  /// Whether each unit of this model must carry a serial number. False for
+  /// cables, light items and consumables. The scan check (lib/scan/completeness)
+  /// flags a unit missing one only when this is true.
+  requiresSerial Boolean @default(true)
 
   // Purchase Info (defaults for new units)
   vendorId        String?
@@ -530,6 +562,12 @@ model AssetUnit {
   barcode      String      @unique
   serialNumber String?     @unique
   status       AssetStatus @default(AVAILABLE)
+  /// Set when a scan found the unit without its serial (or barcode) and the
+  /// person carried on, or a serial label did not match. Cleared when fixed.
+  dataFlag        DataFlag?
+  dataFlaggedAt   DateTime?
+  dataFlaggedById String?
+  flagUnits       OrderFlagUnit[]
   /// What this unit can be bound to (v2-only; the v1 sync never writes it). Most
   /// of the fleet is rental and Flow; Sale is opted in, typically for aged units.
   offeredAs    UnitOffering[] @default([RENTAL, FLOW])
@@ -598,6 +636,7 @@ model AssetUnit {
   coverageEnrollments  CoverageEnrollment[]
 
   @@index([purchaseOrderId])
+  @@index([dataFlag])
   @@index([assetId])
   @@index([status])
   @@map("asset_units")
@@ -991,6 +1030,7 @@ enum DiscountType {
 model Reservation {
   id                String @id @default(cuid())
   reservationNumber String @unique
+  flags             OrderFlag[]
   clientId          String
   client            Client @relation(fields: [clientId], references: [id])
   // The person at the account this order is for: addressed on the quote and
@@ -3454,4 +3494,74 @@ model QuoteSendIntent {
   updatedAt     DateTime    @updatedAt
 
   @@map("quote_send_intents")
+}
+
+
+// ============================================
+// ORDER FLAG CASES
+// ============================================
+
+/// A flag on an order is a case: worked through a playbook to a recorded outcome.
+/// Never deleted. See docs/superpowers/specs/2026-10-23-scan-crosscheck-and-order-flags-design.md.
+model OrderFlag {
+  id             String       @id @default(cuid())
+  reservationId  String
+  reservation    Reservation  @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+  category       String
+  reason         String
+  note           String?
+  severity       FlagSeverity @default(ATTENTION)
+  source         FlagSource   @default(MANUAL)
+  /// SYSTEM flags only: the rule that raised it, so the rule can find it again.
+  ruleKey        String?
+  ownerId        String?
+  owner          User?        @relation("OrderFlagOwner", fields: [ownerId], references: [id])
+  raisedById     String?
+  raisedAt       DateTime     @default(now())
+  exposureAmount Decimal      @default(0) @db.Decimal(12, 2)
+  nextActionDate DateTime?
+  carrier        String?
+  trackingNumber String?
+  claimNumber    String?
+  resolvedAt     DateTime?
+  resolvedById   String?
+  outcome        FlagOutcome?
+  outcomeAmount  Decimal?     @db.Decimal(12, 2)
+  resolutionNote String?
+  steps          OrderFlagStep[]
+  units          OrderFlagUnit[]
+
+  @@index([reservationId])
+  @@index([resolvedAt])
+  @@map("order_flags")
+}
+
+model OrderFlagStep {
+  id       String    @id @default(cuid())
+  flagId   String
+  flag     OrderFlag @relation(fields: [flagId], references: [id], onDelete: Cascade)
+  position Int
+  label    String
+  doneAt   DateTime?
+  doneById String?
+  note     String?
+
+  @@index([flagId])
+  @@map("order_flag_steps")
+}
+
+model OrderFlagUnit {
+  id          String      @id @default(cuid())
+  flagId      String
+  flag        OrderFlag   @relation(fields: [flagId], references: [id], onDelete: Cascade)
+  assetUnitId String
+  assetUnit   AssetUnit   @relation(fields: [assetUnitId], references: [id])
+  /// Status to restore if the unit is found.
+  priorStatus AssetStatus
+  foundAt     DateTime?
+  foundNote   String?
+
+  @@unique([flagId, assetUnitId])
+  @@index([assetUnitId])
+  @@map("order_flag_units")
 }

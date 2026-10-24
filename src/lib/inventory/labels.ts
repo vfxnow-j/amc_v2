@@ -17,6 +17,7 @@ export const UNIT_STATUS_LABEL: Record<AssetStatus, string> = {
   RESERVED: "Reserved",
   RETIRED: "Retired",
   SOLD: "Sold",
+  MISSING: "Missing",
 };
 
 /** Asset list sub-views. `retired` was a sibling route in v1; here it's a tab. */
